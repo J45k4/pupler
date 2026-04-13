@@ -2,10 +2,14 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import {
 	closeDatabase,
-	createCollectionRoute,
-	createDetailRoute,
-	createProductPictureRoute,
 	openDatabase,
+	productDetailRoute,
+	productLinkDetailRoute,
+	productLinksCollectionRoute,
+	productPictureRoute,
+	productsCollectionRoute,
+	shoppingListItemDetailRoute,
+	shoppingListItemsCollectionRoute,
 } from "../src/api";
 
 const dbs: ReturnType<typeof openDatabase>[] = [];
@@ -22,19 +26,13 @@ const createRoutes = () => {
 	dbs.push(db);
 
 	return {
-		"/api/products": createCollectionRoute(db, "products"),
-		"/api/products/:id": createDetailRoute(db, "products"),
-		"/api/products/:id/picture": createProductPictureRoute(db),
-		"/api/product-links": createCollectionRoute(db, "product-links"),
-		"/api/product-links/:id": createDetailRoute(db, "product-links"),
-		"/api/shopping-list-items": createCollectionRoute(
-			db,
-			"shopping-list-items",
-		),
-		"/api/shopping-list-items/:id": createDetailRoute(
-			db,
-			"shopping-list-items",
-		),
+		"/api/products": productsCollectionRoute(db),
+		"/api/products/:id": productDetailRoute(db),
+		"/api/products/:id/picture": productPictureRoute(db),
+		"/api/product-links": productLinksCollectionRoute(db),
+		"/api/product-links/:id": productLinkDetailRoute(db),
+		"/api/shopping-list-items": shoppingListItemsCollectionRoute(db),
+		"/api/shopping-list-items/:id": shoppingListItemDetailRoute(db),
 	};
 };
 
