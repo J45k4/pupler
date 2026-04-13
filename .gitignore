@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+pupler.db
+*.sqlite
+node_modules
