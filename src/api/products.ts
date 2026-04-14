@@ -81,6 +81,21 @@ const parseProductFilters = (url: URL) => {
 				params.push(parseIntegerQuery(key, value));
 				break;
 			case "name":
+				if (value === "null") {
+					filters.push("name IS NULL");
+				} else {
+					filters.push("name = ? COLLATE NOCASE");
+					params.push(value);
+				}
+				break;
+			case "name_contains":
+				if (value === "null") {
+					filters.push("name IS NULL");
+				} else {
+					filters.push("name LIKE ? COLLATE NOCASE");
+					params.push(`%${value}%`);
+				}
+				break;
 			case "category":
 			case "barcode":
 			case "default_unit":

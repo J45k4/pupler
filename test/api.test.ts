@@ -2,6 +2,10 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import {
 	closeDatabase,
+	inventoryContainerDetailRoute,
+	inventoryContainersCollectionRoute,
+	inventoryItemDetailRoute,
+	inventoryItemsCollectionRoute,
 	openDatabase,
 	productDetailRoute,
 	productLinkDetailRoute,
@@ -41,6 +45,10 @@ const createRoutes = () => {
 		"/api/receipts/:id/picture": receiptPictureRoute(db),
 		"/api/receipt-items": receiptItemsCollectionRoute(db),
 		"/api/receipt-items/:id": receiptItemDetailRoute(db),
+		"/api/inventory-containers": inventoryContainersCollectionRoute(db),
+		"/api/inventory-containers/:id": inventoryContainerDetailRoute(db),
+		"/api/inventory-items": inventoryItemsCollectionRoute(db),
+		"/api/inventory-items/:id": inventoryItemDetailRoute(db),
 		"/api/shopping-list-items": shoppingListItemsCollectionRoute(db),
 		"/api/shopping-list-items/:id": shoppingListItemDetailRoute(db),
 	};
@@ -95,6 +103,62 @@ describe("Pupler API", () => {
 		const listResponse = await request(
 			routes,
 			"/api/products?barcode=6414893400012",
+		);
+		expect(listResponse.status).toBe(200);
+		const listed = await listResponse.json();
+		expect(listed).toHaveLength(1);
+		expect(listed[0].id).toBe(created.id);
+	});
+
+	test("looks up a product by name case-insensitively", async () => {
+		const routes = createRoutes();
+
+		const createResponse = await request(routes, "/api/products", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: "Greek Yogurt",
+				category: "food",
+				barcode: "741",
+				default_unit: "cup",
+				is_perishable: true,
+			}),
+		});
+
+		expect(createResponse.status).toBe(201);
+		const created = await createResponse.json();
+
+		const listResponse = await request(
+			routes,
+			"/api/products?name=greek%20yogurt",
+		);
+		expect(listResponse.status).toBe(200);
+		const listed = await listResponse.json();
+		expect(listed).toHaveLength(1);
+		expect(listed[0].id).toBe(created.id);
+	});
+
+	test("looks up a product by partial name case-insensitively", async () => {
+		const routes = createRoutes();
+
+		const createResponse = await request(routes, "/api/products", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: "Organic Greek Yogurt",
+				category: "food",
+				barcode: "743",
+				default_unit: "cup",
+				is_perishable: true,
+			}),
+		});
+
+		expect(createResponse.status).toBe(201);
+		const created = await createResponse.json();
+
+		const listResponse = await request(
+			routes,
+			"/api/products?name_contains=greek",
 		);
 		expect(listResponse.status).toBe(200);
 		const listed = await listResponse.json();
@@ -326,6 +390,204 @@ describe("Pupler API", () => {
 		expect(listed).toHaveLength(1);
 		expect(listed[0].id).toBe(created.id);
 		expect(listed[0].line_total).toBe(5.4);
+	});
+
+	test("creates nested inventory containers", async () => {
+		const routes = createRoutes();
+
+		const parentResponse = await request(
+			routes,
+			"/api/inventory-containers",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					name: "Room X",
+					parent_container_id: null,
+					notes: "Kitchen",
+				}),
+			},
+		);
+		expect(parentResponse.status).toBe(201);
+		const parent = await parentResponse.json();
+		expect(parent.name).toBe("Room X");
+
+		const childResponse = await request(
+			routes,
+			"/api/inventory-containers",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					name: "Closet B",
+					parent_container_id: parent.id,
+					notes: null,
+				}),
+			},
+		);
+		expect(childResponse.status).toBe(201);
+		const child = await childResponse.json();
+		expect(child.parent_container_id).toBe(parent.id);
+
+		const listResponse = await request(
+			routes,
+			`/api/inventory-containers?parent_container_id=${parent.id}`,
+		);
+		expect(listResponse.status).toBe(200);
+		const listed = await listResponse.json();
+		expect(listed).toHaveLength(1);
+		expect(listed[0].id).toBe(child.id);
+	});
+
+	test("rejects moving a container into its own descendant", async () => {
+		const routes = createRoutes();
+
+		const parentResponse = await request(
+			routes,
+			"/api/inventory-containers",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					name: "Room X",
+					parent_container_id: null,
+					notes: null,
+				}),
+			},
+		);
+		const parent = await parentResponse.json();
+
+		const childResponse = await request(
+			routes,
+			"/api/inventory-containers",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					name: "Closet B",
+					parent_container_id: parent.id,
+					notes: null,
+				}),
+			},
+		);
+		const child = await childResponse.json();
+
+		const invalidPatchResponse = await request(
+			routes,
+			`/api/inventory-containers/${parent.id}`,
+			{
+				method: "PATCH",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ parent_container_id: child.id }),
+			},
+			{ id: String(parent.id) },
+		);
+		expect(invalidPatchResponse.status).toBe(400);
+		const body = await invalidPatchResponse.json();
+		expect(body.error).toContain("cycle");
+	});
+
+	test("unassigns inventory items and child containers when deleting a container", async () => {
+		const routes = createRoutes();
+
+		const productResponse = await request(routes, "/api/products", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: "Pasta",
+				category: "food",
+				barcode: "666",
+				default_unit: "bag",
+				is_perishable: false,
+			}),
+		});
+		const product = await productResponse.json();
+
+		const parentResponse = await request(
+			routes,
+			"/api/inventory-containers",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					name: "Pantry",
+					parent_container_id: null,
+					notes: null,
+				}),
+			},
+		);
+		const parent = await parentResponse.json();
+
+		const childResponse = await request(
+			routes,
+			"/api/inventory-containers",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					name: "Shelf A",
+					parent_container_id: parent.id,
+					notes: null,
+				}),
+			},
+		);
+		const child = await childResponse.json();
+
+		const itemResponse = await request(routes, "/api/inventory-items", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				product_id: product.id,
+				receipt_item_id: null,
+				container_id: parent.id,
+				quantity: 2,
+				unit: "bag",
+				purchased_at: null,
+				expires_at: null,
+				consumed_at: null,
+				notes: "Dry storage",
+			}),
+		});
+		expect(itemResponse.status).toBe(201);
+		const item = await itemResponse.json();
+		expect(item.container_id).toBe(parent.id);
+
+		const filterResponse = await request(
+			routes,
+			`/api/inventory-items?container_id=${parent.id}`,
+		);
+		expect(filterResponse.status).toBe(200);
+		const filtered = await filterResponse.json();
+		expect(filtered).toHaveLength(1);
+		expect(filtered[0].id).toBe(item.id);
+
+		const deleteResponse = await request(
+			routes,
+			`/api/inventory-containers/${parent.id}`,
+			{ method: "DELETE" },
+			{ id: String(parent.id) },
+		);
+		expect(deleteResponse.status).toBe(204);
+
+		const updatedItemResponse = await request(
+			routes,
+			`/api/inventory-items/${item.id}`,
+			{},
+			{ id: String(item.id) },
+		);
+		expect(updatedItemResponse.status).toBe(200);
+		const updatedItem = await updatedItemResponse.json();
+		expect(updatedItem.container_id).toBeNull();
+
+		const updatedChildResponse = await request(
+			routes,
+			`/api/inventory-containers/${child.id}`,
+			{},
+			{ id: String(child.id) },
+		);
+		expect(updatedChildResponse.status).toBe(200);
+		const updatedChild = await updatedChildResponse.json();
+		expect(updatedChild.parent_container_id).toBeNull();
 	});
 
 	test("creates shoppinglist items without a parent shopping list", async () => {

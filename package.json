@@ -3,9 +3,11 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
+		"cli": "bun ./cli/cli.ts",
 		"dev": "bun --watch src/main.ts",
 		"start": "bun src/main.ts",
 		"test": "bun test",
+		"test:cli": "bun test test/cli.test.ts",
 		"test:e2e": "bun test test/e2e.test.ts"
 	},
 	"module": "index.ts",

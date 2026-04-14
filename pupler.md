@@ -31,6 +31,25 @@ Bun.serve({
 - entrypoint is ./src/main.ts
 - inline routes iunto the bun.serve
 
+## CLI
+
+There should be internal Bun CLI in folder `./cli`.
+
+- run with `bun ./cli/cli.ts ...`
+- or via package script `bun run cli -- ...`
+- CLI should call the existing HTTP API, not open SQLite directly
+- default server URL comes from `PUPLER_BASE_URL` or `http://localhost:5995`
+- support human-readable output by default and `--json` for scripting
+
+Examples:
+
+```sh
+bun ./cli/cli.ts products list --barcode 6414893400012
+bun ./cli/cli.ts products create --name Milk --category food --is-perishable true
+bun ./cli/cli.ts receipts create --store-name Prisma --purchased-at 2026-04-14T08:00:00Z --currency EUR
+bun ./cli/cli.ts receipt-items create --receipt-id 1 --product-id 2 --quantity 1 --unit pcs
+```
+
 ### Migrations
 
 Migrations should be created into files in folder /migrations/YYYYMMDDHH_description
@@ -160,6 +179,43 @@ Receipt item payload fields:
 | line_total | decimal   | Optional         |
 | created_at | timestamp | Server generated |
 
+### inventory_containers
+
+Base resource: `/api/inventory-containers`
+
+| Method | Path                            | Purpose                               |
+| ------ | ------------------------------- | ------------------------------------- |
+| GET    | `/api/inventory-containers`     | List inventory containers             |
+| GET    | `/api/inventory-containers/:id` | Fetch one inventory container by id   |
+| POST   | `/api/inventory-containers`     | Create inventory container            |
+| PUT    | `/api/inventory-containers/:id` | Replace inventory container           |
+| PATCH  | `/api/inventory-containers/:id` | Update part of an inventory container |
+| DELETE | `/api/inventory-containers/:id` | Delete inventory container            |
+
+Inventory container payload fields:
+
+| Field               | Type      | Notes                                 |
+| ------------------- | --------- | ------------------------------------- |
+| id                  | BIGINT    | Server generated                      |
+| name                | string    | Required                              |
+| parent_container_id | BIGINT    | Optional, points to another container |
+| notes               | string    | Optional                              |
+| created_at          | timestamp | Server generated                      |
+| updated_at          | timestamp | Server generated                      |
+
+Delete behavior:
+
+- child containers become top-level by setting `parent_container_id = null`
+- inventory items inside the deleted container become unassigned by setting `container_id = null`
+
+Inventory web UI:
+
+- the `/inventory` page manages containers and active inventory in one drag-and-drop tree
+- new containers are created from the root-level `Add Container` modal
+- each container has an `Open` action that leads to a container detail page for editing metadata
+- containers can be nested by dragging them under other containers
+- inventory items can be dragged into containers or back to the root to leave them unplaced
+
 ### inventory_items
 
 Base resource: `/api/inventory-items`
@@ -180,6 +236,7 @@ Inventory item payload fields:
 | id              | BIGINT    | Server generated |
 | product_id      | BIGINT    | Required         |
 | receipt_item_id | BIGINT    | Optional         |
+| container_id    | BIGINT    | Optional         |
 | quantity        | decimal   | Required         |
 | unit            | string    | Required         |
 | purchased_at    | timestamp | Optional         |
@@ -362,23 +419,37 @@ Line items on a receipt.
 | line_total | DECIMAL(10,2) | NULL                        |
 | created_at | TIMESTAMP     | NOT NULL                    |
 
+### inventory_containers
+
+Named storage locations for household inventory. Containers can be nested, so a room can contain a closet or shelf.
+
+| Column              | Type         | Constraints / Notes                 |
+| ------------------- | ------------ | ----------------------------------- |
+| id                  | BIGINT       | PK                                  |
+| name                | VARCHAR(255) | NOT NULL                            |
+| parent_container_id | BIGINT       | FK -> inventory_containers.id, NULL |
+| notes               | TEXT         | NULL                                |
+| created_at          | TIMESTAMP    | NOT NULL                            |
+| updated_at          | TIMESTAMP    | NOT NULL                            |
+
 ### inventory_items
 
 Physical stock currently owned.
 
-| Column          | Type          | Constraints / Notes                   |
-| --------------- | ------------- | ------------------------------------- |
-| id              | BIGINT        | PK                                    |
-| product_id      | BIGINT        | FK -> products.id, NOT NULL           |
-| receipt_item_id | BIGINT        | FK -> receipt_items.id, NULL |
-| quantity        | DECIMAL(10,2) | NOT NULL                              |
-| unit            | VARCHAR(50)   | NOT NULL                              |
-| purchased_at    | TIMESTAMP     | NULL                                  |
-| expires_at      | TIMESTAMP     | NULL                                  |
-| consumed_at     | TIMESTAMP     | NULL                                  |
-| notes           | TEXT          | NULL                                  |
-| created_at      | TIMESTAMP     | NOT NULL                              |
-| updated_at      | TIMESTAMP     | NOT NULL                              |
+| Column          | Type          | Constraints / Notes                 |
+| --------------- | ------------- | ----------------------------------- |
+| id              | BIGINT        | PK                                  |
+| product_id      | BIGINT        | FK -> products.id, NOT NULL         |
+| receipt_item_id | BIGINT        | FK -> receipt_items.id, NULL        |
+| container_id    | BIGINT        | FK -> inventory_containers.id, NULL |
+| quantity        | DECIMAL(10,2) | NOT NULL                            |
+| unit            | VARCHAR(50)   | NOT NULL                            |
+| purchased_at    | TIMESTAMP     | NULL                                |
+| expires_at      | TIMESTAMP     | NULL                                |
+| consumed_at     | TIMESTAMP     | NULL                                |
+| notes           | TEXT          | NULL                                |
+| created_at      | TIMESTAMP     | NOT NULL                            |
+| updated_at      | TIMESTAMP     | NOT NULL                            |
 
 ### recipes
 
@@ -443,14 +514,14 @@ Direct buy queue entries. There is no separate parent `shopping_lists` table any
 
 ### Key relationships
 
-| From     | To                     | Meaning                                       |
-| -------- | ---------------------- | --------------------------------------------- |
-| receipts | receipt_items | A receipt has many line items                 |
-| products | inventory_items        | A product can exist in inventory many times   |
-| recipes  | recipe_ingredients     | A recipe has many required ingredients        |
-| products | recipe_ingredients     | A product can be used in many recipes         |
-| recipes  | meal_plan_items        | A meal plan item usually points to one recipe |
-| products | shopping_list_items    | A shopping list entry requests one product    |
+| From     | To                  | Meaning                                       |
+| -------- | ------------------- | --------------------------------------------- |
+| receipts | receipt_items       | A receipt has many line items                 |
+| products | inventory_items     | A product can exist in inventory many times   |
+| recipes  | recipe_ingredients  | A recipe has many required ingredients        |
+| products | recipe_ingredients  | A product can be used in many recipes         |
+| recipes  | meal_plan_items     | A meal plan item usually points to one recipe |
+| products | shopping_list_items | A shopping list entry requests one product    |
 
 ## Interfaces
 

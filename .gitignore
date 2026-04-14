@@ -3,3 +3,4 @@ __pycache__/
 pupler.db
 *.sqlite
 node_modules
+.DS_Store

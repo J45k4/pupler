@@ -2,6 +2,7 @@ export const renderNavbar = (currentPath: string) => {
 	const items = [
 		{ href: "/", label: "Overview" },
 		{ href: "/products", label: "Products" },
+		{ href: "/inventory", label: "Inventory" },
 		{ href: "/receipts", label: "Receipts" },
 		{ href: "/shopping-lists", label: "Shoppinglist" },
 		{ href: "/recipes", label: "Recipes" },

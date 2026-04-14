@@ -46,10 +46,20 @@ CREATE TABLE IF NOT EXISTS receipt_items (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS inventory_containers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  parent_container_id INTEGER REFERENCES inventory_containers(id),
+  notes TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS inventory_items (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   product_id INTEGER NOT NULL REFERENCES products(id),
   receipt_item_id INTEGER REFERENCES receipt_items(id),
+  container_id INTEGER REFERENCES inventory_containers(id),
   quantity REAL NOT NULL,
   unit TEXT NOT NULL,
   purchased_at TEXT,
@@ -109,7 +119,9 @@ CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode);
 CREATE INDEX IF NOT EXISTS idx_product_links_product_id ON product_links(product_id);
 CREATE INDEX IF NOT EXISTS idx_receipt_items_receipt_id ON receipt_items(receipt_id);
 CREATE INDEX IF NOT EXISTS idx_receipt_items_product_id ON receipt_items(product_id);
+CREATE INDEX IF NOT EXISTS idx_inventory_containers_parent_id ON inventory_containers(parent_container_id);
 CREATE INDEX IF NOT EXISTS idx_inventory_product_id ON inventory_items(product_id);
+CREATE INDEX IF NOT EXISTS idx_inventory_container_id ON inventory_items(container_id);
 CREATE INDEX IF NOT EXISTS idx_recipe_ingredients_recipe_id ON recipe_ingredients(recipe_id);
 CREATE INDEX IF NOT EXISTS idx_recipe_ingredients_product_id ON recipe_ingredients(product_id);
 CREATE INDEX IF NOT EXISTS idx_meal_plan_recipe_id ON meal_plan_items(recipe_id);

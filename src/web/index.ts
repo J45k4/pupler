@@ -1,3 +1,4 @@
+import { InfiniteScroll } from "./infinite-scroll";
 import { renderNavbar } from "./navbar";
 import { installLinkInterceptor, routes } from "./router";
 
@@ -31,6 +32,30 @@ type PurchaseReceiptItem = {
 	created_at: string;
 };
 
+type InventoryItem = {
+	id: number;
+	product_id: number;
+	receipt_item_id: number | null;
+	container_id: number | null;
+	quantity: number;
+	unit: string;
+	purchased_at: string | null;
+	expires_at: string | null;
+	consumed_at: string | null;
+	notes: string | null;
+	created_at: string;
+	updated_at: string;
+};
+
+type InventoryContainer = {
+	id: number;
+	name: string;
+	parent_container_id: number | null;
+	notes: string | null;
+	created_at: string;
+	updated_at: string;
+};
+
 type ShoppingListItem = {
 	id: number;
 	product_id: number;
@@ -43,7 +68,20 @@ type ShoppingListItem = {
 	updated_at: string;
 };
 
+let receiptDetailAbortController: AbortController | null = null;
+let productPageAbortController: AbortController | null = null;
+let productInfiniteScroll: InfiniteScroll<Product> | null = null;
+let inventoryTreeState: {
+	containers: InventoryContainer[];
+	items: InventoryItem[];
+	products: Product[];
+} | null = null;
+let collapsedInventoryContainerIds = new Set<number>();
+
 const render = (html: string) => {
+	productInfiniteScroll?.destroy();
+	productInfiniteScroll = null;
+	document.body.classList.remove("modal-open");
 	document.body.innerHTML = html;
 };
 
@@ -128,49 +166,54 @@ const renderRecipesPage = () => {
 	);
 };
 
+const renderProductCard = (product: Product) => {
+	const badge = product.is_perishable
+		? '<span class="tag">Perishable</span>'
+		: "";
+	return `
+		<article class="product">
+			<div class="product__media">
+				<img class="product__image" src="/api/products/${product.id}/picture" alt="${product.name}" loading="lazy" onerror="this.parentElement.remove()" />
+			</div>
+			<header>
+				<h3>${product.name}</h3>
+				${badge}
+			</header>
+			<dl>
+				<div>
+					<dt>Category</dt>
+					<dd>${product.category ?? "-"}</dd>
+				</div>
+				<div>
+					<dt>Barcode</dt>
+					<dd>${product.barcode ?? "-"}</dd>
+				</div>
+				<div>
+					<dt>Unit</dt>
+					<dd>${product.default_unit ?? "-"}</dd>
+				</div>
+			</dl>
+		</article>
+	`;
+};
+
 const renderProducts = (products: Product[]) => {
 	const results = document.getElementById("results");
 	if (!results) {
 		return;
 	}
 
-	if (!products.length) {
-		results.innerHTML = '<div class="empty">No products found.</div>';
-		return;
-	}
-
-	results.innerHTML = products
-		.map((product) => {
-			const badge = product.is_perishable
-				? '<span class="tag">Perishable</span>'
-				: "";
-			return `
-				<article class="product">
-					<div class="product__media">
-						<img class="product__image" src="/api/products/${product.id}/picture" alt="${product.name}" loading="lazy" onerror="this.parentElement.remove()" />
-					</div>
-					<header>
-						<h3>${product.name}</h3>
-						${badge}
-					</header>
-					<dl>
-						<div>
-							<dt>Category</dt>
-							<dd>${product.category ?? "-"}</dd>
-						</div>
-						<div>
-							<dt>Barcode</dt>
-							<dd>${product.barcode ?? "-"}</dd>
-						</div>
-						<div>
-							<dt>Unit</dt>
-							<dd>${product.default_unit ?? "-"}</dd>
-						</div>
-					</dl>
-				</article>
-			`;
-		})
-		.join("");
+	productInfiniteScroll?.destroy();
+	productInfiniteScroll = new InfiniteScroll(
+		{
+			batchSize: 12,
+			emptyHtml: '<div class="empty">No products found.</div>',
+			renderItem: (product) => renderProductCard(product),
+			root: results,
+		},
+		products,
+	);
+	productInfiniteScroll.render();
 };
 
 const renderShoppingListItems = (
@@ -238,6 +281,266 @@ const renderShoppingListItems = (
 	`;
 };
 
+const buildContainerChildren = (containers: InventoryContainer[]) => {
+	const children = new Map<number | null, InventoryContainer[]>();
+
+	for (const container of containers) {
+		const parentId = container.parent_container_id ?? null;
+		const siblings = children.get(parentId) ?? [];
+		siblings.push(container);
+		children.set(parentId, siblings);
+	}
+
+	for (const siblings of children.values()) {
+		siblings.sort((left, right) => left.name.localeCompare(right.name));
+	}
+
+	return children;
+};
+
+const buildInventoryItemGroups = (items: InventoryItem[]) => {
+	const groups = new Map<number | null, InventoryItem[]>();
+
+	for (const item of items) {
+		const containerId = item.container_id ?? null;
+		const bucket = groups.get(containerId) ?? [];
+		bucket.push(item);
+		groups.set(containerId, bucket);
+	}
+
+	return groups;
+};
+
+const getInventoryItemMeta = (item: InventoryItem) => {
+	const parts: string[] = [];
+
+	if (item.purchased_at) {
+		parts.push(`Bought ${formatReceiptDateTime(item.purchased_at)}`);
+	}
+	if (item.expires_at) {
+		parts.push(`Expires ${formatReceiptDateTime(item.expires_at)}`);
+	}
+	if (item.notes) {
+		parts.push(item.notes);
+	}
+
+	return parts.join(" • ");
+};
+
+const renderInventoryTree = (
+	containers: InventoryContainer[],
+	items: InventoryItem[],
+	products: Product[],
+) => {
+	const root = document.getElementById("inventory-tree-root");
+	if (!root) {
+		return;
+	}
+
+	const productsById = new Map(
+		products.map((product) => [product.id, product]),
+	);
+	const containerChildren = buildContainerChildren(containers);
+	const containerItems = buildInventoryItemGroups(items);
+	const containerIds = new Set(containers.map((container) => container.id));
+	collapsedInventoryContainerIds = new Set(
+		[...collapsedInventoryContainerIds].filter((id) =>
+			containerIds.has(id),
+		),
+	);
+
+	const countNestedItems = (containerId: number): number => {
+		const directItems = containerItems.get(containerId)?.length ?? 0;
+		const nestedContainers = containerChildren.get(containerId) ?? [];
+		return (
+			directItems +
+			nestedContainers.reduce(
+				(total, container) => total + countNestedItems(container.id),
+				0,
+			)
+		);
+	};
+
+	const renderInventoryItemNode = (item: InventoryItem) => {
+		const productName =
+			productsById.get(item.product_id)?.name ??
+			`Product #${item.product_id}`;
+		const meta = getInventoryItemMeta(item);
+
+		return `
+			<li class="inventory-tree__leaf">
+				<div
+					class="inventory-node inventory-node--item"
+					draggable="true"
+					data-drag-kind="item"
+					data-drag-id="${item.id}"
+					data-source-container-id="${item.container_id ?? ""}"
+				>
+					<div class="inventory-node__main">
+						<strong>${productName}</strong>
+						<div class="inventory-node__meta">
+							<span>${item.quantity} ${item.unit}</span>
+							${meta ? `<span>${meta}</span>` : ""}
+						</div>
+					</div>
+				</div>
+			</li>
+		`;
+	};
+
+	const renderInventoryItemsList = (containerId: number | null) => {
+		const bucket = containerItems.get(containerId) ?? [];
+		if (!bucket.length) {
+			return "";
+		}
+
+		const sortedItems = [...bucket].sort((left, right) => {
+			const leftName =
+				productsById.get(left.product_id)?.name ??
+				`Product #${left.product_id}`;
+			const rightName =
+				productsById.get(right.product_id)?.name ??
+				`Product #${right.product_id}`;
+			return leftName.localeCompare(rightName);
+		});
+
+		return `
+			<ul class="inventory-tree__items">
+				${sortedItems.map((item) => renderInventoryItemNode(item)).join("")}
+			</ul>
+		`;
+	};
+
+	const renderContainerNode = (container: InventoryContainer): string => {
+		const childContainers = containerChildren.get(container.id) ?? [];
+		const hasChildren =
+			childContainers.length > 0 ||
+			(containerItems.get(container.id)?.length ?? 0) > 0;
+		const itemCount = countNestedItems(container.id);
+		const isCollapsed =
+			hasChildren && collapsedInventoryContainerIds.has(container.id);
+
+		return `
+			<li class="inventory-tree__branch">
+				<div
+					class="inventory-node inventory-node--container inventory-drop-target"
+					draggable="true"
+					data-drag-kind="container"
+					data-drag-id="${container.id}"
+					data-drop-kind="container"
+					data-drop-id="${container.id}"
+				>
+					<div class="inventory-node__main">
+						<div class="inventory-node__title-row">
+							${
+								hasChildren
+									? `
+										<button
+											class="inventory-node__toggle"
+											type="button"
+											aria-label="${isCollapsed ? "Expand" : "Collapse"} ${container.name}"
+											aria-expanded="${isCollapsed ? "false" : "true"}"
+											data-toggle-inventory-container-id="${container.id}"
+										>
+											${isCollapsed ? "▸" : "▾"}
+										</button>
+									`
+									: '<span class="inventory-node__toggle-placeholder"></span>'
+							}
+							<strong>${container.name}</strong>
+						</div>
+						<div class="inventory-node__meta">
+							<span>${itemCount === 1 ? "1 item" : `${itemCount} items`}</span>
+							${container.notes ? `<span>${container.notes}</span>` : ""}
+						</div>
+					</div>
+					<div class="inventory-node__actions">
+						<a
+							class="secondary action-link inventory-node__button"
+							href="/inventory/containers/${container.id}"
+							data-link
+						>
+							Open
+						</a>
+						<button
+							class="secondary inventory-node__button"
+							type="button"
+							data-delete-inventory-container-id="${container.id}"
+							data-delete-inventory-container-name="${container.name}"
+						>
+							Delete
+						</button>
+					</div>
+				</div>
+				${
+					isCollapsed
+						? ""
+						: `
+							<div class="inventory-tree__children">
+								${renderInventoryItemsList(container.id)}
+								${
+									childContainers.length
+										? `<ul class="inventory-tree__containers">${childContainers
+												.map((child) =>
+													renderContainerNode(child),
+												)
+												.join("")}</ul>`
+										: ""
+								}
+								${
+									!hasChildren
+										? '<div class="inventory-tree__empty">Drop items or containers here.</div>'
+										: ""
+								}
+							</div>
+						`
+				}
+			</li>
+		`;
+	};
+
+	const topLevelContainers = containerChildren.get(null) ?? [];
+	const unplacedItems = containerItems.get(null) ?? [];
+
+	root.innerHTML = `
+		<div
+			class="inventory-root inventory-drop-target"
+			data-drop-kind="root"
+			data-drop-id=""
+		>
+			<div class="inventory-tree__toolbar">
+				<button
+					class="primary inventory-node__button"
+					type="button"
+					data-open-inventory-container-modal
+				>
+					Add Container
+				</button>
+			</div>
+			<section class="inventory-tree__root-section">
+				<div class="inventory-tree__section-label">Unplaced Items</div>
+				${
+					unplacedItems.length
+						? renderInventoryItemsList(null)
+						: '<div class="inventory-tree__empty">Drag inventory items here to leave them unplaced.</div>'
+				}
+			</section>
+			<section class="inventory-tree__root-section">
+				<div class="inventory-tree__section-label">Containers</div>
+				${
+					topLevelContainers.length
+						? `<ul class="inventory-tree__containers inventory-tree__containers--root">${topLevelContainers
+								.map((container) =>
+									renderContainerNode(container),
+								)
+								.join("")}</ul>`
+						: '<div class="inventory-tree__empty">Add a room, closet, shelf, or box.</div>'
+				}
+			</section>
+		</div>
+	`;
+};
+
 const renderReceipts = (receipts: PurchaseReceipt[]) => {
 	const results = document.getElementById("receipt-results");
 	if (!results) {
@@ -276,11 +579,16 @@ const renderReceipts = (receipts: PurchaseReceipt[]) => {
 const renderReceiptDetail = (
 	receipt: PurchaseReceipt,
 	items: PurchaseReceiptItem[],
+	products: Product[],
 ) => {
 	const page = document.getElementById("receipt-detail-page");
 	if (!page) {
 		return;
 	}
+
+	const productsById = new Map(
+		products.map((product) => [product.id, product]),
+	);
 
 	page.innerHTML = `
 		<section class="page-heading page-heading--compact">
@@ -295,13 +603,19 @@ const renderReceiptDetail = (
 			<div class="card panel">
 				<h2>Original Picture</h2>
 				<div class="receipt-picture">
-					<img
-						class="receipt-picture__image"
-						src="/api/receipts/${receipt.id}/picture"
-						alt="${receipt.store_name}"
-						loading="lazy"
-						onerror="this.closest('.receipt-picture').innerHTML='<div class=&quot;empty&quot;>No receipt picture uploaded.</div>'"
-					/>
+					<button
+						class="receipt-picture__trigger"
+						type="button"
+						aria-label="Open receipt picture in fullscreen"
+					>
+						<img
+							class="receipt-picture__image"
+							src="/api/receipts/${receipt.id}/picture"
+							alt="${receipt.store_name}"
+							loading="lazy"
+							onerror="this.closest('.receipt-picture').innerHTML='<div class=&quot;empty&quot;>No receipt picture uploaded.</div>'"
+						/>
+					</button>
 				</div>
 			</div>
 
@@ -341,22 +655,28 @@ const renderReceiptDetail = (
 							<table class="shoppinglist-table">
 								<thead>
 									<tr>
-										<th>Product ID</th>
+										<th>Product Name</th>
 										<th>Quantity</th>
 										<th>Line Total</th>
 									</tr>
 								</thead>
 								<tbody>
 									${items
-										.map(
-											(item) => `
+										.map((item) => {
+											const productName =
+												productsById.get(
+													item.product_id,
+												)?.name ??
+												`Product #${item.product_id}`;
+
+											return `
 												<tr>
-													<td>${item.product_id}</td>
+													<td>${productName}</td>
 													<td>${item.quantity} ${item.unit}</td>
 													<td>${item.line_total === null ? "-" : formatMoney(item.line_total, receipt.currency)}</td>
 												</tr>
-											`,
-										)
+											`;
+										})
 										.join("")}
 								</tbody>
 							</table>
@@ -365,7 +685,198 @@ const renderReceiptDetail = (
 				}
 			</div>
 		</section>
+
+		<div class="receipt-modal" id="receipt-picture-modal" hidden>
+			<div class="receipt-modal__backdrop" data-receipt-modal-close></div>
+			<div
+				class="receipt-modal__dialog"
+				role="dialog"
+				aria-modal="true"
+				aria-label="Receipt picture"
+			>
+				<button
+					class="receipt-modal__close"
+					type="button"
+					aria-label="Close receipt picture"
+					data-receipt-modal-close
+				>
+					Close
+				</button>
+				<div class="receipt-modal__viewport">
+					<img
+						class="receipt-modal__image"
+						src="/api/receipts/${receipt.id}/picture"
+						alt="${receipt.store_name}"
+						draggable="false"
+					/>
+				</div>
+			</div>
+		</div>
 	`;
+};
+
+const attachReceiptDetailEvents = () => {
+	receiptDetailAbortController?.abort();
+	receiptDetailAbortController = new AbortController();
+
+	const trigger = document.querySelector<HTMLButtonElement>(
+		".receipt-picture__trigger",
+	);
+	const modal = document.getElementById("receipt-picture-modal");
+	const modalViewport = document.querySelector<HTMLDivElement>(
+		".receipt-modal__viewport",
+	);
+	const modalImage = document.querySelector<HTMLImageElement>(
+		".receipt-modal__image",
+	);
+	if (!trigger || !modal || !modalViewport || !modalImage) {
+		return;
+	}
+
+	let scale = 1;
+	let offsetX = 0;
+	let offsetY = 0;
+	let isPanning = false;
+	let panStartX = 0;
+	let panStartY = 0;
+
+	const clampScale = (value: number) => Math.min(6, Math.max(1, value));
+	const syncTransform = () => {
+		if (scale <= 1) {
+			offsetX = 0;
+			offsetY = 0;
+		}
+
+		modalImage.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${scale})`;
+		modalImage.style.cursor = isPanning
+			? "grabbing"
+			: scale > 1
+				? "grab"
+				: "zoom-in";
+	};
+
+	const resetTransform = () => {
+		scale = 1;
+		offsetX = 0;
+		offsetY = 0;
+		isPanning = false;
+		syncTransform();
+	};
+
+	const closeModal = () => {
+		modal.hidden = true;
+		document.body.classList.remove("modal-open");
+		resetTransform();
+	};
+
+	const openModal = () => {
+		modal.hidden = false;
+		document.body.classList.add("modal-open");
+		resetTransform();
+	};
+
+	trigger.addEventListener("click", openModal, {
+		signal: receiptDetailAbortController.signal,
+	});
+
+	modalViewport.addEventListener(
+		"wheel",
+		(event) => {
+			event.preventDefault();
+
+			const nextScale = clampScale(
+				scale * (event.deltaY < 0 ? 1.12 : 1 / 1.12),
+			);
+			if (nextScale === scale) {
+				return;
+			}
+
+			const viewportRect = modalViewport.getBoundingClientRect();
+			const cursorX = event.clientX - viewportRect.left;
+			const cursorY = event.clientY - viewportRect.top;
+			const imageX = (cursorX - offsetX) / scale;
+			const imageY = (cursorY - offsetY) / scale;
+
+			scale = nextScale;
+			offsetX = cursorX - imageX * scale;
+			offsetY = cursorY - imageY * scale;
+			syncTransform();
+		},
+		{
+			passive: false,
+			signal: receiptDetailAbortController.signal,
+		},
+	);
+
+	modalImage.addEventListener(
+		"mousedown",
+		(event) => {
+			if (event.button !== 1 || scale <= 1) {
+				return;
+			}
+
+			event.preventDefault();
+			isPanning = true;
+			panStartX = event.clientX - offsetX;
+			panStartY = event.clientY - offsetY;
+			syncTransform();
+		},
+		{ signal: receiptDetailAbortController.signal },
+	);
+
+	window.addEventListener(
+		"mousemove",
+		(event) => {
+			if (!isPanning) {
+				return;
+			}
+
+			offsetX = event.clientX - panStartX;
+			offsetY = event.clientY - panStartY;
+			syncTransform();
+		},
+		{ signal: receiptDetailAbortController.signal },
+	);
+
+	window.addEventListener(
+		"mouseup",
+		(event) => {
+			if (event.button !== 1 || !isPanning) {
+				return;
+			}
+
+			isPanning = false;
+			syncTransform();
+		},
+		{ signal: receiptDetailAbortController.signal },
+	);
+
+	modal.addEventListener(
+		"click",
+		(event) => {
+			const target = event.target;
+			if (!(target instanceof HTMLElement)) {
+				return;
+			}
+
+			if (target.dataset.receiptModalClose !== undefined) {
+				closeModal();
+			}
+		},
+		{ signal: receiptDetailAbortController.signal },
+	);
+
+	window.addEventListener(
+		"keydown",
+		(event) => {
+			if (event.key === "Escape" && !modal.hidden) {
+				closeModal();
+			}
+		},
+		{ signal: receiptDetailAbortController.signal },
+	);
+
+	resetTransform();
 };
 
 const fetchAllProducts = async () => {
@@ -436,17 +947,245 @@ const fetchReceiptItems = async (receiptId: number) => {
 	return body as PurchaseReceiptItem[];
 };
 
+const fetchInventoryItems = async () => {
+	const response = await fetch(
+		"/api/inventory-items?consumed_at=null&sort=expires_at&order=asc",
+	);
+	const body = (await response.json()) as
+		| InventoryItem[]
+		| { error?: string };
+
+	if (!response.ok) {
+		throw new Error(
+			"error" in body
+				? (body.error ?? "Failed to load inventory items")
+				: "Failed to load inventory items",
+		);
+	}
+
+	return body as InventoryItem[];
+};
+
+const fetchInventoryContainers = async () => {
+	const response = await fetch(
+		"/api/inventory-containers?sort=name&order=asc",
+	);
+	const body = (await response.json()) as
+		| InventoryContainer[]
+		| { error?: string };
+
+	if (!response.ok) {
+		throw new Error(
+			"error" in body
+				? (body.error ?? "Failed to load inventory containers")
+				: "Failed to load inventory containers",
+		);
+	}
+
+	return body as InventoryContainer[];
+};
+
+const fetchInventoryContainer = async (containerId: number) => {
+	const response = await fetch(`/api/inventory-containers/${containerId}`);
+	const body = (await response.json()) as
+		| InventoryContainer
+		| { error?: string };
+
+	if (!response.ok) {
+		throw new Error(
+			"error" in body
+				? (body.error ?? "Failed to load inventory container")
+				: "Failed to load inventory container",
+		);
+	}
+
+	return body as InventoryContainer;
+};
+
+const createInventoryContainer = async (payload: {
+	name: string;
+	parent_container_id: number | null;
+	notes: string | null;
+}) => {
+	const response = await fetch("/api/inventory-containers", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(payload),
+	});
+	const body = (await response.json()) as
+		| InventoryContainer
+		| { error?: string };
+
+	if (!response.ok) {
+		throw new Error(
+			"error" in body
+				? (body.error ?? "Failed to create inventory container")
+				: "Failed to create inventory container",
+		);
+	}
+
+	return body as InventoryContainer;
+};
+
+const updateInventoryContainer = async (
+	containerId: number,
+	payload: {
+		name?: string;
+		parent_container_id?: number | null;
+		notes?: string | null;
+	},
+) => {
+	const response = await fetch(`/api/inventory-containers/${containerId}`, {
+		method: "PATCH",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(payload),
+	});
+	const body = (await response.json()) as
+		| InventoryContainer
+		| { error?: string };
+
+	if (!response.ok) {
+		throw new Error(
+			"error" in body
+				? (body.error ?? "Failed to update inventory container")
+				: "Failed to update inventory container",
+		);
+	}
+
+	return body as InventoryContainer;
+};
+
+const updateInventoryContainerParent = async (
+	containerId: number,
+	parentContainerId: number | null,
+) => {
+	const response = await fetch(`/api/inventory-containers/${containerId}`, {
+		method: "PATCH",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ parent_container_id: parentContainerId }),
+	});
+	const body = (await response.json()) as
+		| InventoryContainer
+		| { error?: string };
+
+	if (!response.ok) {
+		throw new Error(
+			"error" in body
+				? (body.error ?? "Failed to update inventory container")
+				: "Failed to update inventory container",
+		);
+	}
+
+	return body as InventoryContainer;
+};
+
+const deleteInventoryContainer = async (containerId: number) => {
+	const response = await fetch(`/api/inventory-containers/${containerId}`, {
+		method: "DELETE",
+	});
+
+	if (response.status !== 204) {
+		const body = (await response.json()) as { error?: string };
+		throw new Error(body.error ?? "Failed to delete inventory container");
+	}
+};
+
+const updateInventoryItemContainer = async (
+	itemId: number,
+	containerId: number | null,
+) => {
+	const response = await fetch(`/api/inventory-items/${itemId}`, {
+		method: "PATCH",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ container_id: containerId }),
+	});
+	const body = (await response.json()) as InventoryItem | { error?: string };
+
+	if (!response.ok) {
+		throw new Error(
+			"error" in body
+				? (body.error ?? "Failed to update inventory item")
+				: "Failed to update inventory item",
+		);
+	}
+
+	return body as InventoryItem;
+};
+
+const fetchInventoryItemsByContainer = async (containerId: number) => {
+	const response = await fetch(
+		`/api/inventory-items?container_id=${encodeURIComponent(String(containerId))}&consumed_at=null&sort=expires_at&order=asc`,
+	);
+	const body = (await response.json()) as
+		| InventoryItem[]
+		| { error?: string };
+
+	if (!response.ok) {
+		throw new Error(
+			"error" in body
+				? (body.error ?? "Failed to load inventory items")
+				: "Failed to load inventory items",
+		);
+	}
+
+	return body as InventoryItem[];
+};
+
+const loadInventoryPageData = async (statusMessage?: string) => {
+	try {
+		const [items, products, containers] = await Promise.all([
+			fetchInventoryItems(),
+			fetchAllProducts(),
+			fetchInventoryContainers(),
+		]);
+		inventoryTreeState = { containers, items, products };
+		renderInventoryTree(containers, items, products);
+		setStatus(
+			"inventory-status",
+			statusMessage ??
+				`Loaded ${items.length} active item(s) across ${containers.length} container(s).`,
+		);
+	} catch (error) {
+		inventoryTreeState = { containers: [], items: [], products: [] };
+		renderInventoryTree([], [], []);
+		setStatus(
+			"inventory-status",
+			error instanceof Error
+				? error.message
+				: "Failed to load inventory.",
+			true,
+		);
+	}
+};
+
 const loadProducts = async () => {
 	const barcodeFilter = document.getElementById("barcode-filter");
-	if (!(barcodeFilter instanceof HTMLInputElement)) {
+	const searchType = document.getElementById("product-search-type");
+	if (
+		!(barcodeFilter instanceof HTMLInputElement) ||
+		!(searchType instanceof HTMLSelectElement)
+	) {
 		return;
 	}
 
-	const barcode = barcodeFilter.value.trim();
-	const query = barcode ? `?barcode=${encodeURIComponent(barcode)}` : "";
+	const search = barcodeFilter.value.trim();
+	const buildQuery = (field: "barcode" | "name" | "name_contains") =>
+		search ? `?${field}=${encodeURIComponent(search)}` : "";
 
 	try {
-		const response = await fetch(`/api/products${query}`);
+		const selectedType = searchType.value;
+		const initialField =
+			selectedType === "barcode"
+				? "barcode"
+				: selectedType === "name"
+					? "name"
+					: selectedType === "includes"
+						? "name_contains"
+						: "barcode";
+
+		const response = await fetch(
+			`/api/products${buildQuery(initialField)}`,
+		);
 		const body = (await response.json()) as Product[] | { error?: string };
 
 		if (!response.ok) {
@@ -457,11 +1196,48 @@ const loadProducts = async () => {
 			);
 		}
 
-		const products = body as Product[];
+		let products = body as Product[];
+		if (search && products.length === 0 && selectedType === "auto") {
+			const nameResponse = await fetch(
+				`/api/products${buildQuery("name")}`,
+			);
+			const nameBody = (await nameResponse.json()) as
+				| Product[]
+				| { error?: string };
+
+			if (!nameResponse.ok) {
+				throw new Error(
+					"error" in nameBody
+						? (nameBody.error ?? "Failed to load products")
+						: "Failed to load products",
+				);
+			}
+
+			products = nameBody as Product[];
+			if (products.length === 0) {
+				const containsResponse = await fetch(
+					`/api/products${buildQuery("name_contains")}`,
+				);
+				const containsBody = (await containsResponse.json()) as
+					| Product[]
+					| { error?: string };
+
+				if (!containsResponse.ok) {
+					throw new Error(
+						"error" in containsBody
+							? (containsBody.error ?? "Failed to load products")
+							: "Failed to load products",
+					);
+				}
+
+				products = containsBody as Product[];
+			}
+		}
+
 		renderProducts(products);
 		setStatus(
 			"status",
-			barcode
+			search
 				? `Loaded ${products.length} matching product(s).`
 				: `Loaded ${products.length} product(s).`,
 		);
@@ -615,9 +1391,57 @@ const setShoppingListItemDone = async (itemId: number, done: boolean) => {
 };
 
 const attachProductPageEvents = () => {
+	productPageAbortController?.abort();
+	productPageAbortController = new AbortController();
+
 	const form = document.getElementById("product-form");
+	const barcodeFilter = document.getElementById("barcode-filter");
 	const filterButton = document.getElementById("filter-button");
-	const refreshButton = document.getElementById("refresh-button");
+	const addButton = document.getElementById("open-product-modal-button");
+	const modal = document.getElementById("product-create-modal");
+	const modalCloseButtons = document.querySelectorAll(
+		"[data-product-modal-close]",
+	);
+
+	const closeModal = () => {
+		if (!modal) {
+			return;
+		}
+		modal.hidden = true;
+		document.body.classList.remove("modal-open");
+	};
+
+	const openModal = () => {
+		if (!modal) {
+			return;
+		}
+		modal.hidden = false;
+		document.body.classList.add("modal-open");
+		const nameInput = document.getElementById("name");
+		if (nameInput instanceof HTMLInputElement) {
+			nameInput.focus();
+		}
+	};
+
+	addButton?.addEventListener("click", openModal, {
+		signal: productPageAbortController.signal,
+	});
+
+	for (const button of modalCloseButtons) {
+		button.addEventListener("click", closeModal, {
+			signal: productPageAbortController.signal,
+		});
+	}
+
+	window.addEventListener(
+		"keydown",
+		(event) => {
+			if (event.key === "Escape" && modal && !modal.hidden) {
+				closeModal();
+			}
+		},
+		{ signal: productPageAbortController.signal },
+	);
 
 	form?.addEventListener("submit", async (event) => {
 		event.preventDefault();
@@ -681,14 +1505,28 @@ const attachProductPageEvents = () => {
 				barcodeFilter.value = (body as Product).barcode ?? "";
 			}
 
+			closeModal();
 			setStatus(
 				"status",
 				picture
 					? `Created product #${(body as Product).id} and uploaded picture`
 					: `Created product #${(body as Product).id}: ${(body as Product).name}`,
 			);
+			setStatus(
+				"product-modal-status",
+				picture
+					? `Created product #${(body as Product).id} and uploaded picture`
+					: `Created product #${(body as Product).id}: ${(body as Product).name}`,
+			);
 			await loadProducts();
 		} catch (error) {
+			setStatus(
+				"product-modal-status",
+				error instanceof Error
+					? error.message
+					: "Failed to create product",
+				true,
+			);
 			setStatus(
 				"status",
 				error instanceof Error
@@ -702,7 +1540,13 @@ const attachProductPageEvents = () => {
 	filterButton?.addEventListener("click", () => {
 		void loadProducts();
 	});
-	refreshButton?.addEventListener("click", () => {
+
+	barcodeFilter?.addEventListener("keydown", (event) => {
+		if (!(event instanceof KeyboardEvent) || event.key !== "Enter") {
+			return;
+		}
+
+		event.preventDefault();
 		void loadProducts();
 	});
 };
@@ -922,19 +1766,48 @@ const attachReceiptsPageEvents = () => {
 const renderProductsPage = () => {
 	renderPage(
 		`
-			<section class="page-heading page-heading--compact">
-				<div>
-					<span class="eyebrow">Products</span>
-					<h1 class="page-title">Create Product</h1>
+			<section class="workspace workspace--single">
+				<div class="card panel">
+					<h2>Product Lookup</h2>
+					<div class="toolbar">
+						<select
+							id="product-search-type"
+							class="toolbar__select"
+							aria-label="Product search type"
+						>
+							<option value="auto">Auto</option>
+							<option value="barcode">Barcode</option>
+							<option value="name">Name</option>
+							<option value="includes">Includes</option>
+						</select>
+						<input id="barcode-filter" placeholder="Scan barcode or type product name" />
+						<button class="secondary" id="filter-button" type="button">Find</button>
+						<button class="primary" id="open-product-modal-button" type="button">Add</button>
+					</div>
+					<div id="status" class="status"></div>
+					<div id="results" class="results"></div>
 				</div>
-				<p class="page-copy">
-					Add products, scan barcodes into the lookup input, and confirm the API behavior from one page.
-				</p>
 			</section>
 
-			<section class="workspace">
-				<div class="card panel">
-					<h2>Create Product</h2>
+			<div class="product-create-modal" id="product-create-modal" hidden>
+				<div class="product-create-modal__backdrop" data-product-modal-close></div>
+				<div
+					class="product-create-modal__dialog card panel"
+					role="dialog"
+					aria-modal="true"
+					aria-label="Create product"
+				>
+					<div class="section-header section-header--end">
+						<h2>Create Product</h2>
+						<button
+							class="secondary"
+							type="button"
+							aria-label="Close create product modal"
+							data-product-modal-close
+						>
+							Close
+						</button>
+					</div>
 					<form id="product-form">
 						<label>
 							Name
@@ -973,26 +1846,680 @@ const renderProductsPage = () => {
 
 						<div class="actions">
 							<button class="primary" type="submit">Create Product</button>
-							<button class="secondary" type="button" id="refresh-button">Refresh List</button>
 						</div>
 					</form>
-					<div id="status" class="status"></div>
+					<div id="product-modal-status" class="status"></div>
 				</div>
-
-				<div class="card panel">
-					<h2>Product Lookup</h2>
-					<div class="toolbar">
-						<input id="barcode-filter" placeholder="Scan or type barcode" />
-						<button class="secondary" id="filter-button" type="button">Find</button>
-					</div>
-					<div id="results" class="results"></div>
-				</div>
-			</section>
+			</div>
 		`,
 	);
 
 	attachProductPageEvents();
 	void loadProducts();
+};
+
+const attachInventoryPageEvents = () => {
+	const treeRoot = document.getElementById("inventory-tree-root");
+	const modal = document.getElementById("inventory-container-modal");
+	const modalForm = document.getElementById("inventory-container-modal-form");
+	if (!treeRoot || !modal || !(modalForm instanceof HTMLFormElement)) {
+		return;
+	}
+
+	let activeDropTarget: HTMLElement | null = null;
+
+	const clearDropTarget = () => {
+		activeDropTarget?.classList.remove("inventory-drop-target--active");
+		activeDropTarget = null;
+	};
+
+	const closeModal = () => {
+		modal.hidden = true;
+		document.body.classList.remove("modal-open");
+		modalForm.reset();
+	};
+
+	const openModal = () => {
+		modal.hidden = false;
+		document.body.classList.add("modal-open");
+		const nameInput = document.getElementById("inventory-container-name");
+		if (nameInput instanceof HTMLInputElement) {
+			nameInput.focus();
+		}
+	};
+
+	const rerenderTreeFromState = () => {
+		if (!inventoryTreeState) {
+			return;
+		}
+		renderInventoryTree(
+			inventoryTreeState.containers,
+			inventoryTreeState.items,
+			inventoryTreeState.products,
+		);
+	};
+
+	const isContainerDropInvalid = (
+		containerId: number,
+		targetParentId: number | null,
+	) => {
+		if (targetParentId === null) {
+			return false;
+		}
+		if (targetParentId === containerId) {
+			return true;
+		}
+		if (!inventoryTreeState) {
+			return false;
+		}
+
+		const containersById = new Map(
+			inventoryTreeState.containers.map((container) => [
+				container.id,
+				container,
+			]),
+		);
+		let currentId = targetParentId;
+
+		while (currentId !== null) {
+			if (currentId === containerId) {
+				return true;
+			}
+			currentId =
+				containersById.get(currentId)?.parent_container_id ?? null;
+		}
+
+		return false;
+	};
+
+	treeRoot.addEventListener("click", async (event) => {
+		const target = event.target;
+		if (!(target instanceof HTMLElement)) {
+			return;
+		}
+
+		const toggleButton = target.closest<HTMLElement>(
+			"[data-toggle-inventory-container-id]",
+		);
+		if (toggleButton) {
+			const containerId = Number(
+				toggleButton.dataset.toggleInventoryContainerId,
+			);
+			if (Number.isInteger(containerId)) {
+				if (collapsedInventoryContainerIds.has(containerId)) {
+					collapsedInventoryContainerIds.delete(containerId);
+				} else {
+					collapsedInventoryContainerIds.add(containerId);
+				}
+				rerenderTreeFromState();
+			}
+			return;
+		}
+
+		const openButton = target.closest<HTMLElement>(
+			"[data-open-inventory-container-modal]",
+		);
+		if (openButton) {
+			openModal();
+			return;
+		}
+
+		if (target.closest("[data-close-inventory-container-modal]")) {
+			closeModal();
+			return;
+		}
+
+		const deleteButton = target.closest<HTMLElement>(
+			"[data-delete-inventory-container-id]",
+		);
+		if (!deleteButton) {
+			return;
+		}
+
+		const containerId = Number(
+			deleteButton.dataset.deleteInventoryContainerId,
+		);
+		if (!Number.isInteger(containerId)) {
+			return;
+		}
+
+		const containerName =
+			deleteButton.dataset.deleteInventoryContainerName ??
+			"this container";
+		const confirmed = window.confirm(
+			`Delete ${containerName}? Child containers and inventory items will be unassigned.`,
+		);
+		if (!confirmed) {
+			return;
+		}
+
+		try {
+			await deleteInventoryContainer(containerId);
+			await loadInventoryPageData(
+				`Deleted container ${containerName}. Child containers and items are now unassigned.`,
+			);
+		} catch (error) {
+			setStatus(
+				"inventory-status",
+				error instanceof Error
+					? error.message
+					: "Failed to delete inventory container",
+				true,
+			);
+		}
+	});
+
+	modalForm.addEventListener("submit", async (event) => {
+		event.preventDefault();
+
+		const nameInput = modalForm.elements.namedItem("name");
+		const notesInput = modalForm.elements.namedItem("notes");
+		if (
+			!(nameInput instanceof HTMLInputElement) ||
+			!(notesInput instanceof HTMLInputElement)
+		) {
+			return;
+		}
+
+		const name = nameInput.value.trim();
+		if (!name) {
+			setStatus("inventory-status", "Container name is required.", true);
+			return;
+		}
+
+		try {
+			const created = await createInventoryContainer({
+				name,
+				parent_container_id: null,
+				notes: notesInput.value.trim() || null,
+			});
+			closeModal();
+			await loadInventoryPageData(`Created container ${created.name}.`);
+		} catch (error) {
+			setStatus(
+				"inventory-status",
+				error instanceof Error
+					? error.message
+					: "Failed to create inventory container",
+				true,
+			);
+		}
+	});
+
+	modal.addEventListener("click", (event) => {
+		const target = event.target;
+		if (!(target instanceof HTMLElement)) {
+			return;
+		}
+		if (target.dataset.closeInventoryContainerModal !== undefined) {
+			closeModal();
+		}
+	});
+
+	window.addEventListener("keydown", (event) => {
+		if (event.key === "Escape" && !modal.hidden) {
+			closeModal();
+		}
+	});
+
+	treeRoot.addEventListener("dragstart", (event) => {
+		const target = event.target;
+		if (!(target instanceof HTMLElement) || !event.dataTransfer) {
+			return;
+		}
+
+		const draggable = target.closest<HTMLElement>("[data-drag-kind]");
+		if (!draggable) {
+			return;
+		}
+
+		const kind = draggable.dataset.dragKind;
+		const id = Number(draggable.dataset.dragId);
+		if (!kind || !Number.isInteger(id)) {
+			return;
+		}
+
+		event.dataTransfer.effectAllowed = "move";
+		event.dataTransfer.setData("text/plain", JSON.stringify({ kind, id }));
+		draggable.classList.add("inventory-node--dragging");
+	});
+
+	treeRoot.addEventListener("dragend", (event) => {
+		const target = event.target;
+		if (target instanceof HTMLElement) {
+			target
+				.closest("[data-drag-kind]")
+				?.classList.remove("inventory-node--dragging");
+		}
+		clearDropTarget();
+	});
+
+	treeRoot.addEventListener("dragover", (event) => {
+		const target = event.target;
+		if (!(target instanceof HTMLElement) || !event.dataTransfer) {
+			return;
+		}
+
+		const dropTarget = target.closest<HTMLElement>("[data-drop-kind]");
+		if (!dropTarget) {
+			clearDropTarget();
+			return;
+		}
+
+		event.preventDefault();
+		event.dataTransfer.dropEffect = "move";
+		if (activeDropTarget !== dropTarget) {
+			clearDropTarget();
+			activeDropTarget = dropTarget;
+			activeDropTarget.classList.add("inventory-drop-target--active");
+		}
+	});
+
+	treeRoot.addEventListener("drop", async (event) => {
+		const target = event.target;
+		if (!(target instanceof HTMLElement) || !event.dataTransfer) {
+			return;
+		}
+
+		const dropTarget = target.closest<HTMLElement>("[data-drop-kind]");
+		clearDropTarget();
+		if (!dropTarget) {
+			return;
+		}
+
+		event.preventDefault();
+
+		const rawPayload = event.dataTransfer.getData("text/plain");
+		if (!rawPayload) {
+			return;
+		}
+
+		let payload: { kind?: string; id?: number };
+		try {
+			payload = JSON.parse(rawPayload) as { kind?: string; id?: number };
+		} catch {
+			return;
+		}
+
+		if (
+			(payload.kind !== "item" && payload.kind !== "container") ||
+			!Number.isInteger(payload.id)
+		) {
+			return;
+		}
+
+		const dropKind = dropTarget.dataset.dropKind;
+		const targetContainerId =
+			dropKind === "root"
+				? null
+				: Number.parseInt(dropTarget.dataset.dropId ?? "", 10);
+		if (dropKind === "container" && !Number.isInteger(targetContainerId)) {
+			return;
+		}
+
+		try {
+			if (payload.kind === "item") {
+				const normalizedSource =
+					inventoryTreeState?.items.find(
+						(item) => item.id === payload.id,
+					)?.container_id ?? null;
+				if (normalizedSource === targetContainerId) {
+					return;
+				}
+
+				await updateInventoryItemContainer(
+					payload.id,
+					targetContainerId,
+				);
+				await loadInventoryPageData("Inventory location updated.");
+				return;
+			}
+
+			if (isContainerDropInvalid(payload.id, targetContainerId)) {
+				setStatus(
+					"inventory-status",
+					"Container cannot be dropped into itself or one of its descendants.",
+					true,
+				);
+				return;
+			}
+
+			const currentContainer = inventoryTreeState?.containers.find(
+				(container) => container.id === payload.id,
+			);
+			if (
+				currentContainer &&
+				(currentContainer.parent_container_id ?? null) ===
+					targetContainerId
+			) {
+				return;
+			}
+
+			await updateInventoryContainerParent(payload.id, targetContainerId);
+			await loadInventoryPageData("Container location updated.");
+		} catch (error) {
+			setStatus(
+				"inventory-status",
+				error instanceof Error
+					? error.message
+					: "Failed to update inventory tree",
+				true,
+			);
+		}
+	});
+};
+
+const renderInventoryPage = () => {
+	renderPage(
+		`
+			<section class="workspace workspace--single">
+				<div class="card panel inventory-tree-panel">
+					<div class="section-header section-header--end">
+						<div id="inventory-status" class="status"></div>
+					</div>
+					<div id="inventory-tree-root"></div>
+				</div>
+			</section>
+
+			<div class="inventory-container-modal" id="inventory-container-modal" hidden>
+				<div
+					class="inventory-container-modal__backdrop"
+					data-close-inventory-container-modal
+				></div>
+				<div
+					class="inventory-container-modal__dialog card panel"
+					role="dialog"
+					aria-modal="true"
+					aria-label="Create inventory container"
+				>
+					<div class="section-header section-header--end">
+						<h2>Add Container</h2>
+						<button
+							class="secondary"
+							type="button"
+							aria-label="Close create inventory container modal"
+							data-close-inventory-container-modal
+						>
+							Close
+						</button>
+					</div>
+					<form id="inventory-container-modal-form">
+						<label>
+							Name
+							<input
+								id="inventory-container-name"
+								name="name"
+								placeholder="Room X"
+								required
+							/>
+						</label>
+
+						<label>
+							Notes
+							<input
+								id="inventory-container-notes"
+								name="notes"
+								placeholder="Pantry shelf or freezer drawer"
+							/>
+						</label>
+
+						<div class="actions">
+							<button class="primary" type="submit">Add Container</button>
+						</div>
+					</form>
+				</div>
+			</div>
+		`,
+	);
+
+	attachInventoryPageEvents();
+	void loadInventoryPageData();
+};
+
+const renderInventoryContainerDetailPage = (params: Record<string, string>) => {
+	renderPage('<div id="inventory-container-detail-page"></div>');
+
+	void (async () => {
+		const rawId = params.id ?? "";
+		const containerId = Number.parseInt(rawId, 10);
+		const page = document.getElementById("inventory-container-detail-page");
+		if (!page) {
+			return;
+		}
+
+		if (!Number.isInteger(containerId)) {
+			page.innerHTML =
+				'<div class="card panel page-panel"><p class="page-copy">Container id is invalid.</p></div>';
+			return;
+		}
+
+		try {
+			const [container, containers, items, products] = await Promise.all([
+				fetchInventoryContainer(containerId),
+				fetchInventoryContainers(),
+				fetchInventoryItemsByContainer(containerId),
+				fetchAllProducts(),
+			]);
+
+			const productNames = new Map(
+				products.map((product) => [product.id, product.name]),
+			);
+			const children = containers
+				.filter(
+					(candidate) =>
+						candidate.parent_container_id === containerId,
+				)
+				.sort((left, right) => left.name.localeCompare(right.name));
+			const descendants = new Set<number>([containerId]);
+			let foundDescendant = true;
+			while (foundDescendant) {
+				foundDescendant = false;
+				for (const candidate of containers) {
+					if (
+						candidate.parent_container_id !== null &&
+						descendants.has(candidate.parent_container_id) &&
+						!descendants.has(candidate.id)
+					) {
+						descendants.add(candidate.id);
+						foundDescendant = true;
+					}
+				}
+			}
+
+			const parentOptions = containers
+				.filter((candidate) => !descendants.has(candidate.id))
+				.sort((left, right) => left.name.localeCompare(right.name))
+				.map(
+					(candidate) => `
+						<option
+							value="${candidate.id}"
+							${container.parent_container_id === candidate.id ? "selected" : ""}
+						>
+							${candidate.name}
+						</option>
+					`,
+				)
+				.join("");
+
+			page.innerHTML = `
+				<section class="page-heading page-heading--compact">
+					<div>
+						<h1 class="page-title">${container.name}</h1>
+					</div>
+					<a class="secondary action-link" href="/inventory" data-link>Back To Inventory</a>
+				</section>
+
+				<section class="workspace">
+					<div class="card panel">
+						<h2>Container Details</h2>
+						<form id="inventory-container-detail-form">
+							<label>
+								Name
+								<input id="inventory-container-detail-name" name="name" value="${container.name}" required />
+							</label>
+							<label>
+								Inside
+								<select id="inventory-container-detail-parent" name="parent_container_id">
+									<option value="">Top level</option>
+									${parentOptions}
+								</select>
+							</label>
+							<label>
+								Notes
+								<input id="inventory-container-detail-notes" name="notes" value="${container.notes ?? ""}" placeholder="Pantry shelf or freezer drawer" />
+							</label>
+							<div class="actions">
+								<button class="primary" type="submit">Save</button>
+								<button
+									class="secondary"
+									type="button"
+									id="inventory-container-detail-delete"
+								>
+									Delete
+								</button>
+							</div>
+						</form>
+						<div id="inventory-container-detail-status" class="status"></div>
+					</div>
+
+					<div class="card panel">
+						<h2>Contents</h2>
+						<div class="results">
+							<div class="inventory-detail-block">
+								<h3>Child Containers</h3>
+								${
+									children.length
+										? `<div class="inventory-detail-list">${children
+												.map(
+													(child) => `
+														<a class="receipt-card" href="/inventory/containers/${child.id}" data-link>
+															<div class="receipt-card__header">
+																<h3>${child.name}</h3>
+															</div>
+															<div class="section-copy">${child.notes ?? "No notes"}</div>
+														</a>
+													`,
+												)
+												.join("")}</div>`
+										: '<div class="empty">No child containers.</div>'
+								}
+							</div>
+
+							<div class="inventory-detail-block">
+								<h3>Active Items</h3>
+								${
+									items.length
+										? `<div class="inventory-detail-list">${items
+												.map((item) => {
+													const productName =
+														productNames.get(
+															item.product_id,
+														) ??
+														`Product #${item.product_id}`;
+													return `
+														<div class="inventory-node inventory-node--item">
+															<div class="inventory-node__main">
+																<strong>${productName}</strong>
+																<div class="inventory-node__meta">
+																	<span>${item.quantity} ${item.unit}</span>
+																	${getInventoryItemMeta(item) ? `<span>${getInventoryItemMeta(item)}</span>` : ""}
+																</div>
+															</div>
+														</div>
+													`;
+												})
+												.join("")}</div>`
+										: '<div class="empty">No active items in this container.</div>'
+								}
+							</div>
+						</div>
+					</div>
+				</section>
+			`;
+
+			const form = document.getElementById(
+				"inventory-container-detail-form",
+			);
+			const deleteButton = document.getElementById(
+				"inventory-container-detail-delete",
+			);
+
+			form?.addEventListener("submit", async (event) => {
+				event.preventDefault();
+				const nameInput = document.getElementById(
+					"inventory-container-detail-name",
+				);
+				const parentInput = document.getElementById(
+					"inventory-container-detail-parent",
+				);
+				const notesInput = document.getElementById(
+					"inventory-container-detail-notes",
+				);
+
+				if (
+					!(nameInput instanceof HTMLInputElement) ||
+					!(parentInput instanceof HTMLSelectElement) ||
+					!(notesInput instanceof HTMLInputElement)
+				) {
+					return;
+				}
+
+				try {
+					const updated = await updateInventoryContainer(
+						containerId,
+						{
+							name: nameInput.value.trim(),
+							parent_container_id: parentInput.value
+								? Number(parentInput.value)
+								: null,
+							notes: notesInput.value.trim() || null,
+						},
+					);
+					setStatus(
+						"inventory-container-detail-status",
+						`Saved ${updated.name}.`,
+					);
+				} catch (error) {
+					setStatus(
+						"inventory-container-detail-status",
+						error instanceof Error
+							? error.message
+							: "Failed to save container.",
+						true,
+					);
+				}
+			});
+
+			deleteButton?.addEventListener("click", async () => {
+				const confirmed = window.confirm(
+					`Delete ${container.name}? Child containers and inventory items will be unassigned.`,
+				);
+				if (!confirmed) {
+					return;
+				}
+
+				try {
+					await deleteInventoryContainer(containerId);
+					window.history.pushState({}, "", "/inventory");
+					renderInventoryPage();
+				} catch (error) {
+					setStatus(
+						"inventory-container-detail-status",
+						error instanceof Error
+							? error.message
+							: "Failed to delete container.",
+						true,
+					);
+				}
+			});
+		} catch (error) {
+			page.innerHTML = `
+				<div class="card panel page-panel">
+					<p class="page-copy">${error instanceof Error ? error.message : "Failed to load inventory container."}</p>
+				</div>
+			`;
+		}
+	})();
 };
 
 const renderReceiptsPage = () => {
@@ -1136,11 +2663,13 @@ const renderReceiptDetailPage = (params: Record<string, string>) => {
 		}
 
 		try {
-			const [receipt, items] = await Promise.all([
+			const [receipt, items, products] = await Promise.all([
 				fetchReceipt(receiptId),
 				fetchReceiptItems(receiptId),
+				fetchAllProducts(),
 			]);
-			renderReceiptDetail(receipt, items);
+			renderReceiptDetail(receipt, items, products);
+			attachReceiptDetailEvents();
 		} catch (error) {
 			const page = document.getElementById("receipt-detail-page");
 			if (page) {
@@ -1177,6 +2706,8 @@ window.onload = () => {
 
 	routes({
 		"/": renderOverviewPage,
+		"/inventory": renderInventoryPage,
+		"/inventory/containers/:id": renderInventoryContainerDetailPage,
 		"/products": renderProductsPage,
 		"/receipts": renderReceiptsPage,
 		"/receipts/:id": renderReceiptDetailPage,

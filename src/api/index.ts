@@ -18,6 +18,10 @@ export {
 	inventoryItemsCollectionRoute,
 } from "./inventory-items";
 export {
+	inventoryContainerDetailRoute,
+	inventoryContainersCollectionRoute,
+} from "./inventory-containers";
+export {
 	mealPlanItemDetailRoute,
 	mealPlanItemsCollectionRoute,
 } from "./meal-plan-items";

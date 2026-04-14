@@ -1,28 +1,14 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { createServer } from "node:net";
 
-type ApiResponse<TBody = unknown> = {
-	body: TBody;
-	response: Response;
-};
-
-type RunningServer = {
-	baseUrl: string;
-	dbPath: string;
-	process: Bun.Subprocess<"ignore", "pipe", "pipe">;
-	tempDir: string;
-};
-
-type CallOptions = Omit<RequestInit, "body" | "headers"> & {
-	body?: BodyInit | Record<string, unknown>;
-	headers?: HeadersInit;
-};
+import { TestServer } from "./support/test-server";
 
 const runningServers: TestServer[] = [];
-const projectRoot = resolve(dirname(import.meta.dir));
+
+const startServer = async () => {
+	const server = await TestServer.start();
+	runningServers.push(server);
+	return server;
+};
 
 afterEach(async () => {
 	const server = runningServers.pop();
@@ -33,145 +19,9 @@ afterEach(async () => {
 	await server.close();
 });
 
-const getFreePort = () =>
-	new Promise<number>((resolvePort, reject) => {
-		const probe = createServer();
-
-		probe.once("error", reject);
-		probe.listen(0, "127.0.0.1", () => {
-			const address = probe.address();
-			if (!address || typeof address === "string") {
-				probe.close();
-				reject(new Error("Failed to allocate a port for e2e tests"));
-				return;
-			}
-
-			const { port } = address;
-			probe.close((error) => {
-				if (error) {
-					reject(error);
-					return;
-				}
-				resolvePort(port);
-			});
-		});
-	});
-
-const waitForHealth = async (baseUrl: string, timeoutMs = 5000) => {
-	const startedAt = Date.now();
-
-	while (Date.now() - startedAt < timeoutMs) {
-		try {
-			const response = await fetch(`${baseUrl}/health`);
-			if (response.ok) {
-				return;
-			}
-		} catch {
-			// Server is still starting.
-		}
-
-		await Bun.sleep(100);
-	}
-
-	throw new Error(`Server did not become healthy within ${timeoutMs}ms`);
-};
-
-class TestServer {
-	readonly baseUrl: string;
-	readonly dbPath: string;
-	readonly process: Bun.Subprocess<"ignore", "pipe", "pipe">;
-	readonly tempDir: string;
-
-	constructor(server: RunningServer) {
-		this.baseUrl = server.baseUrl;
-		this.dbPath = server.dbPath;
-		this.process = server.process;
-		this.tempDir = server.tempDir;
-	}
-
-	static async start() {
-		const port = await getFreePort();
-		const tempDir = mkdtempSync(join(tmpdir(), "pupler-e2e-"));
-		const dbPath = join(tempDir, "pupler.sqlite");
-		mkdirSync(tempDir, { recursive: true });
-
-		const child = Bun.spawn(["bun", "src/main.ts"], {
-			cwd: projectRoot,
-			env: {
-				...process.env,
-				PORT: String(port),
-				DB_PATH: dbPath,
-			},
-			stdout: "pipe",
-			stderr: "pipe",
-		});
-
-		const server = new TestServer({
-			baseUrl: `http://127.0.0.1:${port}`,
-			dbPath,
-			process: child,
-			tempDir,
-		});
-		runningServers.push(server);
-
-		try {
-			await waitForHealth(server.baseUrl);
-			return server;
-		} catch (error) {
-			const stderr = await new Response(child.stderr).text();
-			throw new Error(`${String(error)}\n${stderr}`.trim());
-		}
-	}
-
-	async close() {
-		this.process.kill();
-		await this.process.exited;
-		rmSync(this.tempDir, { force: true, recursive: true });
-	}
-
-	async call<TBody = unknown>(
-		path: string,
-		options: CallOptions = {},
-	): Promise<ApiResponse<TBody>> {
-		const headers = new Headers(options.headers);
-		let body: BodyInit | undefined;
-
-		if (options.body !== undefined) {
-			if (
-				typeof options.body === "string" ||
-				options.body instanceof ArrayBuffer ||
-				ArrayBuffer.isView(options.body) ||
-				options.body instanceof Blob ||
-				options.body instanceof FormData ||
-				options.body instanceof URLSearchParams ||
-				options.body instanceof ReadableStream
-			) {
-				body = options.body;
-			} else {
-				if (!headers.has("Content-Type")) {
-					headers.set("Content-Type", "application/json");
-				}
-				body = JSON.stringify(options.body);
-			}
-		}
-
-		const response = await fetch(`${this.baseUrl}${path}`, {
-			...options,
-			headers,
-			body,
-		});
-		const contentType = response.headers.get("content-type") ?? "";
-		const parsedBody = contentType.includes("application/json")
-			? ((await response.json()) as TBody)
-			: ((await response.text()) as TBody);
-
-		return { body: parsedBody, response };
-	}
-}
-
 describe("Pupler API e2e", () => {
 	test("serves the index page from the root route", async () => {
-		const server = await TestServer.start();
+		const server = await startServer();
 
 		const page = await server.call<string>("/");
 		expect(page.response.status).toBe(200);
@@ -184,7 +34,14 @@ describe("Pupler API e2e", () => {
 	});
 
 	test("serves the app shell for known browser pages", async () => {
-		const server = await TestServer.start();
+		const server = await startServer();
+
+		const inventoryPage = await server.call<string>("/inventory");
+		expect(inventoryPage.response.status).toBe(200);
+		expect(inventoryPage.response.headers.get("content-type")).toContain(
+			"text/html",
+		);
+		expect(inventoryPage.body).toContain("<title>Pupler</title>");
 
 		const page = await server.call<string>("/products");
 		expect(page.response.status).toBe(200);
@@ -193,10 +50,19 @@ describe("Pupler API e2e", () => {
 		);
 		expect(page.body).toContain("<title>Pupler</title>");
 		expect(page.body).toContain("<body></body>");
+
+		const inventoryContainerPage = await server.call<string>(
+			"/inventory/containers/1",
+		);
+		expect(inventoryContainerPage.response.status).toBe(200);
+		expect(
+			inventoryContainerPage.response.headers.get("content-type"),
+		).toContain("text/html");
+		expect(inventoryContainerPage.body).toContain("<title>Pupler</title>");
 	});
 
 	test("serves the app shell for receipt pages", async () => {
-		const server = await TestServer.start();
+		const server = await startServer();
 
 		const listPage = await server.call<string>("/receipts");
 		expect(listPage.response.status).toBe(200);
@@ -214,7 +80,7 @@ describe("Pupler API e2e", () => {
 	});
 
 	test("serves the app shell for shopping list pages", async () => {
-		const server = await TestServer.start();
+		const server = await startServer();
 
 		const page = await server.call<string>("/shopping-lists");
 		expect(page.response.status).toBe(200);
@@ -226,7 +92,7 @@ describe("Pupler API e2e", () => {
 	});
 
 	test("serves the 404 page for unknown browser routes", async () => {
-		const server = await TestServer.start();
+		const server = await startServer();
 
 		const page = await server.call<string>("/missing");
 		expect(page.response.status).toBe(404);
@@ -238,7 +104,7 @@ describe("Pupler API e2e", () => {
 	});
 
 	test("keeps JSON 404s for unknown API routes", async () => {
-		const server = await TestServer.start();
+		const server = await startServer();
 
 		const response = await server.call<{ error: string }>("/api/missing");
 		expect(response.response.status).toBe(404);
@@ -249,7 +115,7 @@ describe("Pupler API e2e", () => {
 	});
 
 	test("starts the server and looks up a product by barcode over HTTP", async () => {
-		const server = await TestServer.start();
+		const server = await startServer();
 
 		const created = await server.call<{ id: number; barcode: string }>(
 			"/api/products",
@@ -276,8 +142,63 @@ describe("Pupler API e2e", () => {
 		expect(listed.body[0].id).toBe(created.body.id);
 	});
 
+	test("looks up a product by name case-insensitively over HTTP", async () => {
+		const server = await startServer();
+
+		const created = await server.call<{ id: number; name: string }>(
+			"/api/products",
+			{
+				method: "POST",
+				body: {
+					name: "Greek Yogurt",
+					category: "food",
+					barcode: "742",
+					default_unit: "cup",
+					is_perishable: true,
+				},
+			},
+		);
+
+		expect(created.response.status).toBe(201);
+		expect(created.body.name).toBe("Greek Yogurt");
+
+		const listed = await server.call<Array<{ id: number }>>(
+			"/api/products?name=greek%20yogurt",
+		);
+		expect(listed.response.status).toBe(200);
+		expect(listed.body).toHaveLength(1);
+		expect(listed.body[0].id).toBe(created.body.id);
+	});
+
+	test("looks up a product by partial name case-insensitively over HTTP", async () => {
+		const server = await startServer();
+
+		const created = await server.call<{ id: number; name: string }>(
+			"/api/products",
+			{
+				method: "POST",
+				body: {
+					name: "Organic Greek Yogurt",
+					category: "food",
+					barcode: "744",
+					default_unit: "cup",
+					is_perishable: true,
+				},
+			},
+		);
+
+		expect(created.response.status).toBe(201);
+
+		const listed = await server.call<Array<{ id: number }>>(
+			"/api/products?name_contains=greek",
+		);
+		expect(listed.response.status).toBe(200);
+		expect(listed.body).toHaveLength(1);
+		expect(listed.body[0].id).toBe(created.body.id);
+	});
+
 	test("rejects deleting a referenced product over HTTP", async () => {
-		const server = await TestServer.start();
+		const server = await startServer();
 
 		const product = await server.call<{ id: number }>("/api/products", {
 			method: "POST",
@@ -312,7 +233,7 @@ describe("Pupler API e2e", () => {
 	});
 
 	test("patches a product over HTTP", async () => {
-		const server = await TestServer.start();
+		const server = await startServer();
 
 		const created = await server.call<{ id: number }>("/api/products", {
 			method: "POST",
@@ -341,7 +262,7 @@ describe("Pupler API e2e", () => {
 	});
 
 	test("uploads and fetches a product picture over HTTP", async () => {
-		const server = await TestServer.start();
+		const server = await startServer();
 
 		const created = await server.call<{ id: number }>("/api/products", {
 			method: "POST",
@@ -385,7 +306,7 @@ describe("Pupler API e2e", () => {
 	});
 
 	test("uploads and fetches a purchase receipt picture over HTTP", async () => {
-		const server = await TestServer.start();
+		const server = await startServer();
 
 		const created = await server.call<{ id: number }>("/api/receipts", {
 			method: "POST",
@@ -428,7 +349,7 @@ describe("Pupler API e2e", () => {
 	});
 
 	test("creates receipt items over HTTP", async () => {
-		const server = await TestServer.start();
+		const server = await startServer();
 
 		const product = await server.call<{ id: number }>("/api/products", {
 			method: "POST",
@@ -472,17 +393,149 @@ describe("Pupler API e2e", () => {
 		expect(created.body.receipt_id).toBe(receipt.body.id);
 		expect(created.body.product_id).toBe(product.body.id);
 
-		const listed = await server.call<Array<{ id: number; receipt_id: number }>>(
-			`/api/receipt-items?receipt_id=${receipt.body.id}`,
-		);
+		const listed = await server.call<
+			Array<{ id: number; receipt_id: number }>
+		>(`/api/receipt-items?receipt_id=${receipt.body.id}`);
 		expect(listed.response.status).toBe(200);
 		expect(listed.body).toHaveLength(1);
 		expect(listed.body[0].id).toBe(created.body.id);
 		expect(listed.body[0].receipt_id).toBe(receipt.body.id);
 	});
 
+	test("creates inventory containers and assigns inventory items over HTTP", async () => {
+		const server = await startServer();
+
+		const product = await server.call<{ id: number }>("/api/products", {
+			method: "POST",
+			body: {
+				name: "Rice",
+				category: "food",
+				barcode: "777",
+				default_unit: "bag",
+				is_perishable: false,
+			},
+		});
+		expect(product.response.status).toBe(201);
+
+		const parent = await server.call<{ id: number; name: string }>(
+			"/api/inventory-containers",
+			{
+				method: "POST",
+				body: {
+					name: "Room X",
+					parent_container_id: null,
+					notes: "Kitchen",
+				},
+			},
+		);
+		expect(parent.response.status).toBe(201);
+
+		const child = await server.call<{
+			id: number;
+			parent_container_id: number;
+		}>("/api/inventory-containers", {
+			method: "POST",
+			body: {
+				name: "Closet B",
+				parent_container_id: parent.body.id,
+				notes: null,
+			},
+		});
+		expect(child.response.status).toBe(201);
+		expect(child.body.parent_container_id).toBe(parent.body.id);
+
+		const item = await server.call<{
+			id: number;
+			container_id: number | null;
+		}>("/api/inventory-items", {
+			method: "POST",
+			body: {
+				product_id: product.body.id,
+				receipt_item_id: null,
+				container_id: parent.body.id,
+				quantity: 1,
+				unit: "bag",
+				purchased_at: null,
+				expires_at: null,
+				consumed_at: null,
+				notes: "Cupboard stock",
+			},
+		});
+		expect(item.response.status).toBe(201);
+		expect(item.body.container_id).toBe(parent.body.id);
+
+		const filtered = await server.call<Array<{ id: number }>>(
+			`/api/inventory-items?container_id=${parent.body.id}`,
+		);
+		expect(filtered.response.status).toBe(200);
+		expect(filtered.body).toHaveLength(1);
+		expect(filtered.body[0].id).toBe(item.body.id);
+
+		const deleted = await server.call(
+			`/api/inventory-containers/${parent.body.id}`,
+			{
+				method: "DELETE",
+			},
+		);
+		expect(deleted.response.status).toBe(204);
+
+		const refreshedChild = await server.call<{
+			parent_container_id: number | null;
+		}>(`/api/inventory-containers/${child.body.id}`);
+		expect(refreshedChild.response.status).toBe(200);
+		expect(refreshedChild.body.parent_container_id).toBeNull();
+
+		const refreshedItem = await server.call<{
+			container_id: number | null;
+		}>(`/api/inventory-items/${item.body.id}`);
+		expect(refreshedItem.response.status).toBe(200);
+		expect(refreshedItem.body.container_id).toBeNull();
+	});
+
+	test("rejects container cycles over HTTP", async () => {
+		const server = await startServer();
+
+		const parent = await server.call<{ id: number }>(
+			"/api/inventory-containers",
+			{
+				method: "POST",
+				body: {
+					name: "Room X",
+					parent_container_id: null,
+					notes: null,
+				},
+			},
+		);
+		expect(parent.response.status).toBe(201);
+
+		const child = await server.call<{ id: number }>(
+			"/api/inventory-containers",
+			{
+				method: "POST",
+				body: {
+					name: "Closet B",
+					parent_container_id: parent.body.id,
+					notes: null,
+				},
+			},
+		);
+		expect(child.response.status).toBe(201);
+
+		const invalid = await server.call<{ error: string }>(
+			`/api/inventory-containers/${parent.body.id}`,
+			{
+				method: "PATCH",
+				body: {
+					parent_container_id: child.body.id,
+				},
+			},
+		);
+		expect(invalid.response.status).toBe(400);
+		expect(invalid.body.error).toContain("cycle");
+	});
+
 	test("creates shoppinglist items over HTTP without a parent list", async () => {
-		const server = await TestServer.start();
+		const server = await startServer();
 
 		const product = await server.call<{ id: number }>("/api/products", {
 			method: "POST",

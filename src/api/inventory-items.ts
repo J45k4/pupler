@@ -36,6 +36,7 @@ const SORT_FIELDS = new Set([
 	"id",
 	"product_id",
 	"receipt_item_id",
+	"container_id",
 	"quantity",
 	"unit",
 	"purchased_at",
@@ -48,6 +49,7 @@ const SORT_FIELDS = new Set([
 const WRITABLE_FIELDS = [
 	"product_id",
 	"receipt_item_id",
+	"container_id",
 	"quantity",
 	"unit",
 	"purchased_at",
@@ -76,6 +78,7 @@ const parseFilters = (url: URL) => {
 			case "id":
 			case "product_id":
 			case "receipt_item_id":
+			case "container_id":
 				if (value === "null") {
 					filters.push(`${key} IS NULL`);
 				} else {
@@ -126,6 +129,12 @@ const parseCreateValues = (body: JsonObject): RowValues => {
 				"receipt_item_id",
 				expectNullableInteger,
 			) ?? null,
+		container_id:
+			readOptionalBodyField(
+				body,
+				"container_id",
+				expectNullableInteger,
+			) ?? null,
 		quantity: requireBodyField(body, "quantity", expectDecimal),
 		unit: requireBodyField(body, "unit", expectString),
 		purchased_at:
@@ -166,6 +175,12 @@ const parseReplaceValues = (
 				"receipt_item_id",
 				expectNullableInteger,
 			) ?? null,
+		container_id:
+			readOptionalBodyField(
+				body,
+				"container_id",
+				expectNullableInteger,
+			) ?? null,
 		quantity: requireBodyField(body, "quantity", expectDecimal),
 		unit: requireBodyField(body, "unit", expectString),
 		purchased_at:
@@ -203,6 +218,11 @@ const parsePatchValues = (body: JsonObject) => {
 		"receipt_item_id",
 		expectNullableInteger,
 	);
+	const containerId = readOptionalBodyField(
+		body,
+		"container_id",
+		expectNullableInteger,
+	);
 	const quantity = readOptionalBodyField(body, "quantity", expectDecimal);
 	const unit = readOptionalBodyField(body, "unit", expectString);
 	const purchasedAt = readOptionalBodyField(
@@ -224,6 +244,7 @@ const parsePatchValues = (body: JsonObject) => {
 
 	if (productId !== undefined) values.product_id = productId;
 	if (receiptItemId !== undefined) values.receipt_item_id = receiptItemId;
+	if (containerId !== undefined) values.container_id = containerId;
 	if (quantity !== undefined) values.quantity = quantity;
 	if (unit !== undefined) values.unit = unit;
 	if (purchasedAt !== undefined) values.purchased_at = purchasedAt;
