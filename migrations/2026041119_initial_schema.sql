@@ -5,6 +5,10 @@ CREATE TABLE IF NOT EXISTS products (
   barcode TEXT UNIQUE,
   default_unit TEXT,
   is_perishable INTEGER NOT NULL,
+  picture_blob BLOB,
+  picture_content_type TEXT,
+  picture_filename TEXT,
+  picture_uploaded_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -17,19 +21,23 @@ CREATE TABLE IF NOT EXISTS product_links (
   created_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS purchase_receipts (
+CREATE TABLE IF NOT EXISTS receipts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   store_name TEXT NOT NULL,
   purchased_at TEXT NOT NULL,
   currency TEXT NOT NULL,
   total_amount REAL,
+  picture_blob BLOB,
+  picture_content_type TEXT,
+  picture_filename TEXT,
+  picture_uploaded_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS purchase_receipt_items (
+CREATE TABLE IF NOT EXISTS receipt_items (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  receipt_id INTEGER NOT NULL REFERENCES purchase_receipts(id),
+  receipt_id INTEGER NOT NULL REFERENCES receipts(id),
   product_id INTEGER NOT NULL REFERENCES products(id),
   quantity REAL NOT NULL,
   unit TEXT NOT NULL,
@@ -41,7 +49,7 @@ CREATE TABLE IF NOT EXISTS purchase_receipt_items (
 CREATE TABLE IF NOT EXISTS inventory_items (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   product_id INTEGER NOT NULL REFERENCES products(id),
-  receipt_item_id INTEGER REFERENCES purchase_receipt_items(id),
+  receipt_item_id INTEGER REFERENCES receipt_items(id),
   quantity REAL NOT NULL,
   unit TEXT NOT NULL,
   purchased_at TEXT,
@@ -85,20 +93,8 @@ CREATE TABLE IF NOT EXISTS meal_plan_items (
   updated_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS shopping_lists (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL,
-  start_date TEXT,
-  end_date TEXT,
-  status TEXT NOT NULL,
-  generated_from_meal_plan INTEGER NOT NULL,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS shopping_list_items (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  shopping_list_id INTEGER NOT NULL REFERENCES shopping_lists(id),
   product_id INTEGER NOT NULL REFERENCES products(id),
   quantity REAL NOT NULL,
   unit TEXT NOT NULL,
@@ -111,10 +107,10 @@ CREATE TABLE IF NOT EXISTS shopping_list_items (
 
 CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode);
 CREATE INDEX IF NOT EXISTS idx_product_links_product_id ON product_links(product_id);
-CREATE INDEX IF NOT EXISTS idx_receipt_items_receipt_id ON purchase_receipt_items(receipt_id);
-CREATE INDEX IF NOT EXISTS idx_receipt_items_product_id ON purchase_receipt_items(product_id);
+CREATE INDEX IF NOT EXISTS idx_receipt_items_receipt_id ON receipt_items(receipt_id);
+CREATE INDEX IF NOT EXISTS idx_receipt_items_product_id ON receipt_items(product_id);
 CREATE INDEX IF NOT EXISTS idx_inventory_product_id ON inventory_items(product_id);
 CREATE INDEX IF NOT EXISTS idx_recipe_ingredients_recipe_id ON recipe_ingredients(recipe_id);
 CREATE INDEX IF NOT EXISTS idx_recipe_ingredients_product_id ON recipe_ingredients(product_id);
 CREATE INDEX IF NOT EXISTS idx_meal_plan_recipe_id ON meal_plan_items(recipe_id);
-CREATE INDEX IF NOT EXISTS idx_shopping_list_items_list_id ON shopping_list_items(shopping_list_id);
+CREATE INDEX IF NOT EXISTS idx_shopping_list_items_product_id ON shopping_list_items(product_id);

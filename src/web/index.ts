@@ -10,6 +10,27 @@ type Product = {
 	is_perishable: boolean;
 };
 
+type PurchaseReceipt = {
+	id: number;
+	store_name: string;
+	purchased_at: string;
+	currency: string;
+	total_amount: number | null;
+	created_at: string;
+	updated_at: string;
+};
+
+type PurchaseReceiptItem = {
+	id: number;
+	receipt_id: number;
+	product_id: number;
+	quantity: number;
+	unit: string;
+	unit_price: number | null;
+	line_total: number | null;
+	created_at: string;
+};
+
 type ShoppingListItem = {
 	id: number;
 	product_id: number;
@@ -50,6 +71,30 @@ const formatShoppingDate = (value: string) =>
 		month: "short",
 		day: "numeric",
 	}).format(new Date(value));
+
+const formatReceiptDateTime = (value: string) =>
+	new Intl.DateTimeFormat(undefined, {
+		year: "numeric",
+		month: "short",
+		day: "numeric",
+		hour: "2-digit",
+		minute: "2-digit",
+	}).format(new Date(value));
+
+const formatMoney = (value: number | null, currency: string) => {
+	if (value === null) {
+		return "-";
+	}
+
+	try {
+		return new Intl.NumberFormat(undefined, {
+			style: "currency",
+			currency,
+		}).format(value);
+	} catch {
+		return `${value} ${currency}`;
+	}
+};
 
 const getShoppingListMode = () => {
 	const toggle = document.getElementById("shoppinglist-show-done");
@@ -193,6 +238,136 @@ const renderShoppingListItems = (
 	`;
 };
 
+const renderReceipts = (receipts: PurchaseReceipt[]) => {
+	const results = document.getElementById("receipt-results");
+	if (!results) {
+		return;
+	}
+
+	if (!receipts.length) {
+		results.innerHTML = '<div class="empty">No receipts yet.</div>';
+		return;
+	}
+
+	results.innerHTML = receipts
+		.map(
+			(receipt) => `
+				<a class="receipt-card" href="/receipts/${receipt.id}" data-link>
+					<div class="receipt-card__header">
+						<h3>${receipt.store_name}</h3>
+						<span class="tag tag--neutral">${receipt.currency}</span>
+					</div>
+					<dl class="receipt-card__meta">
+						<div>
+							<dt>Purchased</dt>
+							<dd>${formatReceiptDateTime(receipt.purchased_at)}</dd>
+						</div>
+						<div>
+							<dt>Total</dt>
+							<dd>${formatMoney(receipt.total_amount, receipt.currency)}</dd>
+						</div>
+					</dl>
+				</a>
+			`,
+		)
+		.join("");
+};
+
+const renderReceiptDetail = (
+	receipt: PurchaseReceipt,
+	items: PurchaseReceiptItem[],
+) => {
+	const page = document.getElementById("receipt-detail-page");
+	if (!page) {
+		return;
+	}
+
+	page.innerHTML = `
+		<section class="page-heading page-heading--compact">
+			<div>
+				<span class="eyebrow">Receipt</span>
+				<h1 class="page-title">${receipt.store_name}</h1>
+			</div>
+			<a class="secondary action-link" href="/receipts" data-link>Back To Receipts</a>
+		</section>
+
+		<section class="workspace receipt-detail-grid">
+			<div class="card panel">
+				<h2>Original Picture</h2>
+				<div class="receipt-picture">
+					<img
+						class="receipt-picture__image"
+						src="/api/receipts/${receipt.id}/picture"
+						alt="${receipt.store_name}"
+						loading="lazy"
+						onerror="this.closest('.receipt-picture').innerHTML='<div class=&quot;empty&quot;>No receipt picture uploaded.</div>'"
+					/>
+				</div>
+			</div>
+
+			<div class="card panel">
+				<h2>Extracted Metadata</h2>
+				<dl class="receipt-metadata">
+					<div>
+						<dt>Store</dt>
+						<dd>${receipt.store_name}</dd>
+					</div>
+					<div>
+						<dt>Purchased</dt>
+						<dd>${formatReceiptDateTime(receipt.purchased_at)}</dd>
+					</div>
+					<div>
+						<dt>Currency</dt>
+						<dd>${receipt.currency}</dd>
+					</div>
+					<div>
+						<dt>Total</dt>
+						<dd>${formatMoney(receipt.total_amount, receipt.currency)}</dd>
+					</div>
+					<div>
+						<dt>Created</dt>
+						<dd>${formatReceiptDateTime(receipt.created_at)}</dd>
+					</div>
+					<div>
+						<dt>Updated</dt>
+						<dd>${formatReceiptDateTime(receipt.updated_at)}</dd>
+					</div>
+				</dl>
+
+				<h2>Extracted Items</h2>
+				${
+					items.length
+						? `
+							<table class="shoppinglist-table">
+								<thead>
+									<tr>
+										<th>Product ID</th>
+										<th>Quantity</th>
+										<th>Line Total</th>
+									</tr>
+								</thead>
+								<tbody>
+									${items
+										.map(
+											(item) => `
+												<tr>
+													<td>${item.product_id}</td>
+													<td>${item.quantity} ${item.unit}</td>
+													<td>${item.line_total === null ? "-" : formatMoney(item.line_total, receipt.currency)}</td>
+												</tr>
+											`,
+										)
+										.join("")}
+								</tbody>
+							</table>
+						`
+						: '<div class="empty">No extracted line items yet.</div>'
+				}
+			</div>
+		</section>
+	`;
+};
+
 const fetchAllProducts = async () => {
 	const response = await fetch("/api/products");
 	const body = (await response.json()) as Product[] | { error?: string };
@@ -206,6 +381,59 @@ const fetchAllProducts = async () => {
 	}
 
 	return body as Product[];
+};
+
+const fetchReceipts = async () => {
+	const response = await fetch("/api/receipts?sort=purchased_at&order=desc");
+	const body = (await response.json()) as
+		| PurchaseReceipt[]
+		| { error?: string };
+
+	if (!response.ok) {
+		throw new Error(
+			"error" in body
+				? (body.error ?? "Failed to load receipts")
+				: "Failed to load receipts",
+		);
+	}
+
+	return body as PurchaseReceipt[];
+};
+
+const fetchReceipt = async (receiptId: number) => {
+	const response = await fetch(`/api/receipts/${receiptId}`);
+	const body = (await response.json()) as
+		| PurchaseReceipt
+		| { error?: string };
+
+	if (!response.ok) {
+		throw new Error(
+			"error" in body
+				? (body.error ?? "Failed to load receipt")
+				: "Failed to load receipt",
+		);
+	}
+
+	return body as PurchaseReceipt;
+};
+
+const fetchReceiptItems = async (receiptId: number) => {
+	const response = await fetch(
+		`/api/receipt-items?receipt_id=${encodeURIComponent(String(receiptId))}`,
+	);
+	const body = (await response.json()) as
+		| PurchaseReceiptItem[]
+		| { error?: string };
+
+	if (!response.ok) {
+		throw new Error(
+			"error" in body
+				? (body.error ?? "Failed to load receipt items")
+				: "Failed to load receipt items",
+		);
+	}
+
+	return body as PurchaseReceiptItem[];
 };
 
 const loadProducts = async () => {
@@ -258,6 +486,20 @@ const uploadProductPicture = async (productId: number, file: File) => {
 	const body = (await response.json()) as { error?: string };
 	if (!response.ok) {
 		throw new Error(body.error ?? "Failed to upload product picture");
+	}
+};
+
+const uploadReceiptPicture = async (receiptId: number, file: File) => {
+	const formData = new FormData();
+	formData.set("file", file);
+
+	const response = await fetch(`/api/receipts/${receiptId}/picture`, {
+		method: "POST",
+		body: formData,
+	});
+	const body = (await response.json()) as { error?: string };
+	if (!response.ok) {
+		throw new Error(body.error ?? "Failed to upload receipt picture");
 	}
 };
 
@@ -573,6 +815,110 @@ const attachShoppingListPageEvents = () => {
 		});
 };
 
+const loadReceipts = async () => {
+	try {
+		const receipts = await fetchReceipts();
+		renderReceipts(receipts);
+		setStatus("receipt-status", `Loaded ${receipts.length} receipt(s).`);
+	} catch (error) {
+		renderReceipts([]);
+		setStatus(
+			"receipt-status",
+			error instanceof Error ? error.message : "Failed to load receipts",
+			true,
+		);
+	}
+};
+
+const attachReceiptsPageEvents = () => {
+	const form = document.getElementById("receipt-form");
+	const refreshButton = document.getElementById("receipt-refresh-button");
+
+	form?.addEventListener("submit", async (event) => {
+		event.preventDefault();
+
+		const storeNameInput = document.getElementById("receipt-store-name");
+		const purchasedAtInput = document.getElementById(
+			"receipt-purchased-at",
+		);
+		const currencyInput = document.getElementById("receipt-currency");
+		const totalAmountInput = document.getElementById(
+			"receipt-total-amount",
+		);
+		const pictureInput = document.getElementById("receipt-picture");
+
+		if (
+			!(storeNameInput instanceof HTMLInputElement) ||
+			!(purchasedAtInput instanceof HTMLInputElement) ||
+			!(currencyInput instanceof HTMLInputElement) ||
+			!(totalAmountInput instanceof HTMLInputElement) ||
+			!(pictureInput instanceof HTMLInputElement)
+		) {
+			return;
+		}
+
+		const payload = {
+			store_name: storeNameInput.value.trim(),
+			purchased_at: new Date(purchasedAtInput.value).toISOString(),
+			currency: currencyInput.value.trim().toUpperCase(),
+			total_amount: totalAmountInput.value
+				? Number(totalAmountInput.value)
+				: null,
+		};
+
+		try {
+			const response = await fetch("/api/receipts", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(payload),
+			});
+			const body = (await response.json()) as
+				| PurchaseReceipt
+				| { error?: string };
+
+			if (!response.ok) {
+				throw new Error(
+					"error" in body
+						? (body.error ?? "Failed to create receipt")
+						: "Failed to create receipt",
+				);
+			}
+
+			const picture = pictureInput.files?.[0];
+			if (picture) {
+				await uploadReceiptPicture(
+					(body as PurchaseReceipt).id,
+					picture,
+				);
+			}
+
+			if (form instanceof HTMLFormElement) {
+				form.reset();
+			}
+
+			setStatus(
+				"receipt-status",
+				picture
+					? `Created receipt #${(body as PurchaseReceipt).id} and uploaded picture`
+					: `Created receipt #${(body as PurchaseReceipt).id}`,
+			);
+			await loadReceipts();
+		} catch (error) {
+			setStatus(
+				"receipt-status",
+				error instanceof Error
+					? error.message
+					: "Failed to create receipt",
+				true,
+			);
+		}
+	});
+
+	refreshButton?.addEventListener("click", () => {
+		void loadReceipts();
+	});
+};
+
 const renderProductsPage = () => {
 	renderPage(
 		`
@@ -649,6 +995,76 @@ const renderProductsPage = () => {
 	void loadProducts();
 };
 
+const renderReceiptsPage = () => {
+	const defaultPurchasedAt = new Date(
+		Date.now() - new Date().getTimezoneOffset() * 60000,
+	)
+		.toISOString()
+		.slice(0, 16);
+
+	renderPage(
+		`
+			<section class="page-heading page-heading--compact">
+				<div>
+					<span class="eyebrow">Receipts</span>
+					<h1 class="page-title">Manage receipts</h1>
+				</div>
+				<p class="page-copy">
+					Create receipts, upload the original picture, and open a receipt to inspect the extracted metadata.
+				</p>
+			</section>
+
+			<section class="workspace">
+				<div class="card panel">
+					<h2>Create Receipt</h2>
+					<form id="receipt-form">
+						<label>
+							Store Name
+							<input id="receipt-store-name" name="receipt-store-name" placeholder="K-Market" required />
+						</label>
+
+						<label>
+							Purchased At
+							<input id="receipt-purchased-at" type="datetime-local" value="${defaultPurchasedAt}" required />
+						</label>
+
+						<div class="row">
+							<label>
+								Currency
+								<input id="receipt-currency" value="EUR" maxlength="3" required />
+							</label>
+
+							<label>
+								Total Amount
+								<input id="receipt-total-amount" type="number" step="0.01" min="0" placeholder="23.40" />
+							</label>
+						</div>
+
+						<label>
+							Receipt Picture
+							<input id="receipt-picture" type="file" accept="image/*" />
+						</label>
+
+						<div class="actions">
+							<button class="primary" type="submit">Create Receipt</button>
+							<button class="secondary" type="button" id="receipt-refresh-button">Refresh Receipts</button>
+						</div>
+					</form>
+					<div id="receipt-status" class="status"></div>
+				</div>
+
+				<div class="card panel">
+					<h2>Receipts</h2>
+					<div id="receipt-results" class="results"></div>
+				</div>
+			</section>
+		`,
+	);
+
+	attachReceiptsPageEvents();
+	void loadReceipts();
+};
+
 const renderShoppingListsPage = () => {
 	renderPage(
 		`
@@ -704,6 +1120,40 @@ const renderShoppingListsPage = () => {
 	attachShoppingListPageEvents();
 };
 
+const renderReceiptDetailPage = (params: Record<string, string>) => {
+	renderPage('<div id="receipt-detail-page"></div>');
+
+	void (async () => {
+		const rawId = params.id ?? "";
+		const receiptId = Number.parseInt(rawId, 10);
+		if (!Number.isInteger(receiptId)) {
+			const page = document.getElementById("receipt-detail-page");
+			if (page) {
+				page.innerHTML =
+					'<div class="card panel page-panel"><p class="page-copy">Receipt id is invalid.</p></div>';
+			}
+			return;
+		}
+
+		try {
+			const [receipt, items] = await Promise.all([
+				fetchReceipt(receiptId),
+				fetchReceiptItems(receiptId),
+			]);
+			renderReceiptDetail(receipt, items);
+		} catch (error) {
+			const page = document.getElementById("receipt-detail-page");
+			if (page) {
+				page.innerHTML = `
+					<div class="card panel page-panel">
+						<p class="page-copy">${error instanceof Error ? error.message : "Failed to load receipt."}</p>
+					</div>
+				`;
+			}
+		}
+	})();
+};
+
 const renderNotFoundPage = () => {
 	renderPage(
 		`
@@ -728,6 +1178,8 @@ window.onload = () => {
 	routes({
 		"/": renderOverviewPage,
 		"/products": renderProductsPage,
+		"/receipts": renderReceiptsPage,
+		"/receipts/:id": renderReceiptDetailPage,
 		"/shopping-lists": renderShoppingListsPage,
 		"/recipes": renderRecipesPage,
 		"/*": renderNotFoundPage,

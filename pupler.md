@@ -68,7 +68,7 @@ Product payload fields:
 Example create body:
 
 ```json
-{
+{p
 	"name": "Milk",
 	"category": "food",
 	"barcode": "6414893400012",
@@ -109,20 +109,20 @@ Product link payload fields:
 | url        | string    | Required         |
 | created_at | timestamp | Server generated |
 
-### purchase_receipts
+### receipts
 
-Base resource: `/api/purchase-receipts`
+Base resource: `/api/receipts`
 
-| Method | Path                         | Purpose                           |
-| ------ | ---------------------------- | --------------------------------- |
-| GET    | `/api/purchase-receipts`     | List purchase receipts            |
-| GET    | `/api/purchase-receipts/:id` | Fetch one purchase receipt by id  |
-| POST   | `/api/purchase-receipts`     | Create purchase receipt           |
-| PUT    | `/api/purchase-receipts/:id` | Replace purchase receipt          |
-| PATCH  | `/api/purchase-receipts/:id` | Update part of a purchase receipt |
-| DELETE | `/api/purchase-receipts/:id` | Delete purchase receipt           |
+| Method | Path                | Purpose                  |
+| ------ | ------------------- | ------------------------ |
+| GET    | `/api/receipts`     | List receipts            |
+| GET    | `/api/receipts/:id` | Fetch one receipt by id  |
+| POST   | `/api/receipts`     | Create receipt           |
+| PUT    | `/api/receipts/:id` | Replace receipt          |
+| PATCH  | `/api/receipts/:id` | Update part of a receipt |
+| DELETE | `/api/receipts/:id` | Delete receipt           |
 
-Purchase receipt payload fields:
+Receipt payload fields:
 
 | Field        | Type      | Notes                   |
 | ------------ | --------- | ----------------------- |
@@ -134,20 +134,20 @@ Purchase receipt payload fields:
 | created_at   | timestamp | Server generated        |
 | updated_at   | timestamp | Server generated        |
 
-### purchase_receipt_items
+### receipt_items
 
-Base resource: `/api/purchase-receipt-items`
+Base resource: `/api/receipt-items`
 
-| Method | Path                              | Purpose                                |
-| ------ | --------------------------------- | -------------------------------------- |
-| GET    | `/api/purchase-receipt-items`     | List purchase receipt items            |
-| GET    | `/api/purchase-receipt-items/:id` | Fetch one purchase receipt item by id  |
-| POST   | `/api/purchase-receipt-items`     | Create purchase receipt item           |
-| PUT    | `/api/purchase-receipt-items/:id` | Replace purchase receipt item          |
-| PATCH  | `/api/purchase-receipt-items/:id` | Update part of a purchase receipt item |
-| DELETE | `/api/purchase-receipt-items/:id` | Delete purchase receipt item           |
+| Method | Path                     | Purpose                       |
+| ------ | ------------------------ | ----------------------------- |
+| GET    | `/api/receipt-items`     | List receipt items            |
+| GET    | `/api/receipt-items/:id` | Fetch one receipt item by id  |
+| POST   | `/api/receipt-items`     | Create receipt item           |
+| PUT    | `/api/receipt-items/:id` | Replace receipt item          |
+| PATCH  | `/api/receipt-items/:id` | Update part of a receipt item |
+| DELETE | `/api/receipt-items/:id` | Delete receipt item           |
 
-Purchase receipt item payload fields:
+Receipt item payload fields:
 
 | Field      | Type      | Notes            |
 | ---------- | --------- | ---------------- |
@@ -333,7 +333,7 @@ External links for a product, such as store pages or food metadata.
 | url        | TEXT         | NOT NULL                    |
 | created_at | TIMESTAMP    | NOT NULL                    |
 
-### purchase_receipts
+### receipts
 
 Receipt header for one shopping trip or order.
 
@@ -347,20 +347,20 @@ Receipt header for one shopping trip or order.
 | created_at   | TIMESTAMP     | NOT NULL            |
 | updated_at   | TIMESTAMP     | NOT NULL            |
 
-### purchase_receipt_items
+### receipt_items
 
 Line items on a receipt.
 
-| Column     | Type          | Constraints / Notes                  |
-| ---------- | ------------- | ------------------------------------ |
-| id         | BIGINT        | PK                                   |
-| receipt_id | BIGINT        | FK -> purchase_receipts.id, NOT NULL |
-| product_id | BIGINT        | FK -> products.id, NOT NULL          |
-| quantity   | DECIMAL(10,2) | NOT NULL                             |
-| unit       | VARCHAR(50)   | NOT NULL                             |
-| unit_price | DECIMAL(10,2) | NULL                                 |
-| line_total | DECIMAL(10,2) | NULL                                 |
-| created_at | TIMESTAMP     | NOT NULL                             |
+| Column     | Type          | Constraints / Notes         |
+| ---------- | ------------- | --------------------------- |
+| id         | BIGINT        | PK                          |
+| receipt_id | BIGINT        | FK -> receipts.id, NOT NULL |
+| product_id | BIGINT        | FK -> products.id, NOT NULL |
+| quantity   | DECIMAL(10,2) | NOT NULL                    |
+| unit       | VARCHAR(50)   | NOT NULL                    |
+| unit_price | DECIMAL(10,2) | NULL                        |
+| line_total | DECIMAL(10,2) | NULL                        |
+| created_at | TIMESTAMP     | NOT NULL                    |
 
 ### inventory_items
 
@@ -370,7 +370,7 @@ Physical stock currently owned.
 | --------------- | ------------- | ------------------------------------- |
 | id              | BIGINT        | PK                                    |
 | product_id      | BIGINT        | FK -> products.id, NOT NULL           |
-| receipt_item_id | BIGINT        | FK -> purchase_receipt_items.id, NULL |
+| receipt_item_id | BIGINT        | FK -> receipt_items.id, NULL |
 | quantity        | DECIMAL(10,2) | NOT NULL                              |
 | unit            | VARCHAR(50)   | NOT NULL                              |
 | purchased_at    | TIMESTAMP     | NULL                                  |
@@ -443,14 +443,14 @@ Direct buy queue entries. There is no separate parent `shopping_lists` table any
 
 ### Key relationships
 
-| From              | To                     | Meaning                                       |
-| ----------------- | ---------------------- | --------------------------------------------- |
-| purchase_receipts | purchase_receipt_items | A receipt has many line items                 |
-| products          | inventory_items        | A product can exist in inventory many times   |
-| recipes           | recipe_ingredients     | A recipe has many required ingredients        |
-| products          | recipe_ingredients     | A product can be used in many recipes         |
-| recipes           | meal_plan_items        | A meal plan item usually points to one recipe |
-| products          | shopping_list_items    | A shopping list entry requests one product    |
+| From     | To                     | Meaning                                       |
+| -------- | ---------------------- | --------------------------------------------- |
+| receipts | receipt_items | A receipt has many line items                 |
+| products | inventory_items        | A product can exist in inventory many times   |
+| recipes  | recipe_ingredients     | A recipe has many required ingredients        |
+| products | recipe_ingredients     | A product can be used in many recipes         |
+| recipes  | meal_plan_items        | A meal plan item usually points to one recipe |
+| products | shopping_list_items    | A shopping list entry requests one product    |
 
 ## Interfaces
 

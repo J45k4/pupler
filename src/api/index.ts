@@ -22,13 +22,14 @@ export {
 	mealPlanItemsCollectionRoute,
 } from "./meal-plan-items";
 export {
-	purchaseReceiptDetailRoute,
-	purchaseReceiptsCollectionRoute,
+	receiptDetailRoute,
+	receiptPictureRoute,
+	receiptsCollectionRoute,
 } from "./purchase-receipts";
 export {
-	purchaseReceiptItemDetailRoute,
-	purchaseReceiptItemsCollectionRoute,
-} from "./purchase-receipt-items";
+	receiptItemDetailRoute,
+	receiptItemsCollectionRoute,
+} from "./receipt-items";
 export {
 	recipeIngredientDetailRoute,
 	recipeIngredientsCollectionRoute,

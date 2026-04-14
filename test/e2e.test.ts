@@ -195,6 +195,24 @@ describe("Pupler API e2e", () => {
 		expect(page.body).toContain("<body></body>");
 	});
 
+	test("serves the app shell for receipt pages", async () => {
+		const server = await TestServer.start();
+
+		const listPage = await server.call<string>("/receipts");
+		expect(listPage.response.status).toBe(200);
+		expect(listPage.response.headers.get("content-type")).toContain(
+			"text/html",
+		);
+		expect(listPage.body).toContain("<title>Pupler</title>");
+
+		const detailPage = await server.call<string>("/receipts/1");
+		expect(detailPage.response.status).toBe(200);
+		expect(detailPage.response.headers.get("content-type")).toContain(
+			"text/html",
+		);
+		expect(detailPage.body).toContain("<title>Pupler</title>");
+	});
+
 	test("serves the app shell for shopping list pages", async () => {
 		const server = await TestServer.start();
 
@@ -364,6 +382,103 @@ describe("Pupler API e2e", () => {
 		expect(picture.headers.get("content-type")).toBe("image/png");
 		const bytes = new Uint8Array(await picture.arrayBuffer());
 		expect(Array.from(bytes)).toEqual([9, 8, 7, 6]);
+	});
+
+	test("uploads and fetches a purchase receipt picture over HTTP", async () => {
+		const server = await TestServer.start();
+
+		const created = await server.call<{ id: number }>("/api/receipts", {
+			method: "POST",
+			body: {
+				store_name: "Prisma",
+				purchased_at: "2026-04-13T12:00:00.000Z",
+				currency: "EUR",
+				total_amount: 18.5,
+			},
+		});
+		expect(created.response.status).toBe(201);
+
+		const formData = new FormData();
+		formData.set(
+			"file",
+			new File([new Uint8Array([4, 3, 2, 1])], "receipt.png", {
+				type: "image/png",
+			}),
+		);
+
+		const upload = await server.call<{
+			content_type: string;
+			filename: string | null;
+			size: number;
+		}>(`/api/receipts/${created.body.id}/picture`, {
+			method: "POST",
+			body: formData,
+		});
+		expect(upload.response.status).toBe(200);
+		expect(upload.body.content_type).toBe("image/png");
+		expect(upload.body.filename).toBe("receipt.png");
+
+		const picture = await fetch(
+			`${server.baseUrl}/api/receipts/${created.body.id}/picture`,
+		);
+		expect(picture.status).toBe(200);
+		expect(picture.headers.get("content-type")).toBe("image/png");
+		const bytes = new Uint8Array(await picture.arrayBuffer());
+		expect(Array.from(bytes)).toEqual([4, 3, 2, 1]);
+	});
+
+	test("creates receipt items over HTTP", async () => {
+		const server = await TestServer.start();
+
+		const product = await server.call<{ id: number }>("/api/products", {
+			method: "POST",
+			body: {
+				name: "Yogurt",
+				category: "food",
+				barcode: "555",
+				default_unit: "cup",
+				is_perishable: true,
+			},
+		});
+		expect(product.response.status).toBe(201);
+
+		const receipt = await server.call<{ id: number }>("/api/receipts", {
+			method: "POST",
+			body: {
+				store_name: "K-Citymarket",
+				purchased_at: "2026-04-13T12:00:00.000Z",
+				currency: "EUR",
+				total_amount: 7.8,
+			},
+		});
+		expect(receipt.response.status).toBe(201);
+
+		const created = await server.call<{
+			id: number;
+			receipt_id: number;
+			product_id: number;
+		}>("/api/receipt-items", {
+			method: "POST",
+			body: {
+				receipt_id: receipt.body.id,
+				product_id: product.body.id,
+				quantity: 3,
+				unit: "cup",
+				unit_price: 2.6,
+				line_total: 7.8,
+			},
+		});
+		expect(created.response.status).toBe(201);
+		expect(created.body.receipt_id).toBe(receipt.body.id);
+		expect(created.body.product_id).toBe(product.body.id);
+
+		const listed = await server.call<Array<{ id: number; receipt_id: number }>>(
+			`/api/receipt-items?receipt_id=${receipt.body.id}`,
+		);
+		expect(listed.response.status).toBe(200);
+		expect(listed.body).toHaveLength(1);
+		expect(listed.body[0].id).toBe(created.body.id);
+		expect(listed.body[0].receipt_id).toBe(receipt.body.id);
 	});
 
 	test("creates shoppinglist items over HTTP without a parent list", async () => {

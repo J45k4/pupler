@@ -27,7 +27,7 @@ import {
 	type RowValues,
 } from "./core";
 
-const TABLE = "purchase_receipt_items";
+const TABLE = "receipt_items";
 const SORT_FIELDS = new Set([
 	"id",
 	"receipt_id",
@@ -47,7 +47,7 @@ const WRITABLE_FIELDS = [
 	"line_total",
 ];
 
-const fetchPurchaseReceiptItem = (db: Database, id: number) =>
+const fetchReceiptItem = (db: Database, id: number) =>
 	queryRow(db, `SELECT * FROM ${TABLE} WHERE id = ?1`, id);
 
 const parseSort = (url: URL) => {
@@ -171,7 +171,7 @@ const parsePatchValues = (body: JsonObject) => {
 	return values;
 };
 
-export const purchaseReceiptItemsCollectionRoute = (db: Database) =>
+export const receiptItemsCollectionRoute = (db: Database) =>
 	withErrorHandling(async (req: Request) => {
 		if (req.method === "GET") {
 			const url = new URL(req.url);
@@ -194,16 +194,16 @@ export const purchaseReceiptItemsCollectionRoute = (db: Database) =>
 				TABLE,
 				parseCreateValues(await readJsonObject(req)),
 			);
-			return json(201, fetchPurchaseReceiptItem(db, id) ?? {});
+			return json(201, fetchReceiptItem(db, id) ?? {});
 		}
 
 		throw new HttpError(405, "Method not allowed for this route");
 	});
 
-export const purchaseReceiptItemDetailRoute = (db: Database) =>
+export const receiptItemDetailRoute = (db: Database) =>
 	withErrorHandling(async (req: BunRequest<string>) => {
 		const id = parseIdParam(req.params.id);
-		const existingRow = fetchPurchaseReceiptItem(db, id);
+		const existingRow = fetchReceiptItem(db, id);
 		if (!existingRow) {
 			throw new HttpError(404, "Resource not found");
 		}
@@ -216,7 +216,7 @@ export const purchaseReceiptItemDetailRoute = (db: Database) =>
 				id,
 				parseReplaceValues(await readJsonObject(req), existingRow),
 			);
-			return json(200, fetchPurchaseReceiptItem(db, id) ?? {});
+			return json(200, fetchReceiptItem(db, id) ?? {});
 		}
 		if (req.method === "PATCH") {
 			updateRowById(
@@ -225,7 +225,7 @@ export const purchaseReceiptItemDetailRoute = (db: Database) =>
 				id,
 				parsePatchValues(await readJsonObject(req)),
 			);
-			return json(200, fetchPurchaseReceiptItem(db, id) ?? {});
+			return json(200, fetchReceiptItem(db, id) ?? {});
 		}
 		if (req.method === "DELETE") {
 			db.prepare(`DELETE FROM ${TABLE} WHERE id = ?1`).run(id);

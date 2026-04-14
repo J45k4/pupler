@@ -11,6 +11,7 @@ import {
 	insertRow,
 	json,
 	parseDecimalQuery,
+	parseIntegerQuery,
 	parseSortOrder,
 	parseTimestampQuery,
 	parseIdParam,
@@ -26,7 +27,8 @@ import {
 	type RowValues,
 } from "./core";
 
-const TABLE = "purchase_receipts";
+const TABLE = "receipts";
+const MAX_PURCHASE_RECEIPT_PICTURE_BYTES = 10 * 1024 * 1024;
 const SORT_FIELDS = new Set([
 	"id",
 	"store_name",
@@ -43,8 +45,25 @@ const WRITABLE_FIELDS = [
 	"total_amount",
 ];
 
-const fetchPurchaseReceipt = (db: Database, id: number) =>
+const fetchReceipt = (db: Database, id: number) =>
 	queryRow(db, `SELECT * FROM ${TABLE} WHERE id = ?1`, id);
+
+const fetchReceiptPicture = (db: Database, receiptId: number) =>
+	queryRow(
+		db,
+		`
+			SELECT id, picture_blob, picture_content_type, picture_filename, picture_uploaded_at
+			FROM receipts
+			WHERE id = ?1
+		`,
+		receiptId,
+	) as {
+		id: number;
+		picture_blob: Uint8Array | null;
+		picture_content_type: string | null;
+		picture_filename: string | null;
+		picture_uploaded_at: string | null;
+	} | null;
 
 const parseSort = (url: URL) => {
 	const sort = url.searchParams.get("sort");
@@ -64,7 +83,7 @@ const parseFilters = (url: URL) => {
 		switch (key) {
 			case "id":
 				filters.push("id = ?");
-				params.push(Number.parseInt(value, 10));
+				params.push(parseIntegerQuery(key, value));
 				break;
 			case "store_name":
 			case "currency":
@@ -168,7 +187,7 @@ const parsePatchValues = (body: JsonObject) => {
 	return values;
 };
 
-export const purchaseReceiptsCollectionRoute = (db: Database) =>
+export const receiptsCollectionRoute = (db: Database) =>
 	withErrorHandling(async (req: Request) => {
 		if (req.method === "GET") {
 			const url = new URL(req.url);
@@ -191,16 +210,16 @@ export const purchaseReceiptsCollectionRoute = (db: Database) =>
 				TABLE,
 				parseCreateValues(await readJsonObject(req)),
 			);
-			return json(201, fetchPurchaseReceipt(db, id) ?? {});
+			return json(201, fetchReceipt(db, id) ?? {});
 		}
 
 		throw new HttpError(405, "Method not allowed for this route");
 	});
 
-export const purchaseReceiptDetailRoute = (db: Database) =>
+export const receiptDetailRoute = (db: Database) =>
 	withErrorHandling(async (req: BunRequest<string>) => {
 		const id = parseIdParam(req.params.id);
-		const existingRow = fetchPurchaseReceipt(db, id);
+		const existingRow = fetchReceipt(db, id);
 		if (!existingRow) {
 			throw new HttpError(404, "Resource not found");
 		}
@@ -213,7 +232,7 @@ export const purchaseReceiptDetailRoute = (db: Database) =>
 				id,
 				parseReplaceValues(await readJsonObject(req), existingRow),
 			);
-			return json(200, fetchPurchaseReceipt(db, id) ?? {});
+			return json(200, fetchReceipt(db, id) ?? {});
 		}
 		if (req.method === "PATCH") {
 			updateRowById(
@@ -222,11 +241,103 @@ export const purchaseReceiptDetailRoute = (db: Database) =>
 				id,
 				parsePatchValues(await readJsonObject(req)),
 			);
-			return json(200, fetchPurchaseReceipt(db, id) ?? {});
+			return json(200, fetchReceipt(db, id) ?? {});
 		}
 		if (req.method === "DELETE") {
 			db.prepare(`DELETE FROM ${TABLE} WHERE id = ?1`).run(id);
 			return empty(204);
 		}
+		throw new HttpError(405, "Method not allowed for this route");
+	});
+
+export const receiptPictureRoute = (db: Database) =>
+	withErrorHandling(async (req: BunRequest<string>) => {
+		const receiptId = parseIdParam(req.params.id);
+		const receipt = fetchReceipt(db, receiptId);
+		if (!receipt) {
+			throw new HttpError(404, "Resource not found");
+		}
+
+		if (req.method === "GET") {
+			const row = fetchReceiptPicture(db, receiptId);
+			if (!row?.picture_blob || !row.picture_content_type) {
+				throw new HttpError(404, "Receipt picture not found");
+			}
+			return new Response(row.picture_blob, {
+				status: 200,
+				headers: {
+					"Content-Type": row.picture_content_type,
+					"Cache-Control": "no-store",
+					...(row.picture_filename
+						? {
+								"Content-Disposition": `inline; filename="${row.picture_filename}"`,
+							}
+						: {}),
+				},
+			});
+		}
+
+		if (req.method === "DELETE") {
+			db.prepare(
+				`
+					UPDATE receipts
+					SET picture_blob = NULL,
+						picture_content_type = NULL,
+						picture_filename = NULL,
+						picture_uploaded_at = NULL
+					WHERE id = ?1
+				`,
+			).run(receiptId);
+			return empty(204);
+		}
+
+		if (req.method === "POST") {
+			const formData = await req.formData();
+			const uploaded = formData.get("file");
+			if (!(uploaded instanceof File)) {
+				throw new HttpError(
+					400,
+					"Multipart form-data must include a `file` field",
+				);
+			}
+			if (!uploaded.type.startsWith("image/")) {
+				throw new HttpError(400, "Uploaded file must be an image");
+			}
+			if (uploaded.size === 0) {
+				throw new HttpError(400, "Uploaded file may not be empty");
+			}
+			if (uploaded.size > MAX_PURCHASE_RECEIPT_PICTURE_BYTES) {
+				throw new HttpError(
+					413,
+					"Uploaded file exceeds the 10 MB limit",
+				);
+			}
+
+			const buffer = new Uint8Array(await uploaded.arrayBuffer());
+			db.prepare(
+				`
+					UPDATE receipts
+					SET picture_blob = ?1,
+						picture_content_type = ?2,
+						picture_filename = ?3,
+						picture_uploaded_at = ?4
+					WHERE id = ?5
+				`,
+			).run(
+				buffer,
+				uploaded.type,
+				uploaded.name || null,
+				utcNow(),
+				receiptId,
+			);
+
+			return json(200, {
+				receipt_id: receiptId,
+				content_type: uploaded.type,
+				filename: uploaded.name || null,
+				size: uploaded.size,
+			});
+		}
+
 		throw new HttpError(405, "Method not allowed for this route");
 	});
