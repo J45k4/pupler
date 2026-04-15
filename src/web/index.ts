@@ -501,6 +501,8 @@ const renderInventoryTree = (
 
 	const topLevelContainers = containerChildren.get(null) ?? [];
 	const unplacedItems = containerItems.get(null) ?? [];
+	const hasRootContent =
+		unplacedItems.length > 0 || topLevelContainers.length > 0;
 
 	root.innerHTML = `
 		<div
@@ -517,16 +519,8 @@ const renderInventoryTree = (
 					Add Container
 				</button>
 			</div>
-			<section class="inventory-tree__root-section">
-				<div class="inventory-tree__section-label">Unplaced Items</div>
-				${
-					unplacedItems.length
-						? renderInventoryItemsList(null)
-						: '<div class="inventory-tree__empty">Drag inventory items here to leave them unplaced.</div>'
-				}
-			</section>
-			<section class="inventory-tree__root-section">
-				<div class="inventory-tree__section-label">Containers</div>
+			<div class="inventory-tree__root-content">
+				${unplacedItems.length ? renderInventoryItemsList(null) : ""}
 				${
 					topLevelContainers.length
 						? `<ul class="inventory-tree__containers inventory-tree__containers--root">${topLevelContainers
@@ -534,9 +528,14 @@ const renderInventoryTree = (
 									renderContainerNode(container),
 								)
 								.join("")}</ul>`
-						: '<div class="inventory-tree__empty">Add a room, closet, shelf, or box.</div>'
+						: ""
 				}
-			</section>
+				${
+					hasRootContent
+						? '<div class="inventory-tree__hint">Drag items or containers into the open area to move them to the top level.</div>'
+						: '<div class="inventory-tree__empty">Add a room, closet, shelf, or box. Drag into the open area to keep things at the top level.</div>'
+				}
+			</div>
 		</div>
 	`;
 };

@@ -664,22 +664,14 @@ body.modal-open {
 	background: rgba(255, 255, 255, 0.48);
 }
 
-.inventory-tree__root-section {
-	display: grid;
-	gap: 0.75rem;
-}
-
 .inventory-tree__toolbar {
 	display: flex;
 	justify-content: end;
 }
 
-.inventory-tree__section-label {
-	color: var(--muted);
-	font-size: 0.8rem;
-	font-weight: 700;
-	letter-spacing: 0.08em;
-	text-transform: uppercase;
+.inventory-tree__root-content {
+	display: grid;
+	gap: 0.75rem;
 }
 
 .inventory-tree__containers,
@@ -720,6 +712,13 @@ body.modal-open {
 	border-radius: 18px;
 	color: var(--muted);
 	font-size: 0.9rem;
+}
+
+.inventory-tree__hint {
+	padding: 0.1rem 0.2rem 0;
+	color: var(--muted);
+	font-size: 0.8rem;
+	line-height: 1.5;
 }
 
 .inventory-node {

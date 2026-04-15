@@ -222,7 +222,7 @@ Inventory web UI:
 - new containers are created from the root-level `Add Container` modal
 - each container has an `Open` action that leads to a container detail page for editing metadata
 - containers can be nested by dragging them under other containers
-- inventory items can be dragged into containers or back to the root to leave them unplaced
+- inventory items and containers share one root drop area, and dragging into the open space returns them to the top level
 
 ### inventory_items
 
