@@ -489,7 +489,7 @@ const renderInventoryTree = (
 								}
 								${
 									!hasChildren
-										? '<div class="inventory-tree__empty">Drop items or containers here.</div>'
+										? ""
 										: ""
 								}
 							</div>
@@ -532,7 +532,7 @@ const renderInventoryTree = (
 				}
 				${
 					hasRootContent
-						? '<div class="inventory-tree__hint">Drag items or containers into the open area to move them to the top level.</div>'
+						? ""
 						: '<div class="inventory-tree__empty">Add a room, closet, shelf, or box. Drag into the open area to keep things at the top level.</div>'
 				}
 			</div>

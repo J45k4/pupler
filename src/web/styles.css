@@ -714,13 +714,6 @@ body.modal-open {
 	font-size: 0.9rem;
 }
 
-.inventory-tree__hint {
-	padding: 0.1rem 0.2rem 0;
-	color: var(--muted);
-	font-size: 0.8rem;
-	line-height: 1.5;
-}
-
 .inventory-node {
 	display: flex;
 	align-items: flex-start;
