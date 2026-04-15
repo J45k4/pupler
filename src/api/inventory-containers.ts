@@ -1,34 +1,26 @@
 import type { BunRequest } from "bun";
-import { Database } from "bun:sqlite";
 
 import {
 	assertKnownFields,
 	empty,
-	expectInteger,
 	expectNullableInteger,
 	expectNullableString,
 	expectString,
 	HttpError,
-	insertRow,
 	json,
 	parseIdParam,
 	parseIntegerQuery,
 	parseSortOrder,
-	queryRow,
-	queryRows,
 	readJsonObject,
 	readOptionalBodyField,
 	requireBodyField,
-	updateRowById,
 	utcNow,
 	withErrorHandling,
+	type Database,
 	type JsonObject,
-	type Row,
-	type RowValues,
 } from "./core";
 
-const TABLE = "inventory_containers";
-const DEFAULT_SORT = "name ASC, id ASC";
+const DEFAULT_SORT = [{ name: "asc" }, { id: "asc" }] as const;
 const SORT_FIELDS = new Set([
 	"id",
 	"name",
@@ -40,92 +32,76 @@ const SORT_FIELDS = new Set([
 const WRITABLE_FIELDS = ["name", "parent_container_id", "notes"];
 
 const fetchInventoryContainer = (db: Database, id: number) =>
-	queryRow(db, `SELECT * FROM ${TABLE} WHERE id = ?1`, id);
+	db.client.inventoryContainer.findUnique({ where: { id } });
 
 const parseSort = (url: URL) => {
 	const sort = url.searchParams.get("sort");
 	if (!sort) return DEFAULT_SORT;
-	if (!SORT_FIELDS.has(sort))
+	if (!SORT_FIELDS.has(sort)) {
 		throw new HttpError(400, `Unknown sort field \`${sort}\``);
-	return `${sort} ${parseSortOrder(url)}`;
+	}
+	return [{ [sort]: parseSortOrder(url) }];
 };
 
 const parseFilters = (url: URL) => {
-	const filters: string[] = [];
-	const params: Array<string | number> = [];
-
+	const where: Record<string, unknown> = {};
 	for (const [key, value] of url.searchParams.entries()) {
 		if (key === "sort" || key === "order") continue;
 
 		switch (key) {
 			case "id":
 			case "parent_container_id":
-				if (value === "null") {
-					filters.push(`${key} IS NULL`);
-				} else {
-					filters.push(`${key} = ?`);
-					params.push(parseIntegerQuery(key, value));
-				}
+				where[key] = value === "null" ? null : parseIntegerQuery(key, value);
 				break;
 			case "name":
 			case "notes":
 			case "created_at":
 			case "updated_at":
-				if (value === "null") {
-					filters.push(`${key} IS NULL`);
-				} else {
-					filters.push(`${key} = ?`);
-					params.push(value);
-				}
+				where[key] = value === "null" ? null : value;
 				break;
 			default:
 				throw new HttpError(400, `Unknown query parameter \`${key}\``);
 		}
 	}
 
-	return { filters, params };
+	return where;
 };
 
-const parseCreateValues = (body: JsonObject): RowValues => {
+const parseCreateValues = (body: JsonObject) => {
 	assertKnownFields(body, WRITABLE_FIELDS);
 	const now = utcNow();
 
 	return {
 		name: requireBodyField(body, "name", expectString),
 		parent_container_id:
-			readOptionalBodyField(
-				body,
-				"parent_container_id",
-				expectNullableInteger,
-			) ?? null,
-		notes:
-			readOptionalBodyField(body, "notes", expectNullableString) ?? null,
+			readOptionalBodyField(body, "parent_container_id", expectNullableInteger) ??
+			null,
+		notes: readOptionalBodyField(body, "notes", expectNullableString) ?? null,
 		created_at: now,
 		updated_at: now,
 	};
 };
 
-const parseReplaceValues = (body: JsonObject, existingRow: Row): RowValues => {
+const parseReplaceValues = (
+	body: JsonObject,
+	existingRow: Awaited<ReturnType<typeof fetchInventoryContainer>>,
+) => {
 	assertKnownFields(body, WRITABLE_FIELDS);
 
 	return {
 		name: requireBodyField(body, "name", expectString),
 		parent_container_id:
-			readOptionalBodyField(
-				body,
-				"parent_container_id",
-				expectNullableInteger,
-			) ?? null,
-		notes:
-			readOptionalBodyField(body, "notes", expectNullableString) ?? null,
-		created_at: String(existingRow.created_at),
+			readOptionalBodyField(body, "parent_container_id", expectNullableInteger) ??
+			null,
+		notes: readOptionalBodyField(body, "notes", expectNullableString) ?? null,
+		created_at: existingRow?.created_at ?? utcNow(),
 		updated_at: utcNow(),
 	};
 };
 
 const parsePatchValues = (body: JsonObject) => {
 	assertKnownFields(body, WRITABLE_FIELDS);
-	const values: RowValues = {};
+	const values: Record<string, unknown> = {};
 
 	const name = readOptionalBodyField(body, "name", expectString);
 	const parentContainerId = readOptionalBodyField(
@@ -136,23 +112,18 @@ const parsePatchValues = (body: JsonObject) => {
 	const notes = readOptionalBodyField(body, "notes", expectNullableString);
 
 	if (name !== undefined) values.name = name;
-	if (parentContainerId !== undefined) {
-		values.parent_container_id = parentContainerId;
-	}
+	if (parentContainerId !== undefined) values.parent_container_id = parentContainerId;
 	if (notes !== undefined) values.notes = notes;
 
 	if (Object.keys(values).length === 0) {
-		throw new HttpError(
-			400,
-			"PATCH request must contain at least one writable field",
-		);
+		throw new HttpError(400, "PATCH request must contain at least one writable field");
 	}
 
 	values.updated_at = utcNow();
 	return values;
 };
 
-const ensureNoContainerCycle = (
+const ensureNoContainerCycle = async (
 	db: Database,
 	containerId: number,
 	parentContainerId: number | null | undefined,
@@ -165,16 +136,13 @@ const ensureNoContainerCycle = (
 	}
 
 	let currentParentId: number | null = parentContainerId;
-
 	while (currentParentId !== null) {
 		if (currentParentId === containerId) {
 			throw new HttpError(400, "Container parent would create a cycle");
 		}
 
-		const parentRow = fetchInventoryContainer(db, currentParentId);
-		currentParentId = parentRow
-			? ((parentRow.parent_container_id as number | null) ?? null)
-			: null;
+		const parentRow = await fetchInventoryContainer(db, currentParentId);
+		currentParentId = parentRow?.parent_container_id ?? null;
 	}
 };
 
@@ -182,24 +150,22 @@ export const inventoryContainersCollectionRoute = (db: Database) =>
 	withErrorHandling(async (req: Request) => {
 		if (req.method === "GET") {
 			const url = new URL(req.url);
-			const { filters, params } = parseFilters(url);
-			const whereClause =
-				filters.length > 0 ? ` WHERE ${filters.join(" AND ")}` : "";
-
 			return json(
 				200,
-				queryRows(
-					db,
-					`SELECT * FROM ${TABLE}${whereClause} ORDER BY ${parseSort(url)}`,
-					...params,
-				),
+				await db.client.inventoryContainer.findMany({
+					where: parseFilters(url),
+					orderBy: parseSort(url),
+				}),
 			);
 		}
 
 		if (req.method === "POST") {
-			const values = parseCreateValues(await readJsonObject(req));
-			const id = insertRow(db, TABLE, values);
-			return json(201, fetchInventoryContainer(db, id) ?? {});
+			return json(
+				201,
+				await db.client.inventoryContainer.create({
+					data: parseCreateValues(await readJsonObject(req)),
+				}),
+			);
 		}
 
 		throw new HttpError(405, "Method not allowed for this route");
@@ -208,7 +174,7 @@ export const inventoryContainersCollectionRoute = (db: Database) =>
 export const inventoryContainerDetailRoute = (db: Database) =>
 	withErrorHandling(async (req: BunRequest<string>) => {
 		const id = parseIdParam(req.params.id);
-		const existingRow = fetchInventoryContainer(db, id);
+		const existingRow = await fetchInventoryContainer(db, id);
 		if (!existingRow) {
 			throw new HttpError(404, "Resource not found");
 		}
@@ -218,44 +184,53 @@ export const inventoryContainerDetailRoute = (db: Database) =>
 		}
 
 		if (req.method === "PUT") {
-			const values = parseReplaceValues(
-				await readJsonObject(req),
-				existingRow,
+			const values = parseReplaceValues(await readJsonObject(req), existingRow);
+			await ensureNoContainerCycle(db, id, values.parent_container_id as number | null);
+			return json(
+				200,
+				await db.client.inventoryContainer.update({
+					where: { id },
+					data: values,
+				}),
 			);
-			ensureNoContainerCycle(
-				db,
-				id,
-				(values.parent_container_id as number | null | undefined) ??
-					null,
-			);
-			updateRowById(db, TABLE, id, values);
-			return json(200, fetchInventoryContainer(db, id) ?? {});
 		}
 
 		if (req.method === "PATCH") {
 			const values = parsePatchValues(await readJsonObject(req));
 			if ("parent_container_id" in values) {
-				ensureNoContainerCycle(
+				await ensureNoContainerCycle(
 					db,
 					id,
-					(values.parent_container_id as number | null | undefined) ??
-						null,
+					values.parent_container_id as number | null,
 				);
 			}
-			updateRowById(db, TABLE, id, values);
-			return json(200, fetchInventoryContainer(db, id) ?? {});
+			return json(
+				200,
+				await db.client.inventoryContainer.update({
+					where: { id },
+					data: values,
+				}),
+			);
 		}
 
 		if (req.method === "DELETE") {
-			db.transaction(() => {
-				db.prepare(
-					`UPDATE ${TABLE} SET parent_container_id = NULL, updated_at = ?1 WHERE parent_container_id = ?2`,
-				).run(utcNow(), id);
-				db.prepare(
-					"UPDATE inventory_items SET container_id = NULL, updated_at = ?1 WHERE container_id = ?2",
-				).run(utcNow(), id);
-				db.prepare(`DELETE FROM ${TABLE} WHERE id = ?1`).run(id);
-			})();
+			await db.client.$transaction([
+				db.client.inventoryContainer.updateMany({
+					where: { parent_container_id: id },
+					data: {
+						parent_container_id: null,
+						updated_at: utcNow(),
+					},
+				}),
+				db.client.inventoryItem.updateMany({
+					where: { container_id: id },
+					data: {
+						container_id: null,
+						updated_at: utcNow(),
+					},
+				}),
+				db.client.inventoryContainer.delete({ where: { id } }),
+			]);
 			return empty(204);
 		}
 

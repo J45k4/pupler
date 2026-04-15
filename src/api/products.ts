@@ -1,5 +1,4 @@
 import type { BunRequest } from "bun";
-import { Database } from "bun:sqlite";
 
 import {
 	assertKnownFields,
@@ -7,29 +6,22 @@ import {
 	expectBoolean,
 	expectNullableString,
 	expectString,
-	handleError,
 	HttpError,
-	insertRow,
 	json,
 	parseBooleanQuery,
 	parseIdParam,
 	parseIntegerQuery,
 	parseSortOrder,
-	queryRow,
-	queryRows,
 	readJsonObject,
 	readOptionalBodyField,
 	requireBodyField,
-	serializeBooleanFields,
-	updateRowById,
 	utcNow,
 	withErrorHandling,
+	type Database,
 	type JsonObject,
-	type RowValues,
 } from "./core";
 
-const TABLE = "products";
-const DEFAULT_SORT = "name ASC, id ASC";
+const DEFAULT_SORT = [{ name: "asc" }, { id: "asc" }] as const;
 const SORT_FIELDS = new Set([
 	"id",
 	"name",
@@ -49,11 +41,8 @@ const WRITABLE_FIELDS = [
 ];
 const MAX_PRODUCT_PICTURE_BYTES = 10 * 1024 * 1024;
 
-const serializeProduct = (row: Record<string, unknown> | null) =>
-	serializeBooleanFields(row, ["is_perishable"]);
-
 const fetchProduct = (db: Database, id: number) =>
-	serializeProduct(queryRow(db, `SELECT * FROM ${TABLE} WHERE id = ?1`, id));
+	db.client.product.findUnique({ where: { id } });
 
 const parseProductSort = (url: URL) => {
 	const sort = url.searchParams.get("sort");
@@ -63,12 +52,13 @@ const parseProductSort = (url: URL) => {
 	if (!SORT_FIELDS.has(sort)) {
 		throw new HttpError(400, `Unknown sort field \`${sort}\``);
 	}
-	return `${sort} ${parseSortOrder(url)}`;
+	return [{ [sort]: parseSortOrder(url) }];
 };
 
 const parseProductFilters = (url: URL) => {
-	const filters: string[] = [];
-	const params: Array<string | number> = [];
+	const where: Record<string, unknown> = {};
+	let nameExact: string | null | undefined;
+	let nameContains: string | null | undefined;
 
 	for (const [key, value] of url.searchParams.entries()) {
 		if (key === "sort" || key === "order") {
@@ -77,50 +67,60 @@ const parseProductFilters = (url: URL) => {
 
 		switch (key) {
 			case "id":
-				filters.push("id = ?");
-				params.push(parseIntegerQuery(key, value));
+				where.id = parseIntegerQuery(key, value);
 				break;
 			case "name":
-				if (value === "null") {
-					filters.push("name IS NULL");
-				} else {
-					filters.push("name = ? COLLATE NOCASE");
-					params.push(value);
-				}
+				nameExact = value === "null" ? null : value;
 				break;
 			case "name_contains":
-				if (value === "null") {
-					filters.push("name IS NULL");
-				} else {
-					filters.push("name LIKE ? COLLATE NOCASE");
-					params.push(`%${value}%`);
-				}
+				nameContains = value === "null" ? null : value;
 				break;
 			case "category":
 			case "barcode":
 			case "default_unit":
 			case "created_at":
 			case "updated_at":
-				if (value === "null") {
-					filters.push(`${key} IS NULL`);
-				} else {
-					filters.push(`${key} = ?`);
-					params.push(value);
-				}
+				where[key] = value === "null" ? null : value;
 				break;
 			case "is_perishable":
-				filters.push("is_perishable = ?");
-				params.push(parseBooleanQuery(key, value));
+				where.is_perishable = parseBooleanQuery(key, value);
 				break;
 			default:
 				throw new HttpError(400, `Unknown query parameter \`${key}\``);
 		}
 	}
 
-	return { filters, params };
+	return { where, nameExact, nameContains };
 };
 
-const parseCreateValues = (body: JsonObject): RowValues => {
+const filterProductsByName = (
+	rows: Array<{ name: string | null }>,
+	nameExact: string | null | undefined,
+	nameContains: string | null | undefined,
+) =>
+	rows.filter((row) => {
+		if (nameExact !== undefined) {
+			if (nameExact === null) {
+				return row.name === null;
+			}
+			if (row.name?.toLowerCase() !== nameExact.toLowerCase()) {
+				return false;
+			}
+		}
+
+		if (nameContains !== undefined) {
+			if (nameContains === null) {
+				return row.name === null;
+			}
+			if (!row.name?.toLowerCase().includes(nameContains.toLowerCase())) {
+				return false;
+			}
+		}
+
+		return true;
+	});
+
+const parseCreateValues = (body: JsonObject) => {
 	assertKnownFields(body, WRITABLE_FIELDS);
 	const now = utcNow();
 
@@ -128,11 +128,9 @@ const parseCreateValues = (body: JsonObject): RowValues => {
 		name: requireBodyField(body, "name", expectString),
 		category: requireBodyField(body, "category", expectString),
 		barcode:
-			readOptionalBodyField(body, "barcode", expectNullableString) ??
-			null,
+			readOptionalBodyField(body, "barcode", expectNullableString) ?? null,
 		default_unit:
-			readOptionalBodyField(body, "default_unit", expectNullableString) ??
-			null,
+			readOptionalBodyField(body, "default_unit", expectNullableString) ?? null,
 		is_perishable: requireBodyField(body, "is_perishable", expectBoolean),
 		created_at: now,
 		updated_at: now,
@@ -141,21 +139,19 @@ const parseCreateValues = (body: JsonObject): RowValues => {
 
 const parseReplaceValues = (
 	body: JsonObject,
-	existingRow: Record<string, unknown>,
-): RowValues => {
+	existingRow: Awaited<ReturnType<typeof fetchProduct>>,
+) => {
 	assertKnownFields(body, WRITABLE_FIELDS);
 
 	return {
 		name: requireBodyField(body, "name", expectString),
 		category: requireBodyField(body, "category", expectString),
 		barcode:
-			readOptionalBodyField(body, "barcode", expectNullableString) ??
-			null,
+			readOptionalBodyField(body, "barcode", expectNullableString) ?? null,
 		default_unit:
-			readOptionalBodyField(body, "default_unit", expectNullableString) ??
-			null,
+			readOptionalBodyField(body, "default_unit", expectNullableString) ?? null,
 		is_perishable: requireBodyField(body, "is_perishable", expectBoolean),
-		created_at: String(existingRow.created_at),
+		created_at: existingRow?.created_at ?? utcNow(),
 		updated_at: utcNow(),
 	};
 };
@@ -163,14 +159,10 @@ const parseReplaceValues = (
 const parsePatchValues = (body: JsonObject) => {
 	assertKnownFields(body, WRITABLE_FIELDS);
 
-	const values: RowValues = {};
+	const values: Record<string, unknown> = {};
 	const name = readOptionalBodyField(body, "name", expectString);
 	const category = readOptionalBodyField(body, "category", expectString);
-	const barcode = readOptionalBodyField(
-		body,
-		"barcode",
-		expectNullableString,
-	);
+	const barcode = readOptionalBodyField(body, "barcode", expectNullableString);
 	const defaultUnit = readOptionalBodyField(
 		body,
 		"default_unit",
@@ -189,10 +181,7 @@ const parsePatchValues = (body: JsonObject) => {
 	if (isPerishable !== undefined) values.is_perishable = isPerishable;
 
 	if (Object.keys(values).length === 0) {
-		throw new HttpError(
-			400,
-			"PATCH request must contain at least one writable field",
-		);
+		throw new HttpError(400, "PATCH request must contain at least one writable field");
 	}
 
 	values.updated_at = utcNow();
@@ -203,24 +192,21 @@ export const productsCollectionRoute = (db: Database) =>
 	withErrorHandling(async (req: Request) => {
 		if (req.method === "GET") {
 			const url = new URL(req.url);
-			const { filters, params } = parseProductFilters(url);
-			const whereClause =
-				filters.length > 0 ? ` WHERE ${filters.join(" AND ")}` : "";
-			const rows = queryRows(
-				db,
-				`SELECT * FROM ${TABLE}${whereClause} ORDER BY ${parseProductSort(url)}`,
-				...params,
-			);
-			return json(
-				200,
-				rows.map((row) => serializeProduct(row) ?? {}),
-			);
+			const { where, nameExact, nameContains } = parseProductFilters(url);
+			const rows = await db.client.product.findMany({
+				where,
+				orderBy: parseProductSort(url),
+			});
+			return json(200, filterProductsByName(rows, nameExact, nameContains));
 		}
 
 		if (req.method === "POST") {
-			const body = await readJsonObject(req);
-			const id = insertRow(db, TABLE, parseCreateValues(body));
-			return json(201, serializeProduct(fetchProduct(db, id)) ?? {});
+			return json(
+				201,
+				await db.client.product.create({
+					data: parseCreateValues(await readJsonObject(req)),
+				}),
+			);
 		}
 
 		throw new HttpError(405, "Method not allowed for this route");
@@ -229,33 +215,37 @@ export const productsCollectionRoute = (db: Database) =>
 export const productDetailRoute = (db: Database) =>
 	withErrorHandling(async (req: BunRequest<string>) => {
 		const id = parseIdParam(req.params.id);
-		const existingRow = queryRow(
-			db,
-			`SELECT * FROM ${TABLE} WHERE id = ?1`,
-			id,
-		);
+		const existingRow = await fetchProduct(db, id);
 		if (!existingRow) {
 			throw new HttpError(404, "Resource not found");
 		}
 
 		if (req.method === "GET") {
-			return json(200, serializeProduct(existingRow) ?? {});
+			return json(200, existingRow);
 		}
 
 		if (req.method === "PUT") {
-			const body = await readJsonObject(req);
-			updateRowById(db, TABLE, id, parseReplaceValues(body, existingRow));
-			return json(200, fetchProduct(db, id) ?? {});
+			return json(
+				200,
+				await db.client.product.update({
+					where: { id },
+					data: parseReplaceValues(await readJsonObject(req), existingRow),
+				}),
+			);
 		}
 
 		if (req.method === "PATCH") {
-			const body = await readJsonObject(req);
-			updateRowById(db, TABLE, id, parsePatchValues(body));
-			return json(200, fetchProduct(db, id) ?? {});
+			return json(
+				200,
+				await db.client.product.update({
+					where: { id },
+					data: parsePatchValues(await readJsonObject(req)),
+				}),
+			);
 		}
 
 		if (req.method === "DELETE") {
-			db.prepare(`DELETE FROM ${TABLE} WHERE id = ?1`).run(id);
+			await db.client.product.delete({ where: { id } });
 			return empty(204);
 		}
 
@@ -263,36 +253,27 @@ export const productDetailRoute = (db: Database) =>
 	});
 
 const fetchProductPicture = (db: Database, productId: number) =>
-	queryRow(
-		db,
-		`
-			SELECT id, picture_blob, picture_content_type, picture_filename, picture_uploaded_at
-			FROM products
-			WHERE id = ?1
-		`,
-		productId,
-	) as {
-		id: number;
-		picture_blob: Uint8Array | null;
-		picture_content_type: string | null;
-		picture_filename: string | null;
-		picture_uploaded_at: string | null;
-	} | null;
+	db.client.product.findUnique({
+		where: { id: productId },
+		select: {
+			id: true,
+			picture_blob: true,
+			picture_content_type: true,
+			picture_filename: true,
+			picture_uploaded_at: true,
+		},
+	});
 
 export const productPictureRoute = (db: Database) =>
 	withErrorHandling(async (req: BunRequest<string>) => {
 		const productId = parseIdParam(req.params.id);
-		const product = queryRow(
-			db,
-			`SELECT * FROM ${TABLE} WHERE id = ?1`,
-			productId,
-		);
+		const product = await fetchProduct(db, productId);
 		if (!product) {
 			throw new HttpError(404, "Resource not found");
 		}
 
 		if (req.method === "GET") {
-			const row = fetchProductPicture(db, productId);
+			const row = await fetchProductPicture(db, productId);
 			if (!row?.picture_blob || !row.picture_content_type) {
 				throw new HttpError(404, "Product picture not found");
 			}
@@ -311,16 +292,15 @@ export const productPictureRoute = (db: Database) =>
 		}
 
 		if (req.method === "DELETE") {
-			db.prepare(
-				`
-					UPDATE products
-					SET picture_blob = NULL,
-						picture_content_type = NULL,
-						picture_filename = NULL,
-						picture_uploaded_at = NULL
-					WHERE id = ?1
-				`,
-			).run(productId);
+			await db.client.product.update({
+				where: { id: productId },
+				data: {
+					picture_blob: null,
+					picture_content_type: null,
+					picture_filename: null,
+					picture_uploaded_at: null,
+				},
+			});
 			return empty(204);
 		}
 
@@ -328,10 +308,7 @@ export const productPictureRoute = (db: Database) =>
 			const formData = await req.formData();
 			const uploaded = formData.get("file");
 			if (!(uploaded instanceof File)) {
-				throw new HttpError(
-					400,
-					"Multipart form-data must include a `file` field",
-				);
+				throw new HttpError(400, "Multipart form-data must include a `file` field");
 			}
 			if (!uploaded.type.startsWith("image/")) {
 				throw new HttpError(400, "Uploaded file must be an image");
@@ -340,29 +317,19 @@ export const productPictureRoute = (db: Database) =>
 				throw new HttpError(400, "Uploaded file may not be empty");
 			}
 			if (uploaded.size > MAX_PRODUCT_PICTURE_BYTES) {
-				throw new HttpError(
-					413,
-					"Uploaded file exceeds the 10 MB limit",
-				);
+				throw new HttpError(413, "Uploaded file exceeds the 10 MB limit");
 			}
 
 			const buffer = new Uint8Array(await uploaded.arrayBuffer());
-			db.prepare(
-				`
-					UPDATE products
-					SET picture_blob = ?1,
-						picture_content_type = ?2,
-						picture_filename = ?3,
-						picture_uploaded_at = ?4
-					WHERE id = ?5
-				`,
-			).run(
-				buffer,
-				uploaded.type,
-				uploaded.name || null,
-				utcNow(),
-				productId,
-			);
+			await db.client.product.update({
+				where: { id: productId },
+				data: {
+					picture_blob: buffer,
+					picture_content_type: uploaded.type,
+					picture_filename: uploaded.name || null,
+					picture_uploaded_at: utcNow(),
+				},
+			});
 
 			return json(200, {
 				product_id: productId,

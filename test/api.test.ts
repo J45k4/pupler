@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 
 import {
@@ -20,18 +23,30 @@ import {
 	shoppingListItemDetailRoute,
 	shoppingListItemsCollectionRoute,
 } from "../src/api";
+import { applyTestSchema } from "./support/test-db";
 
 const dbs: ReturnType<typeof openDatabase>[] = [];
+const tempDirs: string[] = [];
 
-afterEach(() => {
+afterEach(async () => {
 	const db = dbs.pop();
 	if (db) {
-		closeDatabase(db);
+		await closeDatabase(db);
+	}
+
+	const tempDir = tempDirs.pop();
+	if (tempDir) {
+		rmSync(tempDir, { force: true, recursive: true });
 	}
 });
 
 const createRoutes = () => {
-	const db = openDatabase(":memory:");
+	const tempDir = mkdtempSync(join(tmpdir(), "pupler-api-"));
+	const dbPath = join(tempDir, "pupler.sqlite");
+	tempDirs.push(tempDir);
+	applyTestSchema(dbPath);
+
+	const db = openDatabase(dbPath);
 	dbs.push(db);
 
 	return {

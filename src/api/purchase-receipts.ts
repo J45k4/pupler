@@ -1,5 +1,4 @@
 import type { BunRequest } from "bun";
-import { Database } from "bun:sqlite";
 
 import {
 	assertKnownFields,
@@ -8,26 +7,21 @@ import {
 	expectString,
 	expectTimestamp,
 	HttpError,
-	insertRow,
 	json,
 	parseDecimalQuery,
+	parseIdParam,
 	parseIntegerQuery,
 	parseSortOrder,
 	parseTimestampQuery,
-	parseIdParam,
-	queryRow,
-	queryRows,
 	readJsonObject,
 	readOptionalBodyField,
 	requireBodyField,
-	updateRowById,
 	utcNow,
 	withErrorHandling,
+	type Database,
 	type JsonObject,
-	type RowValues,
 } from "./core";
 
-const TABLE = "receipts";
 const MAX_PURCHASE_RECEIPT_PICTURE_BYTES = 10 * 1024 * 1024;
 const SORT_FIELDS = new Set([
 	"id",
@@ -46,77 +40,60 @@ const WRITABLE_FIELDS = [
 ];
 
 const fetchReceipt = (db: Database, id: number) =>
-	queryRow(db, `SELECT * FROM ${TABLE} WHERE id = ?1`, id);
+	db.client.receipt.findUnique({ where: { id } });
 
 const fetchReceiptPicture = (db: Database, receiptId: number) =>
-	queryRow(
-		db,
-		`
-			SELECT id, picture_blob, picture_content_type, picture_filename, picture_uploaded_at
-			FROM receipts
-			WHERE id = ?1
-		`,
-		receiptId,
-	) as {
-		id: number;
-		picture_blob: Uint8Array | null;
-		picture_content_type: string | null;
-		picture_filename: string | null;
-		picture_uploaded_at: string | null;
-	} | null;
+	db.client.receipt.findUnique({
+		where: { id: receiptId },
+		select: {
+			id: true,
+			picture_blob: true,
+			picture_content_type: true,
+			picture_filename: true,
+			picture_uploaded_at: true,
+		},
+	});
 
 const parseSort = (url: URL) => {
 	const sort = url.searchParams.get("sort");
-	if (!sort) return "id ASC";
+	if (!sort) return [{ id: "asc" }] as const;
 	if (!SORT_FIELDS.has(sort)) {
 		throw new HttpError(400, `Unknown sort field \`${sort}\``);
 	}
-	return `${sort} ${parseSortOrder(url)}`;
+	return [{ [sort]: parseSortOrder(url) }];
 };
 
 const parseFilters = (url: URL) => {
-	const filters: string[] = [];
-	const params: Array<string | number> = [];
+	const where: Record<string, unknown> = {};
 
 	for (const [key, value] of url.searchParams.entries()) {
 		if (key === "sort" || key === "order") continue;
 		switch (key) {
 			case "id":
-				filters.push("id = ?");
-				params.push(parseIntegerQuery(key, value));
+				where.id = parseIntegerQuery(key, value);
 				break;
 			case "store_name":
 			case "currency":
 			case "created_at":
 			case "updated_at":
-				if (value === "null") {
-					filters.push(`${key} IS NULL`);
-				} else {
-					filters.push(`${key} = ?`);
-					params.push(value);
-				}
+				where[key] = value === "null" ? null : value;
 				break;
 			case "purchased_at":
-				filters.push("purchased_at = ?");
-				params.push(parseTimestampQuery(key, value));
+				where.purchased_at = parseTimestampQuery(key, value);
 				break;
 			case "total_amount":
-				if (value === "null") {
-					filters.push("total_amount IS NULL");
-				} else {
-					filters.push("total_amount = ?");
-					params.push(parseDecimalQuery(key, value));
-				}
+				where.total_amount =
+					value === "null" ? null : parseDecimalQuery(key, value);
 				break;
 			default:
 				throw new HttpError(400, `Unknown query parameter \`${key}\``);
 		}
 	}
 
-	return { filters, params };
+	return where;
 };
 
-const parseCreateValues = (body: JsonObject): RowValues => {
+const parseCreateValues = (body: JsonObject) => {
 	assertKnownFields(body, WRITABLE_FIELDS);
 	const now = utcNow();
 	return {
@@ -124,11 +101,7 @@ const parseCreateValues = (body: JsonObject): RowValues => {
 		purchased_at: requireBodyField(body, "purchased_at", expectTimestamp),
 		currency: requireBodyField(body, "currency", expectString),
 		total_amount:
-			readOptionalBodyField(
-				body,
-				"total_amount",
-				expectNullableDecimal,
-			) ?? null,
+			readOptionalBodyField(body, "total_amount", expectNullableDecimal) ?? null,
 		created_at: now,
 		updated_at: now,
 	};
@@ -136,34 +109,26 @@ const parseCreateValues = (body: JsonObject): RowValues => {
 
 const parseReplaceValues = (
 	body: JsonObject,
-	existingRow: Record<string, unknown>,
-): RowValues => {
+	existingRow: Awaited<ReturnType<typeof fetchReceipt>>,
+) => {
 	assertKnownFields(body, WRITABLE_FIELDS);
 	return {
 		store_name: requireBodyField(body, "store_name", expectString),
 		purchased_at: requireBodyField(body, "purchased_at", expectTimestamp),
 		currency: requireBodyField(body, "currency", expectString),
 		total_amount:
-			readOptionalBodyField(
-				body,
-				"total_amount",
-				expectNullableDecimal,
-			) ?? null,
-		created_at: String(existingRow.created_at),
+			readOptionalBodyField(body, "total_amount", expectNullableDecimal) ?? null,
+		created_at: existingRow?.created_at ?? utcNow(),
 		updated_at: utcNow(),
 	};
 };
 
 const parsePatchValues = (body: JsonObject) => {
 	assertKnownFields(body, WRITABLE_FIELDS);
-	const values: RowValues = {};
+	const values: Record<string, unknown> = {};
 
 	const storeName = readOptionalBodyField(body, "store_name", expectString);
-	const purchasedAt = readOptionalBodyField(
-		body,
-		"purchased_at",
-		expectTimestamp,
-	);
+	const purchasedAt = readOptionalBodyField(body, "purchased_at", expectTimestamp);
 	const currency = readOptionalBodyField(body, "currency", expectString);
 	const totalAmount = readOptionalBodyField(
 		body,
@@ -177,10 +142,7 @@ const parsePatchValues = (body: JsonObject) => {
 	if (totalAmount !== undefined) values.total_amount = totalAmount;
 
 	if (Object.keys(values).length === 0) {
-		throw new HttpError(
-			400,
-			"PATCH request must contain at least one writable field",
-		);
+		throw new HttpError(400, "PATCH request must contain at least one writable field");
 	}
 
 	values.updated_at = utcNow();
@@ -191,26 +153,22 @@ export const receiptsCollectionRoute = (db: Database) =>
 	withErrorHandling(async (req: Request) => {
 		if (req.method === "GET") {
 			const url = new URL(req.url);
-			const { filters, params } = parseFilters(url);
-			const whereClause =
-				filters.length > 0 ? ` WHERE ${filters.join(" AND ")}` : "";
 			return json(
 				200,
-				queryRows(
-					db,
-					`SELECT * FROM ${TABLE}${whereClause} ORDER BY ${parseSort(url)}`,
-					...params,
-				),
+				await db.client.receipt.findMany({
+					where: parseFilters(url),
+					orderBy: parseSort(url),
+				}),
 			);
 		}
 
 		if (req.method === "POST") {
-			const id = insertRow(
-				db,
-				TABLE,
-				parseCreateValues(await readJsonObject(req)),
+			return json(
+				201,
+				await db.client.receipt.create({
+					data: parseCreateValues(await readJsonObject(req)),
+				}),
 			);
-			return json(201, fetchReceipt(db, id) ?? {});
 		}
 
 		throw new HttpError(405, "Method not allowed for this route");
@@ -219,32 +177,32 @@ export const receiptsCollectionRoute = (db: Database) =>
 export const receiptDetailRoute = (db: Database) =>
 	withErrorHandling(async (req: BunRequest<string>) => {
 		const id = parseIdParam(req.params.id);
-		const existingRow = fetchReceipt(db, id);
+		const existingRow = await fetchReceipt(db, id);
 		if (!existingRow) {
 			throw new HttpError(404, "Resource not found");
 		}
 
 		if (req.method === "GET") return json(200, existingRow);
 		if (req.method === "PUT") {
-			updateRowById(
-				db,
-				TABLE,
-				id,
-				parseReplaceValues(await readJsonObject(req), existingRow),
+			return json(
+				200,
+				await db.client.receipt.update({
+					where: { id },
+					data: parseReplaceValues(await readJsonObject(req), existingRow),
+				}),
 			);
-			return json(200, fetchReceipt(db, id) ?? {});
 		}
 		if (req.method === "PATCH") {
-			updateRowById(
-				db,
-				TABLE,
-				id,
-				parsePatchValues(await readJsonObject(req)),
+			return json(
+				200,
+				await db.client.receipt.update({
+					where: { id },
+					data: parsePatchValues(await readJsonObject(req)),
+				}),
 			);
-			return json(200, fetchReceipt(db, id) ?? {});
 		}
 		if (req.method === "DELETE") {
-			db.prepare(`DELETE FROM ${TABLE} WHERE id = ?1`).run(id);
+			await db.client.receipt.delete({ where: { id } });
 			return empty(204);
 		}
 		throw new HttpError(405, "Method not allowed for this route");
@@ -253,13 +211,13 @@ export const receiptDetailRoute = (db: Database) =>
 export const receiptPictureRoute = (db: Database) =>
 	withErrorHandling(async (req: BunRequest<string>) => {
 		const receiptId = parseIdParam(req.params.id);
-		const receipt = fetchReceipt(db, receiptId);
+		const receipt = await fetchReceipt(db, receiptId);
 		if (!receipt) {
 			throw new HttpError(404, "Resource not found");
 		}
 
 		if (req.method === "GET") {
-			const row = fetchReceiptPicture(db, receiptId);
+			const row = await fetchReceiptPicture(db, receiptId);
 			if (!row?.picture_blob || !row.picture_content_type) {
 				throw new HttpError(404, "Receipt picture not found");
 			}
@@ -278,16 +236,15 @@ export const receiptPictureRoute = (db: Database) =>
 		}
 
 		if (req.method === "DELETE") {
-			db.prepare(
-				`
-					UPDATE receipts
-					SET picture_blob = NULL,
-						picture_content_type = NULL,
-						picture_filename = NULL,
-						picture_uploaded_at = NULL
-					WHERE id = ?1
-				`,
-			).run(receiptId);
+			await db.client.receipt.update({
+				where: { id: receiptId },
+				data: {
+					picture_blob: null,
+					picture_content_type: null,
+					picture_filename: null,
+					picture_uploaded_at: null,
+				},
+			});
 			return empty(204);
 		}
 
@@ -295,10 +252,7 @@ export const receiptPictureRoute = (db: Database) =>
 			const formData = await req.formData();
 			const uploaded = formData.get("file");
 			if (!(uploaded instanceof File)) {
-				throw new HttpError(
-					400,
-					"Multipart form-data must include a `file` field",
-				);
+				throw new HttpError(400, "Multipart form-data must include a `file` field");
 			}
 			if (!uploaded.type.startsWith("image/")) {
 				throw new HttpError(400, "Uploaded file must be an image");
@@ -307,29 +261,19 @@ export const receiptPictureRoute = (db: Database) =>
 				throw new HttpError(400, "Uploaded file may not be empty");
 			}
 			if (uploaded.size > MAX_PURCHASE_RECEIPT_PICTURE_BYTES) {
-				throw new HttpError(
-					413,
-					"Uploaded file exceeds the 10 MB limit",
-				);
+				throw new HttpError(413, "Uploaded file exceeds the 10 MB limit");
 			}
 
 			const buffer = new Uint8Array(await uploaded.arrayBuffer());
-			db.prepare(
-				`
-					UPDATE receipts
-					SET picture_blob = ?1,
-						picture_content_type = ?2,
-						picture_filename = ?3,
-						picture_uploaded_at = ?4
-					WHERE id = ?5
-				`,
-			).run(
-				buffer,
-				uploaded.type,
-				uploaded.name || null,
-				utcNow(),
-				receiptId,
-			);
+			await db.client.receipt.update({
+				where: { id: receiptId },
+				data: {
+					picture_blob: buffer,
+					picture_content_type: uploaded.type,
+					picture_filename: uploaded.name || null,
+					picture_uploaded_at: utcNow(),
+				},
+			});
 
 			return json(200, {
 				receipt_id: receiptId,

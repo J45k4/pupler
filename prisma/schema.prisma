@@ -1,0 +1,179 @@
+generator client {
+	provider = "prisma-client"
+	output   = "../src/generated/prisma"
+}
+
+datasource db {
+	provider = "sqlite"
+}
+
+model Product {
+	id                   Int                @id @default(autoincrement())
+	name                 String
+	category             String
+	barcode              String?            @unique
+	default_unit         String?            @map("default_unit")
+	is_perishable        Boolean            @map("is_perishable")
+	picture_blob         Bytes?             @map("picture_blob")
+	picture_content_type String?            @map("picture_content_type")
+	picture_filename     String?            @map("picture_filename")
+	picture_uploaded_at  String?            @map("picture_uploaded_at")
+	created_at           String             @map("created_at")
+	updated_at           String             @map("updated_at")
+	product_links        ProductLink[]
+	receipt_items        ReceiptItem[]
+	inventory_items      InventoryItem[]
+	recipe_ingredients   RecipeIngredient[]
+	shopping_list_items  ShoppingListItem[]
+
+	@@map("products")
+}
+
+model ProductLink {
+	id         Int     @id @default(autoincrement())
+	product_id Int     @map("product_id")
+	label      String
+	url        String
+	created_at String  @map("created_at")
+	product    Product @relation(fields: [product_id], references: [id])
+
+	@@index([product_id], map: "idx_product_links_product_id")
+	@@map("product_links")
+}
+
+model Receipt {
+	id                   Int           @id @default(autoincrement())
+	store_name           String        @map("store_name")
+	purchased_at         String        @map("purchased_at")
+	currency             String
+	total_amount         Float?        @map("total_amount")
+	picture_blob         Bytes?        @map("picture_blob")
+	picture_content_type String?       @map("picture_content_type")
+	picture_filename     String?       @map("picture_filename")
+	picture_uploaded_at  String?       @map("picture_uploaded_at")
+	created_at           String        @map("created_at")
+	updated_at           String        @map("updated_at")
+	receipt_items        ReceiptItem[]
+
+	@@map("receipts")
+}
+
+model ReceiptItem {
+	id         Int             @id @default(autoincrement())
+	receipt_id Int             @map("receipt_id")
+	product_id Int             @map("product_id")
+	quantity   Float
+	unit       String
+	unit_price Float?          @map("unit_price")
+	line_total Float?          @map("line_total")
+	created_at String          @map("created_at")
+	receipt    Receipt         @relation(fields: [receipt_id], references: [id])
+	product    Product         @relation(fields: [product_id], references: [id])
+	items      InventoryItem[]
+
+	@@index([receipt_id], map: "idx_receipt_items_receipt_id")
+	@@index([product_id], map: "idx_receipt_items_product_id")
+	@@map("receipt_items")
+}
+
+model InventoryContainer {
+	id                  Int                  @id @default(autoincrement())
+	name                String
+	parent_container_id Int?                 @map("parent_container_id")
+	notes               String?
+	created_at          String               @map("created_at")
+	updated_at          String               @map("updated_at")
+	parent_container    InventoryContainer?  @relation("InventoryContainerTree", fields: [parent_container_id], references: [id])
+	child_containers    InventoryContainer[] @relation("InventoryContainerTree")
+	inventory_items     InventoryItem[]
+
+	@@index([parent_container_id], map: "idx_inventory_containers_parent_id")
+	@@map("inventory_containers")
+}
+
+model InventoryItem {
+	id              Int                 @id @default(autoincrement())
+	product_id      Int                 @map("product_id")
+	receipt_item_id Int?                @map("receipt_item_id")
+	container_id    Int?                @map("container_id")
+	quantity        Float
+	unit            String
+	purchased_at    String?             @map("purchased_at")
+	expires_at      String?             @map("expires_at")
+	consumed_at     String?             @map("consumed_at")
+	notes           String?
+	created_at      String              @map("created_at")
+	updated_at      String              @map("updated_at")
+	product         Product             @relation(fields: [product_id], references: [id])
+	receipt_item    ReceiptItem?        @relation(fields: [receipt_item_id], references: [id])
+	container       InventoryContainer? @relation(fields: [container_id], references: [id])
+
+	@@index([product_id], map: "idx_inventory_product_id")
+	@@index([container_id], map: "idx_inventory_container_id")
+	@@map("inventory_items")
+}
+
+model Recipe {
+	id                  Int                @id @default(autoincrement())
+	name                String
+	description         String?
+	instructions        String?
+	servings            Int?
+	is_active           Boolean            @map("is_active")
+	created_at          String             @map("created_at")
+	updated_at          String             @map("updated_at")
+	ingredients         RecipeIngredient[]
+	meal_plan_items     MealPlanItem[]
+	shopping_list_items ShoppingListItem[]
+
+	@@map("recipes")
+}
+
+model RecipeIngredient {
+	id          Int     @id @default(autoincrement())
+	recipe_id   Int     @map("recipe_id")
+	product_id  Int     @map("product_id")
+	quantity    Float
+	unit        String
+	is_optional Boolean @map("is_optional")
+	notes       String?
+	created_at  String  @map("created_at")
+	recipe      Recipe  @relation(fields: [recipe_id], references: [id])
+	product     Product @relation(fields: [product_id], references: [id])
+
+	@@index([recipe_id], map: "idx_recipe_ingredients_recipe_id")
+	@@index([product_id], map: "idx_recipe_ingredients_product_id")
+	@@map("recipe_ingredients")
+}
+
+model MealPlanItem {
+	id           Int    @id @default(autoincrement())
+	recipe_id    Int    @map("recipe_id")
+	planned_date String @map("planned_date")
+	meal_type    String @map("meal_type")
+	servings     Int
+	status       String
+	created_at   String @map("created_at")
+	updated_at   String @map("updated_at")
+	recipe       Recipe @relation(fields: [recipe_id], references: [id])
+
+	@@index([recipe_id], map: "idx_meal_plan_recipe_id")
+	@@map("meal_plan_items")
+}
+
+model ShoppingListItem {
+	id               Int     @id @default(autoincrement())
+	product_id       Int     @map("product_id")
+	quantity         Float
+	unit             String
+	done             Boolean
+	source_recipe_id Int?    @map("source_recipe_id")
+	notes            String?
+	created_at       String  @map("created_at")
+	updated_at       String  @map("updated_at")
+	product          Product @relation(fields: [product_id], references: [id])
+	source_recipe    Recipe? @relation(fields: [source_recipe_id], references: [id])
+
+	@@index([product_id], map: "idx_shopping_list_items_product_id")
+	@@map("shopping_list_items")
+}

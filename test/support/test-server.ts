@@ -3,6 +3,8 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
+import { applyTestSchema } from "./test-db";
+
 export type ApiResponse<TBody = unknown> = {
 	body: TBody;
 	response: Response;
@@ -83,6 +85,7 @@ export class TestServer {
 		const tempDir = mkdtempSync(join(tmpdir(), "pupler-e2e-"));
 		const dbPath = join(tempDir, "pupler.sqlite");
 		mkdirSync(tempDir, { recursive: true });
+		applyTestSchema(dbPath);
 
 		const child = Bun.spawn(["bun", "src/main.ts"], {
 			cwd: projectRoot,

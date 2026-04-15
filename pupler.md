@@ -27,9 +27,14 @@ Bun.serve({
 ```
 
 - see how to use at: https://bun.com/docs/runtime/http/server.md
-- Use buns native sqlite impl see how to use at: https://bun.com/docs/runtime/sqlite.md
 - entrypoint is ./src/main.ts
-- inline routes iunto the bun.serve
+- inline routes into the `Bun.serve` route map
+- persistence uses SQLite through Prisma
+- Prisma schema lives in `./prisma/schema.prisma`
+- generated Prisma client lives in `./src/generated/prisma`
+- database path still comes from `DB_PATH` and defaults to `pupler.db`
+- the app does not run migrations or schema sync on startup
+- apply schema changes manually with Prisma CLI before running the server
 
 ## CLI
 
@@ -52,9 +57,12 @@ bun ./cli/cli.ts receipt-items create --receipt-id 1 --product-id 2 --quantity 1
 
 ### Migrations
 
-Migrations should be created into files in folder /migrations/YYYYMMDDHH_description
+Prisma owns the database schema now.
 
-there should be migrations table which collects executed migrations and migrations should be executed in chronological ordering. based on the date in the file begining.
+- schema source of truth is `./prisma/schema.prisma`
+- baseline SQL snapshot lives under `./prisma/migrations`
+- run `bun run prisma:generate` after schema changes so the generated client stays in sync
+- use `bun run prisma:migrate:dev`, `bun run prisma:migrate:deploy`, or `bun run prisma:db:push` manually when you want to change the database
 
 ## API
 

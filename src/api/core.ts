@@ -1,7 +1,14 @@
 import type { BunRequest } from "bun";
-import { Database } from "bun:sqlite";
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+import { PrismaLibSql } from "@prisma/adapter-libsql";
+
+import {
+	Prisma,
+	PrismaClient,
+} from "../generated/prisma/client";
 
 export type FieldKind =
 	| "string"
@@ -20,9 +27,14 @@ export type JsonValue =
 	| { [key: string]: JsonValue };
 
 export type JsonObject = { [key: string]: JsonValue };
-export type Row = Record<string, unknown>;
-export type RowValue = string | number | Uint8Array | null;
-export type RowValues = Record<string, RowValue>;
+type QueryClient = PrismaClient | Prisma.TransactionClient;
+export type SortDirection = "asc" | "desc";
+
+export type Database = {
+	client: QueryClient;
+	dbPath: string;
+	tempDir?: string;
+};
 
 export class HttpError extends Error {
 	status: number;
@@ -106,7 +118,7 @@ export const expectBoolean = (value: JsonValue, field: string) => {
 	if (typeof value !== "boolean") {
 		throw new HttpError(400, `Field \`${field}\` must be a boolean`);
 	}
-	return value ? 1 : 0;
+	return value;
 };
 
 export const expectNullableBoolean = (value: JsonValue, field: string) => {
@@ -187,10 +199,10 @@ export const expectNullableTimestamp = (value: JsonValue, field: string) => {
 export const parseBooleanQuery = (field: string, rawValue: string) => {
 	const normalized = rawValue.trim().toLowerCase();
 	if (["true", "1", "yes"].includes(normalized)) {
-		return 1;
+		return true;
 	}
 	if (["false", "0", "no"].includes(normalized)) {
-		return 0;
+		return false;
 	}
 	throw new HttpError(
 		400,
@@ -241,14 +253,14 @@ export const parseTimestampQuery = (field: string, rawValue: string) => {
 };
 
 export const parseSortOrder = (url: URL) => {
-	const order = (url.searchParams.get("order") ?? "asc").toUpperCase();
-	if (!["ASC", "DESC"].includes(order)) {
+	const order = (url.searchParams.get("order") ?? "asc").toLowerCase();
+	if (!["asc", "desc"].includes(order)) {
 		throw new HttpError(
 			400,
 			"Query parameter `order` must be `asc` or `desc`",
 		);
 	}
-	return order;
+	return order as SortDirection;
 };
 
 export const parseIdParam = (value: string) => {
@@ -259,112 +271,56 @@ export const parseIdParam = (value: string) => {
 	return id;
 };
 
-export const serializeBooleanFields = (row: Row | null, fields: string[]) => {
-	if (!row) {
-		return null;
+const toDatabaseUrl = (dbPath: string) =>
+	dbPath.startsWith("file:") ? dbPath : `file:${dbPath}`;
+
+const prepareDatabasePath = (dbPath: string) => {
+	if (dbPath !== ":memory:") {
+		return { dbPath, tempDir: undefined };
 	}
 
-	const result: Row = { ...row };
-	for (const field of fields) {
-		if (field in result && result[field] !== null) {
-			result[field] = Boolean(result[field]);
-		}
+	const tempDir = mkdtempSync(join(tmpdir(), "pupler-db-"));
+	return {
+		dbPath: join(tempDir, "pupler.sqlite"),
+		tempDir,
+	};
+};
+
+export const openDatabase = (dbPath = "pupler.db") => {
+	const prepared = prepareDatabasePath(dbPath);
+	const databaseUrl = toDatabaseUrl(prepared.dbPath);
+
+	const adapter = new PrismaLibSql({ url: databaseUrl });
+	const client = new PrismaClient({ adapter });
+
+	return {
+		client,
+		dbPath: prepared.dbPath,
+		tempDir: prepared.tempDir,
+	} satisfies Database;
+};
+
+export const closeDatabase = async (db: Database) => {
+	await db.client.$disconnect?.();
+	if (db.tempDir) {
+		rmSync(db.tempDir, { force: true, recursive: true });
 	}
-
-	return result;
-};
-
-export const queryRow = (db: Database, sql: string, ...params: RowValue[]) =>
-	db
-		.query(sql)
-		.as(Object)
-		.get(...params) as Row | null;
-
-export const queryRows = (db: Database, sql: string, ...params: RowValue[]) =>
-	db
-		.query(sql)
-		.as(Object)
-		.all(...params) as Row[];
-
-export const insertRow = (db: Database, table: string, values: RowValues) => {
-	const columns = Object.keys(values);
-	const placeholders = columns.map(() => "?").join(", ");
-	const sql = `INSERT INTO ${table} (${columns.join(", ")}) VALUES (${placeholders})`;
-	const result = db
-		.prepare(sql)
-		.run(...columns.map((column) => values[column] ?? null));
-	return Number(result.lastInsertRowid);
-};
-
-export const updateRowById = (
-	db: Database,
-	table: string,
-	id: number,
-	values: RowValues,
-) => {
-	const columns = Object.keys(values);
-	const assignments = columns.map((column) => `${column} = ?`).join(", ");
-	db.prepare(`UPDATE ${table} SET ${assignments} WHERE id = ?`).run(
-		...columns.map((column) => values[column] ?? null),
-		id,
-	);
-};
-
-const initMigrationTable = (db: Database) => {
-	db.exec("PRAGMA foreign_keys = ON;");
-	db.exec(`
-    CREATE TABLE IF NOT EXISTS migrations (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL UNIQUE,
-      executed_at TEXT NOT NULL
-    )
-  `);
-};
-
-const runMigrations = (db: Database, migrationsDir = "migrations") => {
-	initMigrationTable(db);
-
-	const executedRows = db
-		.query("SELECT name FROM migrations ORDER BY name ASC")
-		.as(Object)
-		.all() as Array<{ name: string }>;
-	const executed = new Set(executedRows.map((row) => row.name));
-
-	const files = readdirSync(migrationsDir)
-		.filter((name) => /^\d{10}_.+\.sql$/.test(name))
-		.sort((left, right) => left.localeCompare(right));
-
-	for (const file of files) {
-		if (executed.has(file)) {
-			continue;
-		}
-
-		const sql = readFileSync(join(migrationsDir, file), "utf8");
-		db.transaction(() => {
-			db.exec(sql);
-			db.prepare(
-				"INSERT INTO migrations (name, executed_at) VALUES (?1, ?2)",
-			).run(file, utcNow());
-		})();
-	}
-};
-
-export const openDatabase = (
-	dbPath = "pupler.db",
-	migrationsDir = "migrations",
-) => {
-	const db = new Database(dbPath, { create: true, strict: true });
-	runMigrations(db, migrationsDir);
-	return db;
-};
-
-export const closeDatabase = (db: Database) => {
-	db.close();
 };
 
 export const handleError = (error: unknown) => {
 	if (error instanceof HttpError) {
 		return json(error.status, { error: error.message });
+	}
+
+	if (error instanceof Prisma.PrismaClientKnownRequestError) {
+		if (error.code === "P2002") {
+			return json(409, { error: error.message });
+		}
+		if (error.code === "P2003") {
+			return json(409, {
+				error: "Resource is still referenced by another record",
+			});
+		}
 	}
 
 	if (error instanceof Error) {
