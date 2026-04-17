@@ -4,6 +4,7 @@ import {
 	assertKnownFields,
 	empty,
 	expectBoolean,
+	expectNullableInteger,
 	expectNullableString,
 	expectString,
 	HttpError,
@@ -20,10 +21,15 @@ import {
 	type Database,
 	type JsonObject,
 } from "./core";
+import {
+	ensureIngredientExists,
+	productDetailSelect,
+} from "./reference-details";
 
 const DEFAULT_SORT = [{ name: "asc" }, { id: "asc" }] as const;
 const SORT_FIELDS = new Set([
 	"id",
+	"ingredient_id",
 	"name",
 	"category",
 	"barcode",
@@ -33,6 +39,7 @@ const SORT_FIELDS = new Set([
 	"updated_at",
 ]);
 const WRITABLE_FIELDS = [
+	"ingredient_id",
 	"name",
 	"category",
 	"barcode",
@@ -43,6 +50,12 @@ const MAX_PRODUCT_PICTURE_BYTES = 10 * 1024 * 1024;
 
 const fetchProduct = (db: Database, id: number) =>
 	db.client.product.findUnique({ where: { id } });
+
+const fetchProductDetail = (db: Database, id: number) =>
+	db.client.product.findUnique({
+		where: { id },
+		select: productDetailSelect,
+	});
 
 const parseProductSort = (url: URL) => {
 	const sort = url.searchParams.get("sort");
@@ -68,6 +81,10 @@ const parseProductFilters = (url: URL) => {
 		switch (key) {
 			case "id":
 				where.id = parseIntegerQuery(key, value);
+				break;
+			case "ingredient_id":
+				where.ingredient_id =
+					value === "null" ? null : parseIntegerQuery(key, value);
 				break;
 			case "name":
 				nameExact = value === "null" ? null : value;
@@ -125,6 +142,9 @@ const parseCreateValues = (body: JsonObject) => {
 	const now = utcNow();
 
 	return {
+		ingredient_id:
+			readOptionalBodyField(body, "ingredient_id", expectNullableInteger) ??
+			null,
 		name: requireBodyField(body, "name", expectString),
 		category: requireBodyField(body, "category", expectString),
 		barcode:
@@ -144,6 +164,9 @@ const parseReplaceValues = (
 	assertKnownFields(body, WRITABLE_FIELDS);
 
 	return {
+		ingredient_id:
+			readOptionalBodyField(body, "ingredient_id", expectNullableInteger) ??
+			null,
 		name: requireBodyField(body, "name", expectString),
 		category: requireBodyField(body, "category", expectString),
 		barcode:
@@ -160,6 +183,11 @@ const parsePatchValues = (body: JsonObject) => {
 	assertKnownFields(body, WRITABLE_FIELDS);
 
 	const values: Record<string, unknown> = {};
+	const ingredientId = readOptionalBodyField(
+		body,
+		"ingredient_id",
+		expectNullableInteger,
+	);
 	const name = readOptionalBodyField(body, "name", expectString);
 	const category = readOptionalBodyField(body, "category", expectString);
 	const barcode = readOptionalBodyField(body, "barcode", expectNullableString);
@@ -174,6 +202,7 @@ const parsePatchValues = (body: JsonObject) => {
 		expectBoolean,
 	);
 
+	if (ingredientId !== undefined) values.ingredient_id = ingredientId;
 	if (name !== undefined) values.name = name;
 	if (category !== undefined) values.category = category;
 	if (barcode !== undefined) values.barcode = barcode;
@@ -196,16 +225,20 @@ export const productsCollectionRoute = (db: Database) =>
 			const rows = await db.client.product.findMany({
 				where,
 				orderBy: parseProductSort(url),
+				select: productDetailSelect,
 			});
 			return json(200, filterProductsByName(rows, nameExact, nameContains));
 		}
 
 		if (req.method === "POST") {
+			const values = parseCreateValues(await readJsonObject(req));
+			await ensureIngredientExists(db, values.ingredient_id);
+			const created = await db.client.product.create({
+				data: values,
+			});
 			return json(
 				201,
-				await db.client.product.create({
-					data: parseCreateValues(await readJsonObject(req)),
-				}),
+				await fetchProductDetail(db, created.id),
 			);
 		}
 
@@ -221,26 +254,40 @@ export const productDetailRoute = (db: Database) =>
 		}
 
 		if (req.method === "GET") {
-			return json(200, existingRow);
+			return json(200, await fetchProductDetail(db, id));
 		}
 
 		if (req.method === "PUT") {
+			const values = parseReplaceValues(
+				await readJsonObject(req),
+				existingRow,
+			);
+			await ensureIngredientExists(db, values.ingredient_id);
+			await db.client.product.update({
+				where: { id },
+				data: values,
+			});
 			return json(
 				200,
-				await db.client.product.update({
-					where: { id },
-					data: parseReplaceValues(await readJsonObject(req), existingRow),
-				}),
+				await fetchProductDetail(db, id),
 			);
 		}
 
 		if (req.method === "PATCH") {
+			const values = parsePatchValues(await readJsonObject(req));
+			if ("ingredient_id" in values) {
+				await ensureIngredientExists(
+					db,
+					values.ingredient_id as number | null,
+				);
+			}
+			await db.client.product.update({
+				where: { id },
+				data: values,
+			});
 			return json(
 				200,
-				await db.client.product.update({
-					where: { id },
-					data: parsePatchValues(await readJsonObject(req)),
-				}),
+				await fetchProductDetail(db, id),
 			);
 		}
 

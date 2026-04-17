@@ -2,13 +2,28 @@ import { InfiniteScroll } from "./infinite-scroll";
 import { renderNavbar } from "./navbar";
 import { installLinkInterceptor, navigate, routes } from "./router";
 
+type IngredientSummary = {
+	id: number;
+	name: string;
+	default_unit: string | null;
+};
+
+type Ingredient = IngredientSummary & {
+	created_at: string;
+	updated_at: string;
+};
+
 type Product = {
 	id: number;
+	ingredient_id: number | null;
 	name: string;
 	category: string;
 	barcode: string | null;
 	default_unit: string | null;
 	is_perishable: boolean;
+	created_at: string;
+	updated_at: string;
+	ingredient?: IngredientSummary | null;
 };
 
 type PurchaseReceipt = {
@@ -34,7 +49,9 @@ type PurchaseReceiptItem = {
 
 type InventoryItem = {
 	id: number;
-	product_id: number;
+	name: string;
+	ingredient_id: number | null;
+	product_id: number | null;
 	receipt_item_id: number | null;
 	container_id: number | null;
 	quantity: number;
@@ -45,6 +62,8 @@ type InventoryItem = {
 	notes: string | null;
 	created_at: string;
 	updated_at: string;
+	ingredient?: IngredientSummary | null;
+	product?: IngredientSummary & { ingredient_id: number | null } | null;
 };
 
 type InventoryContainer = {
@@ -58,7 +77,9 @@ type InventoryContainer = {
 
 type ShoppingListItem = {
 	id: number;
-	product_id: number;
+	name: string;
+	ingredient_id: number | null;
+	product_id: number | null;
 	quantity: number;
 	unit: string;
 	done: boolean;
@@ -66,24 +87,23 @@ type ShoppingListItem = {
 	notes: string | null;
 	created_at: string;
 	updated_at: string;
-};
-
-type RecipeIngredientProduct = {
-	id: number;
-	name: string;
-	default_unit: string | null;
+	ingredient?: IngredientSummary | null;
+	product?: IngredientSummary & { ingredient_id: number | null } | null;
 };
 
 type RecipeIngredient = {
 	id: number;
 	recipe_id: number;
-	product_id: number;
+	ingredient_id: number | null;
+	product_id: number | null;
+	name: string;
 	quantity: number;
 	unit: string;
 	is_optional: boolean;
 	notes: string | null;
 	created_at: string;
-	product?: RecipeIngredientProduct;
+	ingredient?: IngredientSummary | null;
+	product?: IngredientSummary & { ingredient_id: number | null } | null;
 };
 
 type Recipe = {
@@ -109,11 +129,11 @@ type RecipeImage = {
 
 let receiptDetailAbortController: AbortController | null = null;
 let productPageAbortController: AbortController | null = null;
+let productDetailAbortController: AbortController | null = null;
 let productInfiniteScroll: InfiniteScroll<Product> | null = null;
 let inventoryTreeState: {
 	containers: InventoryContainer[];
 	items: InventoryItem[];
-	products: Product[];
 } | null = null;
 let collapsedInventoryContainerIds = new Set<number>();
 
@@ -618,17 +638,13 @@ const renderRecipeIngredientList = (ingredients: RecipeIngredient[]) => {
 		<div class="recipe-ingredient-list">
 			${ingredients
 				.map((ingredient) => {
-					const productName =
-						ingredient.product?.name ??
-						`Product #${ingredient.product_id}`;
 					return `
 						<article class="recipe-ingredient-item">
 							<button
 								class="recipe-ingredient-item__select"
 								type="button"
 								data-edit-recipe-ingredient-id="${ingredient.id}"
-								data-recipe-ingredient-product-id="${ingredient.product_id}"
-								data-recipe-ingredient-name="${encodeURIComponent(productName)}"
+								data-recipe-ingredient-name="${encodeURIComponent(ingredient.name)}"
 								data-recipe-ingredient-quantity="${ingredient.quantity}"
 								data-recipe-ingredient-unit="${encodeURIComponent(ingredient.unit)}"
 								data-recipe-ingredient-optional="${ingredient.is_optional ? "true" : "false"}"
@@ -636,18 +652,25 @@ const renderRecipeIngredientList = (ingredients: RecipeIngredient[]) => {
 							>
 								<div class="recipe-ingredient-item__main">
 									<div class="recipe-ingredient-item__header">
-										<strong>${escapeHtml(productName)}</strong>
+										<strong>${escapeHtml(ingredient.name)}</strong>
 										${ingredient.is_optional ? '<span class="tag tag--neutral">Optional</span>' : ""}
 									</div>
 									<div class="recipe-ingredient-item__meta">
 										<span>${escapeHtml(String(ingredient.quantity))} ${escapeHtml(ingredient.unit)}</span>
 										${
-											ingredient.product?.default_unit &&
-											ingredient.product.default_unit !== ingredient.unit
-												? `<span>Default unit: ${escapeHtml(ingredient.product.default_unit)}</span>`
+											(ingredient.ingredient?.default_unit ??
+												ingredient.product?.default_unit) &&
+											(ingredient.ingredient?.default_unit ??
+												ingredient.product?.default_unit) !== ingredient.unit
+												? `<span>Default unit: ${escapeHtml((ingredient.ingredient?.default_unit ?? ingredient.product?.default_unit) as string)}</span>`
 												: ""
 										}
 									</div>
+									${
+										ingredient.product
+											? `<div class="section-copy">Product link: ${escapeHtml(ingredient.product.name)}</div>`
+											: ""
+									}
 									${
 										ingredient.notes
 											? `<div class="section-copy">${escapeHtml(ingredient.notes)}</div>`
@@ -999,29 +1022,29 @@ const renderProductCard = (product: Product) => {
 		? '<span class="tag">Perishable</span>'
 		: "";
 	return `
-		<article class="product">
+		<a class="product" href="/products/${product.id}" data-link>
 			<div class="product__media">
-				<img class="product__image" src="/api/products/${product.id}/picture" alt="${product.name}" loading="lazy" onerror="this.parentElement.remove()" />
+				<img class="product__image" src="/api/products/${product.id}/picture" alt="${escapeHtml(product.name)}" loading="lazy" onerror="this.parentElement.remove()" />
 			</div>
 			<header>
-				<h3>${product.name}</h3>
+				<h3>${escapeHtml(product.name)}</h3>
 				${badge}
 			</header>
 			<dl>
 				<div>
 					<dt>Category</dt>
-					<dd>${product.category ?? "-"}</dd>
+					<dd>${escapeHtml(product.category ?? "-")}</dd>
 				</div>
 				<div>
 					<dt>Barcode</dt>
-					<dd>${product.barcode ?? "-"}</dd>
+					<dd>${escapeHtml(product.barcode ?? "-")}</dd>
 				</div>
 				<div>
 					<dt>Unit</dt>
-					<dd>${product.default_unit ?? "-"}</dd>
+					<dd>${escapeHtml(product.default_unit ?? "-")}</dd>
 				</div>
 			</dl>
-		</article>
+		</a>
 	`;
 };
 
@@ -1044,18 +1067,116 @@ const renderProducts = (products: Product[]) => {
 	productInfiniteScroll.render();
 };
 
-const renderShoppingListItems = (
-	items: ShoppingListItem[],
-	products: Product[],
-) => {
+const renderProductDetail = (product: Product) => {
+	const page = document.getElementById("product-detail-page");
+	if (!page) {
+		return;
+	}
+
+	page.innerHTML = `
+		<section class="page-heading page-heading--compact">
+			<div>
+				<span class="eyebrow">Product</span>
+				<h1 class="page-title">${escapeHtml(product.name)}</h1>
+			</div>
+			<a class="secondary action-link" href="/products" data-link>Back To Products</a>
+		</section>
+
+		<section class="workspace product-detail-grid">
+			<div class="card panel">
+				<h2>Picture</h2>
+				<div class="receipt-picture">
+					<img
+						class="receipt-picture__image"
+						src="/api/products/${product.id}/picture"
+						alt="${escapeHtml(product.name)}"
+						loading="lazy"
+						onerror="this.closest('.receipt-picture').innerHTML='<div class=&quot;empty&quot;>No product picture uploaded.</div>'"
+					/>
+				</div>
+			</div>
+
+			<div class="card panel">
+				<div class="section-header">
+					<h2>Details</h2>
+					${
+						product.is_perishable
+							? '<span class="tag">Perishable</span>'
+							: '<span class="tag tag--neutral">Shelf stable</span>'
+					}
+				</div>
+				<form id="product-detail-form">
+					<label>
+						Name
+						<input id="product-detail-name" value="${escapeHtml(product.name)}" required />
+					</label>
+
+					<div class="row">
+						<label>
+							Category
+							<input id="product-detail-category" value="${escapeHtml(product.category)}" required />
+						</label>
+
+						${renderUnitSelect({
+							id: "product-detail-default-unit",
+							name: "default_unit",
+							label: "Unit",
+							selectedValue: product.default_unit,
+							placeholderLabel: "No default unit",
+						})}
+					</div>
+
+					<label>
+						Ingredient
+						<input
+							id="product-detail-ingredient-name"
+							value="${escapeHtml(product.ingredient?.name ?? "")}"
+							placeholder="Sausage"
+						/>
+					</label>
+
+					<label>
+						Barcode
+						<input id="product-detail-barcode" value="${escapeHtml(product.barcode ?? "")}" placeholder="6414893400012" />
+					</label>
+
+					<label>
+						Perishable
+						<select id="product-detail-is-perishable">
+							<option value="true" ${product.is_perishable ? "selected" : ""}>true</option>
+							<option value="false" ${product.is_perishable ? "" : "selected"}>false</option>
+						</select>
+					</label>
+
+					<div class="actions">
+						<button class="primary" type="submit">Save Product</button>
+					</div>
+				</form>
+				<dl class="receipt-metadata">
+					<div>
+						<dt>Ingredient Link</dt>
+						<dd>${escapeHtml(product.ingredient?.name ?? "-")}</dd>
+					</div>
+					<div>
+						<dt>Created</dt>
+						<dd>${formatReceiptDateTime(product.created_at)}</dd>
+					</div>
+					<div>
+						<dt>Updated</dt>
+						<dd>${formatReceiptDateTime(product.updated_at)}</dd>
+					</div>
+				</dl>
+				<div id="product-detail-status" class="status"></div>
+			</div>
+		</section>
+	`;
+};
+
+const renderShoppingListItems = (items: ShoppingListItem[]) => {
 	const results = document.getElementById("shopping-list-item-results");
 	if (!results) {
 		return;
 	}
-
-	const productsById = new Map(
-		products.map((product) => [product.id, product]),
-	);
 
 	if (!items.length) {
 		results.innerHTML =
@@ -1075,7 +1196,6 @@ const renderShoppingListItems = (
 			<tbody>
 				${items
 					.map((item) => {
-						const product = productsById.get(item.product_id);
 						const checked = item.done ? " checked" : "";
 						const rowClass = item.done
 							? "shoppinglist-table__row shoppinglist-table__row--done"
@@ -1087,7 +1207,7 @@ const renderShoppingListItems = (
 
 						return `
 							<tr class="${rowClass}">
-								<td>${product?.name ?? `Product #${item.product_id}`}</td>
+								<td>${escapeHtml(item.name)}</td>
 								<td class="shoppinglist-table__date">
 									<span class="shoppinglist-table__date-label">${dateLabel}</span>
 									${dateValue}
@@ -1096,7 +1216,7 @@ const renderShoppingListItems = (
 									<input
 										type="checkbox"
 										data-shopping-item-id="${item.id}"
-										aria-label="Mark ${product?.name ?? `product ${item.product_id}`} done"
+										aria-label="Mark ${escapeHtml(item.name)} done"
 										${checked}
 									/>
 								</td>
@@ -1142,6 +1262,12 @@ const buildInventoryItemGroups = (items: InventoryItem[]) => {
 const getInventoryItemMeta = (item: InventoryItem) => {
 	const parts: string[] = [];
 
+	if (item.product?.name && item.product.name !== item.name) {
+		parts.push(`Product ${item.product.name}`);
+	}
+	if (item.ingredient?.name && item.ingredient.name !== item.name) {
+		parts.push(`Ingredient ${item.ingredient.name}`);
+	}
 	if (item.purchased_at) {
 		parts.push(`Bought ${formatReceiptDateTime(item.purchased_at)}`);
 	}
@@ -1158,16 +1284,12 @@ const getInventoryItemMeta = (item: InventoryItem) => {
 const renderInventoryTree = (
 	containers: InventoryContainer[],
 	items: InventoryItem[],
-	products: Product[],
 ) => {
 	const root = document.getElementById("inventory-tree-root");
 	if (!root) {
 		return;
 	}
 
-	const productsById = new Map(
-		products.map((product) => [product.id, product]),
-	);
 	const containerChildren = buildContainerChildren(containers);
 	const containerItems = buildInventoryItemGroups(items);
 	const containerIds = new Set(containers.map((container) => container.id));
@@ -1190,9 +1312,6 @@ const renderInventoryTree = (
 	};
 
 	const renderInventoryItemNode = (item: InventoryItem) => {
-		const productName =
-			productsById.get(item.product_id)?.name ??
-			`Product #${item.product_id}`;
 		const meta = getInventoryItemMeta(item);
 
 		return `
@@ -1205,10 +1324,10 @@ const renderInventoryTree = (
 					data-source-container-id="${item.container_id ?? ""}"
 				>
 					<div class="inventory-node__main">
-						<strong>${productName}</strong>
+						<strong>${escapeHtml(item.name)}</strong>
 						<div class="inventory-node__meta">
 							<span>${item.quantity} ${item.unit}</span>
-							${meta ? `<span>${meta}</span>` : ""}
+							${meta ? `<span>${escapeHtml(meta)}</span>` : ""}
 						</div>
 					</div>
 				</div>
@@ -1223,13 +1342,7 @@ const renderInventoryTree = (
 		}
 
 		const sortedItems = [...bucket].sort((left, right) => {
-			const leftName =
-				productsById.get(left.product_id)?.name ??
-				`Product #${left.product_id}`;
-			const rightName =
-				productsById.get(right.product_id)?.name ??
-				`Product #${right.product_id}`;
-			return leftName.localeCompare(rightName);
+			return left.name.localeCompare(right.name);
 		});
 
 		return `
@@ -1721,6 +1834,21 @@ const fetchAllProducts = async () => {
 	return body as Product[];
 };
 
+const fetchProduct = async (productId: number) => {
+	const response = await fetch(`/api/products/${productId}`);
+	const body = (await response.json()) as Product | { error?: string };
+
+	if (!response.ok) {
+		throw new Error(
+			"error" in body
+				? (body.error ?? "Failed to load product")
+				: "Failed to load product",
+		);
+	}
+
+	return body as Product;
+};
+
 const fetchRecipes = async () => {
 	const response = await fetch("/api/recipes?sort=name&order=asc");
 	const body = (await response.json()) as Recipe[] | { error?: string };
@@ -1753,7 +1881,9 @@ const fetchRecipe = async (recipeId: number) => {
 
 const createRecipeIngredient = async (payload: {
 	recipe_id: number;
-	product_id: number;
+	name: string;
+	ingredient_id: number | null;
+	product_id: number | null;
 	quantity: number;
 	unit: string;
 	is_optional: boolean;
@@ -1782,7 +1912,9 @@ const createRecipeIngredient = async (payload: {
 const updateRecipeIngredient = async (
 	ingredientId: number,
 	payload: {
-		product_id?: number;
+		name?: string;
+		ingredient_id?: number | null;
+		product_id?: number | null;
 		quantity?: number;
 		unit?: string;
 		is_optional?: boolean;
@@ -2126,21 +2258,20 @@ const fetchInventoryItemsByContainer = async (containerId: number) => {
 
 const loadInventoryPageData = async (statusMessage?: string) => {
 	try {
-		const [items, products, containers] = await Promise.all([
+		const [items, containers] = await Promise.all([
 			fetchInventoryItems(),
-			fetchAllProducts(),
 			fetchInventoryContainers(),
 		]);
-		inventoryTreeState = { containers, items, products };
-		renderInventoryTree(containers, items, products);
+		inventoryTreeState = { containers, items };
+		renderInventoryTree(containers, items);
 		setStatus(
 			"inventory-status",
 			statusMessage ??
 				`Loaded ${items.length} active item(s) across ${containers.length} container(s).`,
 		);
 	} catch (error) {
-		inventoryTreeState = { containers: [], items: [], products: [] };
-		renderInventoryTree([], [], []);
+		inventoryTreeState = { containers: [], items: [] };
+		renderInventoryTree([], []);
 		setStatus(
 			"inventory-status",
 			error instanceof Error
@@ -2308,7 +2439,7 @@ const uploadRecipePictures = async (recipeId: number, files: File[]) => {
 	}
 };
 
-const loadShoppingListItems = async (products?: Product[]) => {
+const loadShoppingListItems = async () => {
 	try {
 		const mode = getShoppingListMode();
 		const query =
@@ -2317,10 +2448,7 @@ const loadShoppingListItems = async (products?: Product[]) => {
 				: mode === "done"
 					? "?done=true"
 					: "";
-		const [itemsResponse, productList] = await Promise.all([
-			fetch(`/api/shopping-list-items${query}`),
-			products ? Promise.resolve(products) : fetchAllProducts(),
-		]);
+		const itemsResponse = await fetch(`/api/shopping-list-items${query}`);
 		const body = (await itemsResponse.json()) as
 			| ShoppingListItem[]
 			| { error?: string };
@@ -2334,7 +2462,7 @@ const loadShoppingListItems = async (products?: Product[]) => {
 		}
 
 		const items = body as ShoppingListItem[];
-		renderShoppingListItems(items, productList);
+		renderShoppingListItems(items);
 		setStatus(
 			"shopping-list-item-status",
 			mode === "active"
@@ -2342,7 +2470,7 @@ const loadShoppingListItems = async (products?: Product[]) => {
 				: `Loaded ${items.length} shoppinglist item(s).`,
 		);
 	} catch (error) {
-		renderShoppingListItems([], products ?? []);
+		renderShoppingListItems([]);
 		setStatus(
 			"shopping-list-item-status",
 			error instanceof Error
@@ -2353,62 +2481,80 @@ const loadShoppingListItems = async (products?: Product[]) => {
 	}
 };
 
-const findOrCreateProductByName = async (
+const findOrCreateIngredientByName = async (
 	name: string,
-	defaults: {
-		category: string;
-		default_unit: string;
-		is_perishable: boolean;
-	} = {
-		category: "shopping",
-		default_unit: "pcs",
-		is_perishable: false,
-	},
+	defaultUnit: string | null = null,
 ) => {
 	const lookupResponse = await fetch(
-		`/api/products?name=${encodeURIComponent(name)}`,
+		`/api/ingredients?name=${encodeURIComponent(name)}`,
 	);
 	const lookupBody = (await lookupResponse.json()) as
-		| Product[]
+		| Ingredient[]
 		| { error?: string };
 
 	if (!lookupResponse.ok) {
 		throw new Error(
 			"error" in lookupBody
-				? (lookupBody.error ?? "Failed to look up product")
-				: "Failed to look up product",
+				? (lookupBody.error ?? "Failed to look up ingredient")
+				: "Failed to look up ingredient",
 		);
 	}
 
-	const matches = lookupBody as Product[];
+	const matches = lookupBody as Ingredient[];
 	if (matches.length > 0) {
 		return matches[0]!;
 	}
 
-	const createResponse = await fetch("/api/products", {
+	const createResponse = await fetch("/api/ingredients", {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({
 			name,
-			category: defaults.category,
-			barcode: null,
-			default_unit: defaults.default_unit,
-			is_perishable: defaults.is_perishable,
+			default_unit: defaultUnit,
 		}),
 	});
 	const createBody = (await createResponse.json()) as
-		| Product
+		| Ingredient
 		| { error?: string };
 
 	if (!createResponse.ok) {
 		throw new Error(
 			"error" in createBody
-				? (createBody.error ?? "Failed to create product")
-				: "Failed to create product",
+				? (createBody.error ?? "Failed to create ingredient")
+				: "Failed to create ingredient",
 		);
 	}
 
-	return createBody as Product;
+	return createBody as Ingredient;
+};
+
+const updateProduct = async (
+	productId: number,
+	payload: {
+		ingredient_id?: number | null;
+		name?: string;
+		category?: string;
+		barcode?: string | null;
+		default_unit?: string | null;
+		is_perishable?: boolean;
+	},
+) => {
+	const response = await fetch(`/api/products/${productId}`, {
+		method: "PATCH",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(payload),
+	});
+	const body = (await response.json()) as Product | { error?: string };
+
+	if (!response.ok) {
+		throw new Error(
+			"error" in body
+				? (body.error ?? "Failed to update product")
+				: "Failed to update product",
+		);
+	}
+
+	return body as Product;
 };
 
 const setShoppingListItemDone = async (itemId: number, done: boolean) => {
@@ -2488,6 +2634,7 @@ const attachProductPageEvents = () => {
 
 		const nameInput = document.getElementById("name");
 		const categoryInput = document.getElementById("category");
+		const ingredientNameInput = document.getElementById("ingredient_name");
 		const barcodeInput = document.getElementById("barcode");
 		const defaultUnitInput = document.getElementById("default_unit");
 		const isPerishableInput = document.getElementById("is_perishable");
@@ -2496,6 +2643,7 @@ const attachProductPageEvents = () => {
 			if (
 				!(nameInput instanceof HTMLInputElement) ||
 				!(categoryInput instanceof HTMLInputElement) ||
+				!(ingredientNameInput instanceof HTMLInputElement) ||
 				!(barcodeInput instanceof HTMLInputElement) ||
 				!(defaultUnitInput instanceof HTMLSelectElement) ||
 				!(isPerishableInput instanceof HTMLSelectElement) ||
@@ -2504,15 +2652,22 @@ const attachProductPageEvents = () => {
 			return;
 		}
 
-		const payload = {
-			name: nameInput.value.trim(),
-			category: categoryInput.value.trim(),
-			barcode: barcodeInput.value.trim() || null,
-			default_unit: defaultUnitInput.value.trim() || null,
-			is_perishable: isPerishableInput.value === "true",
-		};
-
 		try {
+			const ingredientName = ingredientNameInput.value.trim();
+			const ingredient = ingredientName
+				? await findOrCreateIngredientByName(
+						ingredientName,
+						defaultUnitInput.value.trim() || null,
+					)
+				: null;
+			const payload = {
+				ingredient_id: ingredient?.id ?? null,
+				name: nameInput.value.trim(),
+				category: categoryInput.value.trim(),
+				barcode: barcodeInput.value.trim() || null,
+				default_unit: defaultUnitInput.value.trim() || null,
+				is_perishable: isPerishableInput.value === "true",
+			};
 			const response = await fetch("/api/products", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
@@ -2591,6 +2746,77 @@ const attachProductPageEvents = () => {
 	});
 };
 
+const attachProductDetailEvents = (productId: number) => {
+	productDetailAbortController?.abort();
+	productDetailAbortController = new AbortController();
+
+	const form = document.getElementById("product-detail-form");
+	if (!(form instanceof HTMLFormElement)) {
+		return;
+	}
+
+	form.addEventListener(
+		"submit",
+		async (event) => {
+			event.preventDefault();
+
+			const nameInput = document.getElementById("product-detail-name");
+			const categoryInput = document.getElementById("product-detail-category");
+			const ingredientNameInput = document.getElementById(
+				"product-detail-ingredient-name",
+			);
+			const barcodeInput = document.getElementById("product-detail-barcode");
+			const defaultUnitInput = document.getElementById(
+				"product-detail-default-unit",
+			);
+			const isPerishableInput = document.getElementById(
+				"product-detail-is-perishable",
+			);
+
+			if (
+				!(nameInput instanceof HTMLInputElement) ||
+				!(categoryInput instanceof HTMLInputElement) ||
+				!(ingredientNameInput instanceof HTMLInputElement) ||
+				!(barcodeInput instanceof HTMLInputElement) ||
+				!(defaultUnitInput instanceof HTMLSelectElement) ||
+				!(isPerishableInput instanceof HTMLSelectElement)
+			) {
+				return;
+			}
+
+			try {
+				const ingredientName = ingredientNameInput.value.trim();
+				const ingredient = ingredientName
+					? await findOrCreateIngredientByName(
+							ingredientName,
+							defaultUnitInput.value.trim() || null,
+						)
+					: null;
+				const updated = await updateProduct(productId, {
+					ingredient_id: ingredient?.id ?? null,
+					name: nameInput.value.trim(),
+					category: categoryInput.value.trim(),
+					barcode: barcodeInput.value.trim() || null,
+					default_unit: defaultUnitInput.value.trim() || null,
+					is_perishable: isPerishableInput.value === "true",
+				});
+				renderProductDetail(updated);
+				attachProductDetailEvents(updated.id);
+				setStatus("product-detail-status", `Saved ${updated.name}.`);
+			} catch (error) {
+				setStatus(
+					"product-detail-status",
+					error instanceof Error
+						? error.message
+						: "Failed to update product",
+					true,
+				);
+			}
+		},
+		{ signal: productDetailAbortController.signal },
+	);
+};
+
 const attachShoppingListPageEvents = () => {
 	document
 		.getElementById("shopping-list-item-form")
@@ -2614,12 +2840,13 @@ const attachShoppingListPageEvents = () => {
 			}
 
 			try {
-				const product = await findOrCreateProductByName(name);
 				const response = await fetch("/api/shopping-list-items", {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({
-						product_id: product.id,
+						name,
+						ingredient_id: null,
+						product_id: null,
 						quantity: 1,
 						unit: "pcs",
 						done: false,
@@ -2642,7 +2869,7 @@ const attachShoppingListPageEvents = () => {
 
 				setStatus(
 					"shopping-list-item-status",
-					`Added ${product.name} to shoppinglist.`,
+					`Added ${name} to shoppinglist.`,
 				);
 				nameInput.value = "";
 				await loadShoppingListItems();
@@ -2928,29 +3155,33 @@ const attachRecipeDetailEvents = (recipeId: number) => {
 			}
 
 			try {
-				const product = await findOrCreateProductByName(name, {
-					category: "ingredient",
-					default_unit: "pcs",
-					is_perishable: false,
-				});
+				const ingredient = await findOrCreateIngredientByName(
+					name,
+					unitInput.value.trim() || "pcs",
+				);
+				const unit = unitInput.value.trim() || ingredient.default_unit || "pcs";
 				if (ingredientId) {
 					const parsedIngredientId = Number.parseInt(ingredientId, 10);
 					if (!Number.isInteger(parsedIngredientId)) {
 						throw new Error("Ingredient id is invalid");
 					}
 					await updateRecipeIngredient(parsedIngredientId, {
-						product_id: product.id,
+						name,
+						ingredient_id: ingredient.id,
+						product_id: null,
 						quantity,
-						unit: unitInput.value.trim() || product.default_unit || "pcs",
+						unit,
 						is_optional: optionalInput.checked,
 						notes: notesInput.value.trim() || null,
 					});
 				} else {
 					await createRecipeIngredient({
 						recipe_id: recipeId,
-						product_id: product.id,
+						name,
+						ingredient_id: ingredient.id,
+						product_id: null,
 						quantity,
-						unit: unitInput.value.trim() || product.default_unit || "pcs",
+						unit,
 						is_optional: optionalInput.checked,
 						notes: notesInput.value.trim() || null,
 					});
@@ -2961,8 +3192,8 @@ const attachRecipeDetailEvents = (recipeId: number) => {
 				setStatus(
 					"recipe-ingredient-status",
 					ingredientId
-						? `Saved ${product.name} in ${updated.name}.`
-						: `Added ${product.name} to ${updated.name}.`,
+						? `Saved ${name} in ${updated.name}.`
+						: `Added ${name} to ${updated.name}.`,
 				);
 			} catch (error) {
 				setStatus(
@@ -3340,6 +3571,11 @@ const renderProductsPage = () => {
 							<input id="barcode" name="barcode" placeholder="6414893400012" />
 						</label>
 
+						<label>
+							Ingredient
+							<input id="ingredient_name" name="ingredient_name" placeholder="Sausage" />
+						</label>
+
 						${renderUploadDropzone({
 							inputId: "picture",
 							label: "Picture",
@@ -3368,6 +3604,37 @@ const renderProductsPage = () => {
 	attachUploadDropzones(document.body);
 	attachProductPageEvents();
 	void loadProducts();
+};
+
+const renderProductDetailPage = (params: Record<string, string>) => {
+	renderPage('<div id="product-detail-page"></div>');
+
+	void (async () => {
+		const rawId = params.id ?? "";
+		const productId = Number.parseInt(rawId, 10);
+		const page = document.getElementById("product-detail-page");
+		if (!page) {
+			return;
+		}
+
+		if (!Number.isInteger(productId)) {
+			page.innerHTML =
+				'<div class="card panel page-panel"><p class="page-copy">Product id is invalid.</p></div>';
+			return;
+		}
+
+		try {
+			const product = await fetchProduct(productId);
+			renderProductDetail(product);
+			attachProductDetailEvents(productId);
+		} catch (error) {
+			page.innerHTML = `
+				<div class="card panel page-panel">
+					<p class="page-copy">${error instanceof Error ? error.message : "Failed to load product."}</p>
+				</div>
+			`;
+		}
+	})();
 };
 
 const attachInventoryPageEvents = () => {
@@ -3404,11 +3671,7 @@ const attachInventoryPageEvents = () => {
 		if (!inventoryTreeState) {
 			return;
 		}
-		renderInventoryTree(
-			inventoryTreeState.containers,
-			inventoryTreeState.items,
-			inventoryTreeState.products,
-		);
+		renderInventoryTree(inventoryTreeState.containers, inventoryTreeState.items);
 	};
 
 	const isContainerDropInvalid = (
@@ -3806,16 +4069,11 @@ const renderInventoryContainerDetailPage = (params: Record<string, string>) => {
 		}
 
 		try {
-			const [container, containers, items, products] = await Promise.all([
+			const [container, containers, items] = await Promise.all([
 				fetchInventoryContainer(containerId),
 				fetchInventoryContainers(),
 				fetchInventoryItemsByContainer(containerId),
-				fetchAllProducts(),
 			]);
-
-			const productNames = new Map(
-				products.map((product) => [product.id, product.name]),
-			);
 			const children = containers
 				.filter(
 					(candidate) =>
@@ -3923,18 +4181,13 @@ const renderInventoryContainerDetailPage = (params: Record<string, string>) => {
 									items.length
 										? `<div class="inventory-detail-list">${items
 												.map((item) => {
-													const productName =
-														productNames.get(
-															item.product_id,
-														) ??
-														`Product #${item.product_id}`;
 													return `
 														<div class="inventory-node inventory-node--item">
 															<div class="inventory-node__main">
-																<strong>${productName}</strong>
+																<strong>${escapeHtml(item.name)}</strong>
 																<div class="inventory-node__meta">
 																	<span>${item.quantity} ${item.unit}</span>
-																	${getInventoryItemMeta(item) ? `<span>${getInventoryItemMeta(item)}</span>` : ""}
+																	${getInventoryItemMeta(item) ? `<span>${escapeHtml(getInventoryItemMeta(item))}</span>` : ""}
 																</div>
 															</div>
 														</div>
@@ -4147,7 +4400,7 @@ const renderShoppingListsPage = () => {
 		try {
 			await loadShoppingListItems();
 		} catch (error) {
-			renderShoppingListItems([], []);
+			renderShoppingListItems([]);
 			setStatus(
 				"shopping-list-item-status",
 				error instanceof Error
@@ -4223,6 +4476,7 @@ window.onload = () => {
 		"/inventory": renderInventoryPage,
 		"/inventory/containers/:id": renderInventoryContainerDetailPage,
 		"/products": renderProductsPage,
+		"/products/:id": renderProductDetailPage,
 		"/receipts": renderReceiptsPage,
 		"/receipts/:id": renderReceiptDetailPage,
 		"/shopping-lists": renderShoppingListsPage,

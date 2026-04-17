@@ -5,6 +5,10 @@ export {
 	openDatabase,
 } from "./core";
 export {
+	ingredientDetailRoute,
+	ingredientsCollectionRoute,
+} from "./ingredients";
+export {
 	productLinkDetailRoute,
 	productLinksCollectionRoute,
 } from "./product-links";

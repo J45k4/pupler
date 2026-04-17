@@ -24,11 +24,17 @@ import {
 	type Database,
 	type JsonObject,
 } from "./core";
+import {
+	shoppingListItemDetailSelect,
+	validateIngredientProductRefs,
+} from "./reference-details";
 
 const DEFAULT_SORT = [{ created_at: "desc" }, { id: "desc" }] as const;
 const SORT_FIELDS = new Set([
 	"id",
+	"ingredient_id",
 	"product_id",
+	"name",
 	"quantity",
 	"unit",
 	"done",
@@ -38,6 +44,8 @@ const SORT_FIELDS = new Set([
 	"updated_at",
 ]);
 const WRITABLE_FIELDS = [
+	"name",
+	"ingredient_id",
 	"product_id",
 	"quantity",
 	"unit",
@@ -48,6 +56,12 @@ const WRITABLE_FIELDS = [
 
 const fetchShoppingListItem = (db: Database, id: number) =>
 	db.client.shoppingListItem.findUnique({ where: { id } });
+
+const fetchShoppingListItemDetail = (db: Database, id: number) =>
+	db.client.shoppingListItem.findUnique({
+		where: { id },
+		select: shoppingListItemDetailSelect,
+	});
 
 const parseSort = (url: URL) => {
 	const sort = url.searchParams.get("sort");
@@ -64,9 +78,13 @@ const parseFilters = (url: URL) => {
 		if (key === "sort" || key === "order") continue;
 		switch (key) {
 			case "id":
+			case "ingredient_id":
 			case "product_id":
 			case "source_recipe_id":
 				where[key] = value === "null" ? null : parseIntegerQuery(key, value);
+				break;
+			case "name":
+				where.name = value === "null" ? null : value;
 				break;
 			case "quantity":
 				where.quantity = parseDecimalQuery(key, value);
@@ -91,7 +109,11 @@ const parseCreateValues = (body: JsonObject) => {
 	assertKnownFields(body, WRITABLE_FIELDS);
 	const now = utcNow();
 	return {
-		product_id: requireBodyField(body, "product_id", expectInteger),
+		name: requireBodyField(body, "name", expectString),
+		ingredient_id:
+			readOptionalBodyField(body, "ingredient_id", expectNullableInteger) ?? null,
+		product_id:
+			readOptionalBodyField(body, "product_id", expectNullableInteger) ?? null,
 		quantity: requireBodyField(body, "quantity", expectDecimal),
 		unit: requireBodyField(body, "unit", expectString),
 		done: requireBodyField(body, "done", expectBoolean),
@@ -109,7 +131,11 @@ const parseReplaceValues = (
 ) => {
 	assertKnownFields(body, WRITABLE_FIELDS);
 	return {
-		product_id: requireBodyField(body, "product_id", expectInteger),
+		name: requireBodyField(body, "name", expectString),
+		ingredient_id:
+			readOptionalBodyField(body, "ingredient_id", expectNullableInteger) ?? null,
+		product_id:
+			readOptionalBodyField(body, "product_id", expectNullableInteger) ?? null,
 		quantity: requireBodyField(body, "quantity", expectDecimal),
 		unit: requireBodyField(body, "unit", expectString),
 		done: requireBodyField(body, "done", expectBoolean),
@@ -124,7 +150,17 @@ const parseReplaceValues = (
 const parsePatchValues = (body: JsonObject) => {
 	assertKnownFields(body, WRITABLE_FIELDS);
 	const values: Record<string, unknown> = {};
-	const productId = readOptionalBodyField(body, "product_id", expectInteger);
+	const name = readOptionalBodyField(body, "name", expectString);
+	const ingredientId = readOptionalBodyField(
+		body,
+		"ingredient_id",
+		expectNullableInteger,
+	);
+	const productId = readOptionalBodyField(
+		body,
+		"product_id",
+		expectNullableInteger,
+	);
 	const quantity = readOptionalBodyField(body, "quantity", expectDecimal);
 	const unit = readOptionalBodyField(body, "unit", expectString);
 	const done = readOptionalBodyField(body, "done", expectBoolean);
@@ -135,6 +171,8 @@ const parsePatchValues = (body: JsonObject) => {
 	);
 	const notes = readOptionalBodyField(body, "notes", expectNullableString);
 
+	if (name !== undefined) values.name = name;
+	if (ingredientId !== undefined) values.ingredient_id = ingredientId;
 	if (productId !== undefined) values.product_id = productId;
 	if (quantity !== undefined) values.quantity = quantity;
 	if (unit !== undefined) values.unit = unit;
@@ -159,15 +197,19 @@ export const shoppingListItemsCollectionRoute = (db: Database) =>
 				await db.client.shoppingListItem.findMany({
 					where: parseFilters(url),
 					orderBy: parseSort(url),
+					select: shoppingListItemDetailSelect,
 				}),
 			);
 		}
 		if (req.method === "POST") {
+			const values = parseCreateValues(await readJsonObject(req));
+			await validateIngredientProductRefs(db, values);
+			const created = await db.client.shoppingListItem.create({
+				data: values,
+			});
 			return json(
 				201,
-				await db.client.shoppingListItem.create({
-					data: parseCreateValues(await readJsonObject(req)),
-				}),
+				await fetchShoppingListItemDetail(db, created.id),
 			);
 		}
 		throw new HttpError(405, "Method not allowed for this route");
@@ -179,23 +221,41 @@ export const shoppingListItemDetailRoute = (db: Database) =>
 		const existingRow = await fetchShoppingListItem(db, id);
 		if (!existingRow) throw new HttpError(404, "Resource not found");
 
-		if (req.method === "GET") return json(200, existingRow);
+		if (req.method === "GET") {
+			return json(200, await fetchShoppingListItemDetail(db, id));
+		}
 		if (req.method === "PUT") {
+			const values = parseReplaceValues(
+				await readJsonObject(req),
+				existingRow,
+			);
+			await validateIngredientProductRefs(db, values);
+			await db.client.shoppingListItem.update({
+				where: { id },
+				data: values,
+			});
 			return json(
 				200,
-				await db.client.shoppingListItem.update({
-					where: { id },
-					data: parseReplaceValues(await readJsonObject(req), existingRow),
-				}),
+				await fetchShoppingListItemDetail(db, id),
 			);
 		}
 		if (req.method === "PATCH") {
+			const values = parsePatchValues(await readJsonObject(req));
+			await validateIngredientProductRefs(db, {
+				ingredient_id:
+					(values.ingredient_id as number | null | undefined) ??
+					existingRow.ingredient_id,
+				product_id:
+					(values.product_id as number | null | undefined) ??
+					existingRow.product_id,
+			});
+			await db.client.shoppingListItem.update({
+				where: { id },
+				data: values,
+			});
 			return json(
 				200,
-				await db.client.shoppingListItem.update({
-					where: { id },
-					data: parsePatchValues(await readJsonObject(req)),
-				}),
+				await fetchShoppingListItemDetail(db, id),
 			);
 		}
 		if (req.method === "DELETE") {

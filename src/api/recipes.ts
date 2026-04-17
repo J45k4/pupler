@@ -21,6 +21,10 @@ import {
 	type Database,
 	type JsonObject,
 } from "./core";
+import {
+	ingredientSummarySelect,
+	productSummarySelect,
+} from "./reference-details";
 
 const MAX_RECIPE_IMAGE_BYTES = 10 * 1024 * 1024;
 const SORT_FIELDS = new Set([
@@ -49,13 +53,22 @@ const fetchRecipeDetail = (db: Database, id: number) =>
 		where: { id },
 		include: {
 			ingredients: {
-				include: {
+				select: {
+					id: true,
+					recipe_id: true,
+					ingredient_id: true,
+					product_id: true,
+					name: true,
+					quantity: true,
+					unit: true,
+					is_optional: true,
+					notes: true,
+					created_at: true,
+					ingredient: {
+						select: ingredientSummarySelect,
+					},
 					product: {
-						select: {
-							id: true,
-							name: true,
-							default_unit: true,
-						},
+						select: productSummarySelect,
 					},
 				},
 				orderBy: [{ created_at: "asc" }, { id: "asc" }],

@@ -5,6 +5,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import {
 	closeDatabase,
+	ingredientDetailRoute,
+	ingredientsCollectionRoute,
 	inventoryContainerDetailRoute,
 	inventoryContainersCollectionRoute,
 	inventoryItemDetailRoute,
@@ -56,6 +58,8 @@ const createRoutes = () => {
 	dbs.push(db);
 
 	return {
+		"/api/ingredients": ingredientsCollectionRoute(db),
+		"/api/ingredients/:id": ingredientDetailRoute(db),
 		"/api/products": productsCollectionRoute(db),
 		"/api/products/:id": productDetailRoute(db),
 		"/api/products/:id/picture": productPictureRoute(db),
@@ -197,6 +201,33 @@ describe("Pupler API", () => {
 		expect(listed[0].id).toBe(created.id);
 	});
 
+	test("creates and lists ingredients", async () => {
+		const routes = createRoutes();
+
+		const createResponse = await request(routes, "/api/ingredients", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: "Sausage",
+				default_unit: "pcs",
+			}),
+		});
+
+		expect(createResponse.status).toBe(201);
+		const created = await createResponse.json();
+		expect(created.name).toBe("Sausage");
+		expect(created.default_unit).toBe("pcs");
+
+		const listResponse = await request(
+			routes,
+			"/api/ingredients?name=sausage",
+		);
+		expect(listResponse.status).toBe(200);
+		const listed = await listResponse.json();
+		expect(listed).toHaveLength(1);
+		expect(listed[0].id).toBe(created.id);
+	});
+
 	test("rejects deleting a referenced product", async () => {
 		const routes = createRoutes();
 
@@ -235,8 +266,19 @@ describe("Pupler API", () => {
 		expect(body.error).toContain("referenced");
 	});
 
-	test("patches a product field", async () => {
+	test("patches a product field and ingredient link", async () => {
 		const routes = createRoutes();
+
+		const ingredientResponse = await request(routes, "/api/ingredients", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: "Cheese",
+				default_unit: "g",
+			}),
+		});
+		expect(ingredientResponse.status).toBe(201);
+		const ingredient = await ingredientResponse.json();
 
 		const createResponse = await request(routes, "/api/products", {
 			method: "POST",
@@ -257,7 +299,10 @@ describe("Pupler API", () => {
 			{
 				method: "PATCH",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ default_unit: "g" }),
+				body: JSON.stringify({
+					default_unit: "g",
+					ingredient_id: ingredient.id,
+				}),
 			},
 			{ id: String(created.id) },
 		);
@@ -265,6 +310,24 @@ describe("Pupler API", () => {
 		expect(patchResponse.status).toBe(200);
 		const updated = await patchResponse.json();
 		expect(updated.default_unit).toBe("g");
+		expect(updated.ingredient_id).toBe(ingredient.id);
+		expect(updated.ingredient.name).toBe("Cheese");
+
+		const clearResponse = await request(
+			routes,
+			`/api/products/${created.id}`,
+			{
+				method: "PATCH",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ ingredient_id: null }),
+			},
+			{ id: String(created.id) },
+		);
+
+		expect(clearResponse.status).toBe(200);
+		const cleared = await clearResponse.json();
+		expect(cleared.ingredient_id).toBeNull();
+		expect(cleared.ingredient).toBeNull();
 	});
 
 	test("uploads and fetches a product picture", async () => {
@@ -445,36 +508,64 @@ describe("Pupler API", () => {
 		expect(detail.recipe_images).toHaveLength(2);
 	});
 
-	test("returns recipe ingredients in recipe detail responses", async () => {
+	test("returns standalone and linked recipe ingredients in recipe detail responses", async () => {
 		const routes = createRoutes();
 
-		const tomatoResponse = await request(routes, "/api/products", {
+		const tomatoIngredientResponse = await request(routes, "/api/ingredients", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
 				name: "Tomato",
-				category: "ingredient",
-				barcode: null,
 				default_unit: "pcs",
-				is_perishable: true,
 			}),
 		});
-		expect(tomatoResponse.status).toBe(201);
-		const tomato = (await tomatoResponse.json()) as { id: number };
+		expect(tomatoIngredientResponse.status).toBe(201);
+		const tomatoIngredient = (await tomatoIngredientResponse.json()) as {
+			id: number;
+		};
 
-		const onionResponse = await request(routes, "/api/products", {
+		const onionIngredientResponse = await request(routes, "/api/ingredients", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
 				name: "Onion",
-				category: "ingredient",
-				barcode: null,
+				default_unit: "pcs",
+			}),
+		});
+		expect(onionIngredientResponse.status).toBe(201);
+		const onionIngredient = (await onionIngredientResponse.json()) as {
+			id: number;
+		};
+
+		const tomatoProductResponse = await request(routes, "/api/products", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				ingredient_id: tomatoIngredient.id,
+				name: "Cherry Tomato Pack",
+				category: "food",
+				barcode: "2001",
 				default_unit: "pcs",
 				is_perishable: true,
 			}),
 		});
-		expect(onionResponse.status).toBe(201);
-		const onion = (await onionResponse.json()) as { id: number };
+		expect(tomatoProductResponse.status).toBe(201);
+		const tomatoProduct = (await tomatoProductResponse.json()) as { id: number };
+
+		const onionProductResponse = await request(routes, "/api/products", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				ingredient_id: onionIngredient.id,
+				name: "Yellow Onion Net",
+				category: "food",
+				barcode: "2002",
+				default_unit: "pcs",
+				is_perishable: true,
+			}),
+		});
+		expect(onionProductResponse.status).toBe(201);
+		const onionProduct = (await onionProductResponse.json()) as { id: number };
 
 		const recipeResponse = await request(routes, "/api/recipes", {
 			method: "POST",
@@ -490,12 +581,34 @@ describe("Pupler API", () => {
 		expect(recipeResponse.status).toBe(201);
 		const recipe = (await recipeResponse.json()) as { id: number };
 
+		const standaloneIngredientResponse = await request(
+			routes,
+			"/api/recipe-ingredients",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					recipe_id: recipe.id,
+					ingredient_id: null,
+					product_id: null,
+					name: "Sea salt",
+					quantity: 1,
+					unit: "tsp",
+					is_optional: false,
+					notes: "to taste",
+				}),
+			},
+		);
+		expect(standaloneIngredientResponse.status).toBe(201);
+
 		const ingredientResponse = await request(routes, "/api/recipe-ingredients", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
 				recipe_id: recipe.id,
-				product_id: tomato.id,
+				ingredient_id: tomatoIngredient.id,
+				product_id: tomatoProduct.id,
+				name: "Tomato",
 				quantity: 2,
 				unit: "pcs",
 				is_optional: false,
@@ -514,19 +627,35 @@ describe("Pupler API", () => {
 		expect(detailResponse.status).toBe(200);
 		const detail = (await detailResponse.json()) as {
 			ingredients: Array<{
-				product_id: number;
+				name: string;
+				ingredient_id: number | null;
+				product_id: number | null;
 				quantity: number;
 				unit: string;
-				product: { name: string; default_unit: string | null };
+				ingredient: { name: string; default_unit: string | null } | null;
+				product: { name: string; default_unit: string | null } | null;
 			}>;
 		};
-		expect(detail.ingredients).toHaveLength(1);
+		expect(detail.ingredients).toHaveLength(2);
 		expect(detail.ingredients[0]).toMatchObject({
-			product_id: tomato.id,
+			name: "Sea salt",
+			ingredient_id: null,
+			product_id: null,
+			quantity: 1,
+			unit: "tsp",
+		});
+		expect(detail.ingredients[1]).toMatchObject({
+			name: "Tomato",
+			ingredient_id: tomatoIngredient.id,
+			product_id: tomatoProduct.id,
 			quantity: 2,
 			unit: "pcs",
-			product: {
+			ingredient: {
 				name: "Tomato",
+				default_unit: "pcs",
+			},
+			product: {
+				name: "Cherry Tomato Pack",
 				default_unit: "pcs",
 			},
 		});
@@ -538,7 +667,9 @@ describe("Pupler API", () => {
 				method: "PATCH",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
-					product_id: onion.id,
+					name: "Red onion",
+					ingredient_id: onionIngredient.id,
+					product_id: onionProduct.id,
 					quantity: 1.5,
 					unit: "pcs",
 					is_optional: true,
@@ -558,23 +689,32 @@ describe("Pupler API", () => {
 		expect(updatedDetailResponse.status).toBe(200);
 		const updatedDetail = (await updatedDetailResponse.json()) as {
 			ingredients: Array<{
+				name: string;
+				ingredient_id: number | null;
 				product_id: number;
 				quantity: number;
 				unit: string;
 				is_optional: boolean;
 				notes: string | null;
+				ingredient: { name: string; default_unit: string | null } | null;
 				product: { name: string; default_unit: string | null };
 			}>;
 		};
-		expect(updatedDetail.ingredients).toHaveLength(1);
-		expect(updatedDetail.ingredients[0]).toMatchObject({
-			product_id: onion.id,
+		expect(updatedDetail.ingredients).toHaveLength(2);
+		expect(updatedDetail.ingredients[1]).toMatchObject({
+			name: "Red onion",
+			ingredient_id: onionIngredient.id,
+			product_id: onionProduct.id,
 			quantity: 1.5,
 			unit: "pcs",
 			is_optional: true,
 			notes: "thinly sliced",
-			product: {
+			ingredient: {
 				name: "Onion",
+				default_unit: "pcs",
+			},
+			product: {
+				name: "Yellow Onion Net",
 				default_unit: "pcs",
 			},
 		});
@@ -591,10 +731,85 @@ describe("Pupler API", () => {
 		);
 		expect(patchResponse.status).toBe(200);
 		const patched = (await patchResponse.json()) as {
-			ingredients: Array<{ product: { name: string } }>;
+			ingredients: Array<{ ingredient: { name: string } | null }>;
 		};
-		expect(patched.ingredients).toHaveLength(1);
-		expect(patched.ingredients[0]?.product.name).toBe("Onion");
+		expect(patched.ingredients).toHaveLength(2);
+		expect(patched.ingredients[1]?.ingredient?.name).toBe("Onion");
+	});
+
+	test("rejects mismatched recipe ingredient product and ingredient links", async () => {
+		const routes = createRoutes();
+
+		const tomatoIngredientResponse = await request(routes, "/api/ingredients", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: "Tomato",
+				default_unit: "pcs",
+			}),
+		});
+		const tomatoIngredient = (await tomatoIngredientResponse.json()) as {
+			id: number;
+		};
+
+		const onionIngredientResponse = await request(routes, "/api/ingredients", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: "Onion",
+				default_unit: "pcs",
+			}),
+		});
+		const onionIngredient = (await onionIngredientResponse.json()) as {
+			id: number;
+		};
+
+		const tomatoProductResponse = await request(routes, "/api/products", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				ingredient_id: tomatoIngredient.id,
+				name: "Plum Tomato Pack",
+				category: "food",
+				barcode: "2003",
+				default_unit: "pcs",
+				is_perishable: true,
+			}),
+		});
+		const tomatoProduct = (await tomatoProductResponse.json()) as {
+			id: number;
+		};
+
+		const recipeResponse = await request(routes, "/api/recipes", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: "Tomato soup",
+				description: null,
+				instructions: null,
+				servings: 4,
+				is_active: true,
+			}),
+		});
+		const recipe = (await recipeResponse.json()) as { id: number };
+
+		const ingredientResponse = await request(routes, "/api/recipe-ingredients", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				recipe_id: recipe.id,
+				ingredient_id: onionIngredient.id,
+				product_id: tomatoProduct.id,
+				name: "Wrong link",
+				quantity: 1,
+				unit: "pcs",
+				is_optional: false,
+				notes: null,
+			}),
+		});
+		expect(ingredientResponse.status).toBe(400);
+		const body = await ingredientResponse.json();
+		expect(body.error).toContain("different ingredient");
 	});
 
 	test("creates and lists receipt items", async () => {
@@ -797,6 +1012,8 @@ describe("Pupler API", () => {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
+				name: "Oats",
+				ingredient_id: null,
 				product_id: product.id,
 				receipt_item_id: null,
 				container_id: parent.id,
@@ -850,21 +1067,118 @@ describe("Pupler API", () => {
 		expect(updatedChild.parent_container_id).toBeNull();
 	});
 
-	test("creates shoppinglist items without a parent shopping list", async () => {
+	test("creates inventory items with standalone and linked references and rejects mismatches", async () => {
 		const routes = createRoutes();
+
+		const sausageIngredientResponse = await request(
+			routes,
+			"/api/ingredients",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					name: "Sausage",
+					default_unit: "pcs",
+				}),
+			},
+		);
+		const sausageIngredient = (await sausageIngredientResponse.json()) as {
+			id: number;
+		};
+
+		const cheeseIngredientResponse = await request(
+			routes,
+			"/api/ingredients",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					name: "Cheese",
+					default_unit: "pcs",
+				}),
+			},
+		);
+		const cheeseIngredient = (await cheeseIngredientResponse.json()) as {
+			id: number;
+		};
 
 		const productResponse = await request(routes, "/api/products", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
-				name: "Banana",
+				ingredient_id: sausageIngredient.id,
+				name: "Atria Grillimakkara",
 				category: "food",
-				barcode: "555",
+				barcode: "33331",
 				default_unit: "pcs",
 				is_perishable: true,
 			}),
 		});
-		const product = await productResponse.json();
+		const product = (await productResponse.json()) as { id: number };
+
+		const standaloneResponse = await request(routes, "/api/inventory-items", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: "Light bulb",
+				ingredient_id: null,
+				product_id: null,
+				receipt_item_id: null,
+				container_id: null,
+				quantity: 2,
+				unit: "pcs",
+				purchased_at: null,
+				expires_at: null,
+				consumed_at: null,
+				notes: "Hall closet",
+			}),
+		});
+		expect(standaloneResponse.status).toBe(201);
+
+		const linkedResponse = await request(routes, "/api/inventory-items", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: "Frozen sausage",
+				ingredient_id: sausageIngredient.id,
+				product_id: product.id,
+				receipt_item_id: null,
+				container_id: null,
+				quantity: 4,
+				unit: "pcs",
+				purchased_at: null,
+				expires_at: null,
+				consumed_at: null,
+				notes: null,
+			}),
+		});
+		expect(linkedResponse.status).toBe(201);
+		const linked = await linkedResponse.json();
+		expect(linked.ingredient.name).toBe("Sausage");
+		expect(linked.product.name).toBe("Atria Grillimakkara");
+
+		const mismatchResponse = await request(routes, "/api/inventory-items", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: "Wrong sausage",
+				ingredient_id: cheeseIngredient.id,
+				product_id: product.id,
+				receipt_item_id: null,
+				container_id: null,
+				quantity: 1,
+				unit: "pcs",
+				purchased_at: null,
+				expires_at: null,
+				consumed_at: null,
+				notes: null,
+			}),
+		});
+		expect(mismatchResponse.status).toBe(400);
+	});
+
+	test("creates shoppinglist items without a parent shopping list", async () => {
+		const routes = createRoutes();
 
 		const createItemResponse = await request(
 			routes,
@@ -873,7 +1187,9 @@ describe("Pupler API", () => {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
-					product_id: product.id,
+					name: "Light bulb",
+					ingredient_id: null,
+					product_id: null,
 					quantity: 6,
 					unit: "pcs",
 					done: false,
@@ -885,7 +1201,7 @@ describe("Pupler API", () => {
 
 		expect(createItemResponse.status).toBe(201);
 		const createdItem = await createItemResponse.json();
-		expect(createdItem.product_id).toBe(product.id);
+		expect(createdItem.name).toBe("Light bulb");
 		expect(createdItem.done).toBe(false);
 
 		const listResponse = await request(routes, "/api/shopping-list-items");
@@ -893,5 +1209,71 @@ describe("Pupler API", () => {
 		const items = await listResponse.json();
 		expect(items).toHaveLength(1);
 		expect(items[0].notes).toBe("for breakfast");
+	});
+
+	test("creates shoppinglist items with ingredient and product links", async () => {
+		const routes = createRoutes();
+
+		const ingredientResponse = await request(routes, "/api/ingredients", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: "Sausage",
+				default_unit: "pack",
+			}),
+		});
+		const ingredient = (await ingredientResponse.json()) as { id: number };
+
+		const productResponse = await request(routes, "/api/products", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				ingredient_id: ingredient.id,
+				name: "Snellman Sausage Pack",
+				category: "food",
+				barcode: "5551",
+				default_unit: "pack",
+				is_perishable: true,
+			}),
+		});
+		const product = (await productResponse.json()) as { id: number };
+
+		const recipeResponse = await request(routes, "/api/recipes", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: "Sausage pasta",
+				description: null,
+				instructions: null,
+				servings: 2,
+				is_active: true,
+			}),
+		});
+		const recipe = (await recipeResponse.json()) as { id: number };
+
+		const createItemResponse = await request(
+			routes,
+			"/api/shopping-list-items",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					name: "Sausage",
+					ingredient_id: ingredient.id,
+					product_id: product.id,
+					quantity: 2,
+					unit: "pack",
+					done: false,
+					source_recipe_id: recipe.id,
+					notes: "for dinner",
+				}),
+			},
+		);
+
+		expect(createItemResponse.status).toBe(201);
+		const createdItem = await createItemResponse.json();
+		expect(createdItem.ingredient.name).toBe("Sausage");
+		expect(createdItem.product.name).toBe("Snellman Sausage Pack");
+		expect(createdItem.source_recipe_id).toBe(recipe.id);
 	});
 });

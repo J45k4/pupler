@@ -51,6 +51,13 @@ describe("Pupler API e2e", () => {
 		expect(page.body).toContain("<title>Pupler</title>");
 		expect(page.body).toContain("<body></body>");
 
+		const productDetailPage = await server.call<string>("/products/1");
+		expect(productDetailPage.response.status).toBe(200);
+		expect(
+			productDetailPage.response.headers.get("content-type"),
+		).toContain("text/html");
+		expect(productDetailPage.body).toContain("<title>Pupler</title>");
+
 		const inventoryContainerPage = await server.call<string>(
 			"/inventory/containers/1",
 		);
@@ -482,9 +489,19 @@ describe("Pupler API e2e", () => {
 	test("creates inventory containers and assigns inventory items over HTTP", async () => {
 		const server = await startServer();
 
+		const ingredient = await server.call<{ id: number }>("/api/ingredients", {
+			method: "POST",
+			body: {
+				name: "Rice",
+				default_unit: "bag",
+			},
+		});
+		expect(ingredient.response.status).toBe(201);
+
 		const product = await server.call<{ id: number }>("/api/products", {
 			method: "POST",
 			body: {
+				ingredient_id: ingredient.body.id,
 				name: "Rice",
 				category: "food",
 				barcode: "777",
@@ -524,9 +541,14 @@ describe("Pupler API e2e", () => {
 		const item = await server.call<{
 			id: number;
 			container_id: number | null;
+			ingredient_id: number | null;
+			name: string;
+			product_id: number | null;
 		}>("/api/inventory-items", {
 			method: "POST",
 			body: {
+				name: "Rice bag",
+				ingredient_id: ingredient.body.id,
 				product_id: product.body.id,
 				receipt_item_id: null,
 				container_id: parent.body.id,
@@ -540,6 +562,9 @@ describe("Pupler API e2e", () => {
 		});
 		expect(item.response.status).toBe(201);
 		expect(item.body.container_id).toBe(parent.body.id);
+		expect(item.body.name).toBe("Rice bag");
+		expect(item.body.ingredient_id).toBe(ingredient.body.id);
+		expect(item.body.product_id).toBe(product.body.id);
 
 		const filtered = await server.call<Array<{ id: number }>>(
 			`/api/inventory-items?container_id=${parent.body.id}`,
@@ -614,43 +639,44 @@ describe("Pupler API e2e", () => {
 	test("creates shoppinglist items over HTTP without a parent list", async () => {
 		const server = await startServer();
 
-		const product = await server.call<{ id: number }>("/api/products", {
-			method: "POST",
-			body: {
-				name: "Oats",
-				category: "food",
-				barcode: "333",
-				default_unit: "bag",
-				is_perishable: false,
-			},
-		});
-		expect(product.response.status).toBe(201);
-
 		const createdItem = await server.call<{
 			id: number;
-			product_id: number;
+			ingredient_id: number | null;
+			name: string;
+			product_id: number | null;
 			done: boolean;
 		}>("/api/shopping-list-items", {
 			method: "POST",
 			body: {
-				product_id: product.body.id,
+				name: "Light bulb",
+				ingredient_id: null,
+				product_id: null,
 				quantity: 2,
-				unit: "bag",
+				unit: "pcs",
 				done: false,
 				source_recipe_id: null,
-				notes: "pantry refill",
+				notes: "hall closet",
 			},
 		});
 		expect(createdItem.response.status).toBe(201);
-		expect(createdItem.body.product_id).toBe(product.body.id);
+		expect(createdItem.body.name).toBe("Light bulb");
+		expect(createdItem.body.product_id).toBeNull();
+		expect(createdItem.body.ingredient_id).toBeNull();
 		expect(createdItem.body.done).toBe(false);
 
 		const listed = await server.call<
-			Array<{ product_id: number; notes: string | null }>
+			Array<{
+				ingredient_id: number | null;
+				name: string;
+				product_id: number | null;
+				notes: string | null;
+			}>
 		>("/api/shopping-list-items");
 		expect(listed.response.status).toBe(200);
 		expect(listed.body).toHaveLength(1);
-		expect(listed.body[0].product_id).toBe(product.body.id);
-		expect(listed.body[0].notes).toBe("pantry refill");
+		expect(listed.body[0].name).toBe("Light bulb");
+		expect(listed.body[0].product_id).toBeNull();
+		expect(listed.body[0].ingredient_id).toBeNull();
+		expect(listed.body[0].notes).toBe("hall closet");
 	});
 });

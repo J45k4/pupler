@@ -42,9 +42,25 @@ export type CommandResult = {
 
 const RESOURCES: ResourceConfig[] = [
 	{
+		command: "ingredients",
+		path: "/api/ingredients",
+		fields: {
+			name: { type: "string" },
+			default_unit: { type: "string", nullable: true },
+		},
+		queryFields: {
+			id: { type: "integer" },
+			name: { type: "string", nullable: true },
+			default_unit: { type: "string", nullable: true },
+			created_at: { type: "timestamp" },
+			updated_at: { type: "timestamp" },
+		},
+	},
+	{
 		command: "products",
 		path: "/api/products",
 		fields: {
+			ingredient_id: { type: "integer", nullable: true },
 			name: { type: "string" },
 			category: { type: "string" },
 			barcode: { type: "string", nullable: true },
@@ -53,6 +69,7 @@ const RESOURCES: ResourceConfig[] = [
 		},
 		queryFields: {
 			id: { type: "integer" },
+			ingredient_id: { type: "integer", nullable: true },
 			name: { type: "string", nullable: true },
 			category: { type: "string", nullable: true },
 			barcode: { type: "string", nullable: true },
@@ -125,8 +142,11 @@ const RESOURCES: ResourceConfig[] = [
 		command: "inventory-items",
 		path: "/api/inventory-items",
 		fields: {
-			product_id: { type: "integer" },
+			name: { type: "string" },
+			ingredient_id: { type: "integer", nullable: true },
+			product_id: { type: "integer", nullable: true },
 			receipt_item_id: { type: "integer", nullable: true },
+			container_id: { type: "integer", nullable: true },
 			quantity: { type: "decimal" },
 			unit: { type: "string" },
 			purchased_at: { type: "timestamp", nullable: true },
@@ -136,8 +156,11 @@ const RESOURCES: ResourceConfig[] = [
 		},
 		queryFields: {
 			id: { type: "integer", nullable: true },
+			name: { type: "string", nullable: true },
+			ingredient_id: { type: "integer", nullable: true },
 			product_id: { type: "integer", nullable: true },
 			receipt_item_id: { type: "integer", nullable: true },
+			container_id: { type: "integer", nullable: true },
 			quantity: { type: "decimal" },
 			unit: { type: "string", nullable: true },
 			purchased_at: { type: "timestamp", nullable: true },
@@ -174,7 +197,9 @@ const RESOURCES: ResourceConfig[] = [
 		path: "/api/recipe-ingredients",
 		fields: {
 			recipe_id: { type: "integer" },
-			product_id: { type: "integer" },
+			name: { type: "string" },
+			ingredient_id: { type: "integer", nullable: true },
+			product_id: { type: "integer", nullable: true },
 			quantity: { type: "decimal" },
 			unit: { type: "string" },
 			is_optional: { type: "boolean" },
@@ -183,7 +208,9 @@ const RESOURCES: ResourceConfig[] = [
 		queryFields: {
 			id: { type: "integer" },
 			recipe_id: { type: "integer" },
-			product_id: { type: "integer" },
+			name: { type: "string", nullable: true },
+			ingredient_id: { type: "integer", nullable: true },
+			product_id: { type: "integer", nullable: true },
 			quantity: { type: "decimal" },
 			unit: { type: "string", nullable: true },
 			is_optional: { type: "boolean" },
@@ -216,7 +243,9 @@ const RESOURCES: ResourceConfig[] = [
 		command: "shopping-list-items",
 		path: "/api/shopping-list-items",
 		fields: {
-			product_id: { type: "integer" },
+			name: { type: "string" },
+			ingredient_id: { type: "integer", nullable: true },
+			product_id: { type: "integer", nullable: true },
 			quantity: { type: "decimal" },
 			unit: { type: "string" },
 			done: { type: "boolean" },
@@ -225,6 +254,8 @@ const RESOURCES: ResourceConfig[] = [
 		},
 		queryFields: {
 			id: { type: "integer", nullable: true },
+			name: { type: "string", nullable: true },
+			ingredient_id: { type: "integer", nullable: true },
 			product_id: { type: "integer", nullable: true },
 			quantity: { type: "decimal" },
 			unit: { type: "string", nullable: true },
@@ -249,8 +280,9 @@ Resources:
   ${RESOURCE_NAMES}
 
 Examples:
+  bun ./cli/cli.ts ingredients create --name Sausage --default-unit pcs
   bun ./cli/cli.ts products list --barcode 6414893400012
-  bun ./cli/cli.ts products create --name Milk --category food --is-perishable true
+  bun ./cli/cli.ts products create --name Milk --category food --is-perishable true --ingredient-id 1
   bun ./cli/cli.ts receipts create --store-name Prisma --purchased-at 2026-04-14T08:00:00Z --currency EUR
   bun ./cli/cli.ts receipt-items create --receipt-id 1 --product-id 2 --quantity 1 --unit pcs
 

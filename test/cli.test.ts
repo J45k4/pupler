@@ -70,14 +70,58 @@ afterEach(async () => {
 });
 
 describe("Pupler CLI", () => {
+	test("creates and lists ingredients as JSON", async () => {
+		const server = await startServer();
+
+		const created = await runCli(
+			[
+				"ingredients",
+				"create",
+				"--json",
+				"--name",
+				"Sausage",
+				"--default-unit",
+				"pcs",
+			],
+			{ baseUrl: server.baseUrl },
+		);
+
+		expect(created.exitCode).toBe(0);
+		const createdBody = JSON.parse(created.stdout) as {
+			default_unit: string | null;
+			id: number;
+			name: string;
+		};
+		expect(createdBody.name).toBe("Sausage");
+		expect(createdBody.default_unit).toBe("pcs");
+
+		const listed = await runCli(
+			["ingredients", "list", "--json", "--name", "sausage"],
+			{ baseUrl: server.baseUrl },
+		);
+		expect(listed.exitCode).toBe(0);
+		const listedBody = JSON.parse(listed.stdout) as Array<{ id: number }>;
+		expect(listedBody).toHaveLength(1);
+		expect(listedBody[0]?.id).toBe(createdBody.id);
+	});
+
 	test("creates and lists products as JSON", async () => {
 		const server = await startServer();
+		const ingredient = await server.call<{ id: number }>("/api/ingredients", {
+			method: "POST",
+			body: {
+				name: "Milk",
+				default_unit: "pcs",
+			},
+		});
 
 		const created = await runCli(
 			[
 				"products",
 				"create",
 				"--json",
+				"--ingredient-id",
+				String(ingredient.body.id),
 				"--name",
 				"Milk",
 				"--category",
@@ -95,11 +139,13 @@ describe("Pupler CLI", () => {
 		expect(created.exitCode).toBe(0);
 		const createdBody = JSON.parse(created.stdout) as {
 			barcode: string;
+			ingredient_id: number | null;
 			id: number;
 			name: string;
 		};
 		expect(createdBody.name).toBe("Milk");
 		expect(createdBody.barcode).toBe("6414893400012");
+		expect(createdBody.ingredient_id).toBe(ingredient.body.id);
 
 		const listed = await runCli(
 			["products", "list", "--json", "--barcode", "6414893400012"],
@@ -174,37 +220,28 @@ describe("Pupler CLI", () => {
 
 	test("creates and lists shopping list items with human-readable output", async () => {
 		const server = await startServer();
-		const product = await server.call<{ id: number }>("/api/products", {
-			method: "POST",
-			body: {
-				name: "Oats",
-				category: "food",
-				barcode: "9988",
-				default_unit: "bag",
-				is_perishable: false,
-			},
-		});
 
 		const created = await runCli(
 			[
 				"shopping-list-items",
 				"create",
-				"--product-id",
-				String(product.body.id),
+				"--name",
+				"Light bulb",
 				"--quantity",
 				"2",
 				"--unit",
-				"bag",
+				"pcs",
 				"--done",
 				"false",
 				"--notes",
-				"pantry refill",
+				"hall closet",
 			],
 			{ baseUrl: server.baseUrl },
 		);
 		expect(created.exitCode).toBe(0);
-		expect(created.stdout).toContain("product_id:");
-		expect(created.stdout).toContain("pantry refill");
+		expect(created.stdout).toContain("name:");
+		expect(created.stdout).toContain("Light bulb");
+		expect(created.stdout).toContain("hall closet");
 
 		const listed = await runCli(
 			["shopping-list-items", "list", "--done", "false"],
@@ -212,7 +249,7 @@ describe("Pupler CLI", () => {
 		);
 		expect(listed.exitCode).toBe(0);
 		expect(listed.stdout).toContain("notes");
-		expect(listed.stdout).toContain("pantry refill");
+		expect(listed.stdout).toContain("hall closet");
 	});
 
 	test("uploads and downloads product pictures", async () => {
