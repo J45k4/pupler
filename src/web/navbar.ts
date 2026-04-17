@@ -17,10 +17,12 @@ export const renderNavbar = (currentPath: string) => {
 				<nav class="navbar" aria-label="Primary">
 					${items
 						.map(({ href, label }) => {
-							const active =
-								currentPath === href
-									? " navbar__link--active"
-									: "";
+							const isActive =
+								href === "/"
+									? currentPath === href
+									: currentPath === href ||
+										currentPath.startsWith(`${href}/`);
+							const active = isActive ? " navbar__link--active" : "";
 							return `<a class="navbar__link${active}" href="${href}" data-link>${label}</a>`;
 						})
 						.join("")}

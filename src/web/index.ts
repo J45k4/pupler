@@ -1,6 +1,6 @@
 import { InfiniteScroll } from "./infinite-scroll";
 import { renderNavbar } from "./navbar";
-import { installLinkInterceptor, routes } from "./router";
+import { installLinkInterceptor, navigate, routes } from "./router";
 
 type Product = {
 	id: number;
@@ -68,6 +68,45 @@ type ShoppingListItem = {
 	updated_at: string;
 };
 
+type RecipeIngredientProduct = {
+	id: number;
+	name: string;
+	default_unit: string | null;
+};
+
+type RecipeIngredient = {
+	id: number;
+	recipe_id: number;
+	product_id: number;
+	quantity: number;
+	unit: string;
+	is_optional: boolean;
+	notes: string | null;
+	created_at: string;
+	product?: RecipeIngredientProduct;
+};
+
+type Recipe = {
+	id: number;
+	name: string;
+	description: string | null;
+	instructions: string | null;
+	servings: number | null;
+	is_active: boolean;
+	created_at: string;
+	updated_at: string;
+	ingredients?: RecipeIngredient[];
+	recipe_images?: RecipeImage[];
+};
+
+type RecipeImage = {
+	id: number;
+	recipe_id: number;
+	content_type: string;
+	filename: string | null;
+	created_at: string;
+};
+
 let receiptDetailAbortController: AbortController | null = null;
 let productPageAbortController: AbortController | null = null;
 let productInfiniteScroll: InfiniteScroll<Product> | null = null;
@@ -101,6 +140,290 @@ const setStatus = (elementId: string, message: string, isError = false) => {
 	}
 	status.textContent = message;
 	status.className = isError ? "status error" : "status";
+};
+
+const escapeHtml = (value: string) =>
+	value
+		.replaceAll("&", "&amp;")
+		.replaceAll("<", "&lt;")
+		.replaceAll(">", "&gt;")
+		.replaceAll('"', "&quot;")
+		.replaceAll("'", "&#39;");
+
+const UNIT_GROUPS = [
+	{
+		label: "Count",
+		options: [
+			["pcs", "Pieces (pcs)"],
+			["item", "Item"],
+			["pair", "Pair"],
+			["dozen", "Dozen"],
+			["pack", "Pack"],
+			["bag", "Bag"],
+			["box", "Box"],
+			["bottle", "Bottle"],
+			["can", "Can"],
+			["jar", "Jar"],
+			["bunch", "Bunch"],
+			["slice", "Slice"],
+		],
+	},
+	{
+		label: "Weight",
+		options: [
+			["mg", "Milligrams (mg)"],
+			["g", "Grams (g)"],
+			["kg", "Kilograms (kg)"],
+			["oz", "Ounces (oz)"],
+			["lb", "Pounds (lb)"],
+		],
+	},
+	{
+		label: "Volume",
+		options: [
+			["ml", "Milliliters (ml)"],
+			["cl", "Centiliters (cl)"],
+			["dl", "Deciliters (dl)"],
+			["l", "Liters (l)"],
+			["fl oz", "Fluid ounces (fl oz)"],
+			["cup", "Cup"],
+			["pt", "Pint (pt)"],
+			["qt", "Quart (qt)"],
+			["gal", "Gallon (gal)"],
+		],
+	},
+	{
+		label: "Cooking",
+		options: [
+			["tsp", "Teaspoon (tsp)"],
+			["tbsp", "Tablespoon (tbsp)"],
+			["pinch", "Pinch"],
+			["dash", "Dash"],
+		],
+	},
+	{
+		label: "Length",
+		options: [
+			["mm", "Millimeters (mm)"],
+			["cm", "Centimeters (cm)"],
+			["m", "Meters (m)"],
+			["in", "Inches (in)"],
+			["ft", "Feet (ft)"],
+		],
+	},
+] as const;
+
+const KNOWN_UNIT_VALUES = new Set(
+	UNIT_GROUPS.flatMap((group) => group.options.map(([value]) => value)),
+);
+
+const renderUnitSelectOptions = (
+	selectedValue: string | null,
+	placeholderLabel?: string,
+) => {
+	const trimmedSelected = selectedValue?.trim() ?? "";
+	const hasSelectedValue = trimmedSelected.length > 0;
+	const hasKnownSelectedValue = KNOWN_UNIT_VALUES.has(trimmedSelected);
+
+	return `
+		${
+			placeholderLabel
+				? `<option value="" ${hasSelectedValue ? "" : "selected"}>${escapeHtml(placeholderLabel)}</option>`
+				: ""
+		}
+		${
+			hasSelectedValue && !hasKnownSelectedValue
+				? `<option value="${escapeHtml(trimmedSelected)}" selected data-unit-custom="true">${escapeHtml(trimmedSelected)} (Custom)</option>`
+				: ""
+		}
+		${UNIT_GROUPS.map(
+			(group) => `
+				<optgroup label="${escapeHtml(group.label)}">
+					${group.options
+						.map(
+							([value, label]) => `
+								<option value="${escapeHtml(value)}" ${
+									value === trimmedSelected ? "selected" : ""
+								}>
+									${escapeHtml(label)}
+								</option>
+							`,
+						)
+						.join("")}
+				</optgroup>
+			`,
+		).join("")}
+	`;
+};
+
+const renderUnitSelect = (options: {
+	id: string;
+	name: string;
+	label: string;
+	selectedValue: string | null;
+	placeholderLabel?: string;
+	required?: boolean;
+}) => `
+	<label for="${options.id}">
+		${options.label}
+		<select
+			id="${options.id}"
+			name="${options.name}"
+			${options.required ? "required" : ""}
+		>
+			${renderUnitSelectOptions(
+				options.selectedValue,
+				options.placeholderLabel,
+			)}
+		</select>
+	</label>
+`;
+
+const setUnitSelectValue = (
+	select: HTMLSelectElement,
+	value: string | null,
+	fallbackValue = "",
+) => {
+	for (const option of select.querySelectorAll<HTMLOptionElement>(
+		"option[data-unit-custom]",
+	)) {
+		option.remove();
+	}
+
+	const trimmedValue = value?.trim() ?? "";
+	if (!trimmedValue) {
+		select.value = fallbackValue;
+		return;
+	}
+
+	if (!KNOWN_UNIT_VALUES.has(trimmedValue)) {
+		const customOption = document.createElement("option");
+		customOption.value = trimmedValue;
+		customOption.textContent = `${trimmedValue} (Custom)`;
+		customOption.dataset.unitCustom = "true";
+		select.insertBefore(customOption, select.firstChild);
+	}
+
+	select.value = trimmedValue;
+};
+
+const formatFileSize = (bytes: number) => {
+	if (bytes >= 1024 * 1024) {
+		return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+	}
+	if (bytes >= 1024) {
+		return `${Math.round(bytes / 1024)} KB`;
+	}
+	return `${bytes} B`;
+};
+
+const renderUploadDropzone = (options: {
+	inputId: string;
+	label: string;
+	emptyText: string;
+	name?: string;
+	multiple?: boolean;
+	submitOnDrop?: boolean;
+}) => `
+	<label
+		class="upload-dropzone"
+		for="${options.inputId}"
+		data-upload-dropzone
+		data-upload-dropzone-empty="${escapeHtml(options.emptyText)}"
+		${options.submitOnDrop ? 'data-upload-dropzone-submit-on-drop="true"' : ""}
+	>
+		<span class="upload-dropzone__label">${options.label}</span>
+		<span class="upload-dropzone__surface">
+			<span class="upload-dropzone__title">${
+				options.multiple ? "Drop image files here" : "Drop an image here"
+			}</span>
+			<span class="upload-dropzone__meta" data-upload-dropzone-meta>${options.emptyText}</span>
+		</span>
+		<input
+			id="${options.inputId}"
+			name="${options.name ?? options.inputId}"
+			class="upload-dropzone__input"
+			type="file"
+			accept="image/*"
+			${options.multiple ? "multiple" : ""}
+		/>
+	</label>
+`;
+
+const attachUploadDropzones = (root: ParentNode = document) => {
+	for (const dropzone of root.querySelectorAll<HTMLElement>(
+		"[data-upload-dropzone]",
+	)) {
+		const input = dropzone.querySelector<HTMLInputElement>(
+			'input[type="file"]',
+		);
+		const meta = dropzone.querySelector<HTMLElement>(
+			"[data-upload-dropzone-meta]",
+		);
+		const emptyText = dropzone.dataset.uploadDropzoneEmpty ?? "No file selected";
+		const submitOnDrop =
+			dropzone.dataset.uploadDropzoneSubmitOnDrop === "true";
+		if (!input || !meta) {
+			continue;
+		}
+
+		const sync = () => {
+			const files = input.files ? Array.from(input.files) : [];
+			meta.textContent = files.length
+				? files.length === 1
+					? `${files[0]!.name} • ${formatFileSize(files[0]!.size)}`
+					: `${files.length} images selected`
+				: emptyText;
+			dropzone.classList.toggle("upload-dropzone--has-file", files.length > 0);
+		};
+
+		const activate = (event: DragEvent) => {
+			event.preventDefault();
+			dropzone.classList.add("upload-dropzone--active");
+		};
+
+		const deactivate = (event?: DragEvent) => {
+			event?.preventDefault();
+			dropzone.classList.remove("upload-dropzone--active");
+		};
+
+		input.addEventListener("change", sync);
+		input.form?.addEventListener("reset", () => {
+			queueMicrotask(sync);
+		});
+		dropzone.addEventListener("dragenter", activate);
+		dropzone.addEventListener("dragover", activate);
+		dropzone.addEventListener("dragleave", deactivate);
+		dropzone.addEventListener("dragend", deactivate);
+		dropzone.addEventListener("drop", (event) => {
+			event.preventDefault();
+			dropzone.classList.remove("upload-dropzone--active");
+			const files = event.dataTransfer?.files;
+			if (!files?.length) {
+				return;
+			}
+
+			const transfer = new DataTransfer();
+			for (const file of files) {
+				if (file.type.startsWith("image/")) {
+					transfer.items.add(file);
+					if (!input.multiple) {
+						break;
+					}
+				}
+			}
+			if (!transfer.files.length) {
+				return;
+			}
+
+			input.files = transfer.files;
+			input.dispatchEvent(new Event("change", { bubbles: true }));
+			if (submitOnDrop) {
+				queueMicrotask(() => input.form?.requestSubmit());
+			}
+		});
+		sync();
+	}
 };
 
 const formatShoppingDate = (value: string) =>
@@ -153,17 +476,522 @@ const renderRecipesPage = () => {
 			<section class="card panel page-panel">
 				<div class="page-heading">
 					<div>
-						<span class="eyebrow">Recipes</span>
-						<h1 class="page-title">Recipe planning will sit here.</h1>
+						<p class="page-copy">
+							Build recipe basics, ingredient lists, and photos in one place.
+						</p>
 					</div>
+					<a class="primary action-link" href="/recipes/new" data-link>Add Recipe</a>
 				</div>
-				<p class="page-copy">
-					This page is routed through the frontend navbar already. When recipe forms and meal
-					planning endpoints are added, this is where they should render.
-				</p>
+				<div id="recipe-list-status" class="status"></div>
+				<div id="recipe-results" class="recipe-results"></div>
 			</section>
 		`,
 	);
+
+	void loadRecipes();
+};
+
+const renderRecipeDetailPage = (params: Record<string, string>) => {
+	renderPage('<div id="recipe-detail-page"></div>');
+
+	void (async () => {
+		const rawId = params.id ?? "";
+		const recipeId = Number.parseInt(rawId, 10);
+		if (!Number.isInteger(recipeId)) {
+			const page = document.getElementById("recipe-detail-page");
+			if (page) {
+				page.innerHTML =
+					'<div class="card panel page-panel"><p class="page-copy">Recipe id is invalid.</p></div>';
+			}
+			return;
+		}
+
+		try {
+			const recipe = await fetchRecipe(recipeId);
+			renderRecipeDetail(recipe);
+		} catch (error) {
+			const page = document.getElementById("recipe-detail-page");
+			if (page) {
+				page.innerHTML = `
+					<div class="card panel page-panel">
+						<p class="page-copy">${error instanceof Error ? error.message : "Failed to load recipe."}</p>
+					</div>
+				`;
+			}
+		}
+	})();
+};
+
+const renderRecipeCreatePage = () => {
+	renderPage(
+		`
+			<section class="page-heading page-heading--compact">
+				<div>
+					<span class="eyebrow">Recipes</span>
+					<h1 class="page-title">Add recipe</h1>
+					<p class="page-copy">
+						Create the recipe shell first. Ingredients can be added on the detail page after this.
+					</p>
+				</div>
+				<a class="secondary action-link" href="/recipes" data-link>Back To Recipes</a>
+			</section>
+
+			<section class="workspace workspace--single">
+				<div class="card panel">
+					<form id="recipe-create-form">
+						<label for="recipe-name">
+							Name
+							<input
+								id="recipe-name"
+								name="name"
+								placeholder="Creamy tomato pasta"
+								autocomplete="off"
+								required
+							/>
+						</label>
+
+						<div class="row">
+							<label for="recipe-servings">
+								Servings
+								<input
+									id="recipe-servings"
+									name="servings"
+									type="number"
+									inputmode="numeric"
+									min="1"
+									step="1"
+									placeholder="4"
+								/>
+							</label>
+
+							<label class="checkbox-toggle recipe-form__toggle" for="recipe-is-active">
+								<input
+									id="recipe-is-active"
+									name="is_active"
+									type="checkbox"
+									checked
+								/>
+								<span>Active recipe</span>
+							</label>
+						</div>
+
+						<label for="recipe-description">
+							Description
+							<textarea
+								id="recipe-description"
+								name="description"
+								rows="3"
+								placeholder="A quick weeknight pasta with pantry ingredients."
+							></textarea>
+						</label>
+
+						<label for="recipe-instructions">
+							Instructions
+							<textarea
+								id="recipe-instructions"
+								name="instructions"
+								rows="8"
+								placeholder="1. Boil the pasta.&#10;2. Simmer the sauce.&#10;3. Toss together and serve."
+							></textarea>
+						</label>
+
+						<div class="actions">
+							<button class="primary" type="submit">Create Recipe</button>
+							<a class="secondary action-link" href="/recipes" data-link>Cancel</a>
+						</div>
+					</form>
+					<div id="recipe-create-status" class="status"></div>
+				</div>
+			</section>
+		`,
+	);
+
+	attachRecipeCreatePageEvents();
+};
+
+const renderRecipeIngredientList = (ingredients: RecipeIngredient[]) => {
+	if (!ingredients.length) {
+		return '<div class="empty">No ingredients added yet.</div>';
+	}
+
+	return `
+		<div class="recipe-ingredient-list">
+			${ingredients
+				.map((ingredient) => {
+					const productName =
+						ingredient.product?.name ??
+						`Product #${ingredient.product_id}`;
+					return `
+						<article class="recipe-ingredient-item">
+							<button
+								class="recipe-ingredient-item__select"
+								type="button"
+								data-edit-recipe-ingredient-id="${ingredient.id}"
+								data-recipe-ingredient-product-id="${ingredient.product_id}"
+								data-recipe-ingredient-name="${encodeURIComponent(productName)}"
+								data-recipe-ingredient-quantity="${ingredient.quantity}"
+								data-recipe-ingredient-unit="${encodeURIComponent(ingredient.unit)}"
+								data-recipe-ingredient-optional="${ingredient.is_optional ? "true" : "false"}"
+								data-recipe-ingredient-notes="${encodeURIComponent(ingredient.notes ?? "")}"
+							>
+								<div class="recipe-ingredient-item__main">
+									<div class="recipe-ingredient-item__header">
+										<strong>${escapeHtml(productName)}</strong>
+										${ingredient.is_optional ? '<span class="tag tag--neutral">Optional</span>' : ""}
+									</div>
+									<div class="recipe-ingredient-item__meta">
+										<span>${escapeHtml(String(ingredient.quantity))} ${escapeHtml(ingredient.unit)}</span>
+										${
+											ingredient.product?.default_unit &&
+											ingredient.product.default_unit !== ingredient.unit
+												? `<span>Default unit: ${escapeHtml(ingredient.product.default_unit)}</span>`
+												: ""
+										}
+									</div>
+									${
+										ingredient.notes
+											? `<div class="section-copy">${escapeHtml(ingredient.notes)}</div>`
+											: ""
+									}
+								</div>
+							</button>
+							<button
+								class="secondary"
+								type="button"
+								data-delete-recipe-ingredient-id="${ingredient.id}"
+							>
+								Remove
+							</button>
+						</article>
+					`;
+				})
+				.join("")}
+		</div>
+	`;
+};
+
+const renderRecipeDetail = (recipe: Recipe) => {
+	const page = document.getElementById("recipe-detail-page");
+	if (!page) {
+		return;
+	}
+	const ingredients = recipe.ingredients ?? [];
+	const recipeImages = recipe.recipe_images ?? [];
+
+	const servingsLabel =
+		recipe.servings === null
+			? "-"
+			: recipe.servings === 1
+				? "1 serving"
+				: `${recipe.servings} servings`;
+
+	page.innerHTML = `
+		<section class="page-heading page-heading--compact">
+			<div>
+				<h1 class="page-title">${recipe.name}</h1>
+			</div>
+			<a class="secondary action-link" href="/recipes" data-link>Back To Recipes</a>
+		</section>
+
+		<section class="workspace recipe-detail-grid">
+			<div class="card panel">
+				<h2>Images</h2>
+				${
+					recipeImages.length
+						? `
+							<div class="recipe-image-gallery">
+								${recipeImages
+									.map(
+										(image) => `
+											<article class="recipe-image-card">
+												<img
+													class="recipe-image-card__image"
+													src="/api/recipes/${recipe.id}/pictures/${image.id}?updated=${encodeURIComponent(image.created_at)}"
+													alt="${escapeHtml(image.filename ?? recipe.name)}"
+												/>
+												<div class="recipe-image-card__meta">
+													<div>
+														<strong>${escapeHtml(image.filename ?? `Image #${image.id}`)}</strong>
+														<div class="section-copy">${formatReceiptDateTime(image.created_at)}</div>
+													</div>
+													<button
+														class="secondary"
+														type="button"
+														data-delete-recipe-image-id="${image.id}"
+													>
+														Remove
+													</button>
+												</div>
+											</article>
+										`,
+									)
+									.join("")}
+							</div>
+						`
+						: '<div class="empty">No recipe images uploaded yet.</div>'
+				}
+				<form id="recipe-picture-form" class="recipe-picture__form">
+					${renderUploadDropzone({
+						inputId: "recipe-picture-input",
+						label: "Images",
+						name: "picture",
+						multiple: true,
+						submitOnDrop: true,
+						emptyText: "Choose one or more images or drop them here.",
+					})}
+					<div class="actions">
+						<button class="secondary" type="submit">Upload Images</button>
+					</div>
+				</form>
+				<h2>Summary</h2>
+				<dl class="receipt-metadata">
+					<div>
+						<dt>Status</dt>
+						<dd>${recipe.is_active ? "Active" : "Inactive"}</dd>
+					</div>
+					<div>
+						<dt>Servings</dt>
+						<dd>${servingsLabel}</dd>
+					</div>
+					<div>
+						<dt>Created</dt>
+						<dd>${formatReceiptDateTime(recipe.created_at)}</dd>
+					</div>
+					<div>
+						<dt>Updated</dt>
+						<dd>${formatReceiptDateTime(recipe.updated_at)}</dd>
+					</div>
+				</dl>
+				<div id="recipe-picture-status" class="status"></div>
+			</div>
+
+			<div class="recipe-detail-stack">
+				<div class="card panel">
+					<section class="recipe-detail-section">
+						<h2>Recipe Details</h2>
+						<form id="recipe-detail-form">
+							<label for="recipe-detail-name">
+								Name
+								<input
+									id="recipe-detail-name"
+									name="name"
+									value="${escapeHtml(recipe.name)}"
+									required
+								/>
+							</label>
+
+							<div class="row">
+								<label for="recipe-detail-servings">
+									Servings
+									<input
+										id="recipe-detail-servings"
+										name="servings"
+										type="number"
+										inputmode="numeric"
+										min="1"
+										step="1"
+										value="${recipe.servings ?? ""}"
+										placeholder="4"
+									/>
+								</label>
+
+								<label class="checkbox-toggle recipe-form__toggle" for="recipe-detail-is-active">
+									<input
+										id="recipe-detail-is-active"
+										name="is_active"
+										type="checkbox"
+										${recipe.is_active ? "checked" : ""}
+									/>
+									<span>Active recipe</span>
+								</label>
+							</div>
+
+							<label for="recipe-detail-description">
+								Description
+								<textarea
+									id="recipe-detail-description"
+									name="description"
+									rows="4"
+									placeholder="Short summary of the recipe"
+								>${escapeHtml(recipe.description ?? "")}</textarea>
+							</label>
+
+							<label for="recipe-detail-instructions">
+								Instructions
+								<textarea
+									id="recipe-detail-instructions"
+									name="instructions"
+									rows="10"
+									placeholder="Describe the cooking steps"
+								>${escapeHtml(recipe.instructions ?? "")}</textarea>
+							</label>
+
+							<div class="actions">
+								<button class="primary" type="submit">Save Recipe</button>
+							</div>
+						</form>
+						<div id="recipe-detail-status" class="status"></div>
+					</section>
+				</div>
+
+				<div class="card panel">
+					<section class="recipe-detail-section">
+						<div class="section-header recipe-detail-section__header">
+							<div class="recipe-ingredient-summary">
+								<h2>Ingredients</h2>
+								<span class="tag tag--neutral">
+									${ingredients.length} ${ingredients.length === 1 ? "item" : "items"}
+								</span>
+							</div>
+							<button
+								class="primary"
+								type="button"
+								id="open-recipe-ingredient-modal-button"
+							>
+								Add Ingredient
+							</button>
+						</div>
+						${renderRecipeIngredientList(ingredients)}
+						<div id="recipe-ingredient-status" class="status"></div>
+					</section>
+				</div>
+			</div>
+		</section>
+
+		<div class="recipe-ingredient-modal" id="recipe-ingredient-modal" hidden>
+			<div
+				class="recipe-ingredient-modal__backdrop"
+				data-recipe-ingredient-modal-close
+			></div>
+			<div
+				class="recipe-ingredient-modal__dialog card panel"
+				role="dialog"
+				aria-modal="true"
+				aria-labelledby="recipe-ingredient-modal-title"
+			>
+				<div class="section-header section-header--end">
+					<h2 id="recipe-ingredient-modal-title">Add Ingredient</h2>
+					<button
+						class="secondary"
+						type="button"
+						aria-label="Close add ingredient modal"
+						data-recipe-ingredient-modal-close
+					>
+						Close
+					</button>
+				</div>
+				<form id="recipe-ingredient-modal-form" class="recipe-ingredient-form">
+					<input id="recipe-ingredient-id" name="ingredient_id" type="hidden" />
+					<label for="recipe-ingredient-name">
+						Ingredient
+						<input
+							id="recipe-ingredient-name"
+							name="name"
+							placeholder="Tomatoes"
+							required
+						/>
+					</label>
+
+					<div class="recipe-ingredient-form__row">
+						<label for="recipe-ingredient-quantity">
+							Quantity
+							<input
+								id="recipe-ingredient-quantity"
+								name="quantity"
+								type="number"
+								inputmode="decimal"
+								min="0.01"
+								step="0.01"
+								value="1"
+								required
+							/>
+						</label>
+
+						${renderUnitSelect({
+							id: "recipe-ingredient-unit",
+							name: "unit",
+							label: "Unit",
+							selectedValue: "pcs",
+							required: true,
+						})}
+
+						<label class="checkbox-toggle recipe-ingredient-form__toggle" for="recipe-ingredient-optional">
+							<input
+								id="recipe-ingredient-optional"
+								name="is_optional"
+								type="checkbox"
+							/>
+							<span>Optional</span>
+						</label>
+					</div>
+
+					<label for="recipe-ingredient-notes">
+						Notes
+						<input
+							id="recipe-ingredient-notes"
+							name="notes"
+							placeholder="Finely chopped or room temperature"
+						/>
+					</label>
+
+					<div class="actions">
+						<button
+							class="primary"
+							id="recipe-ingredient-modal-submit"
+							type="submit"
+						>
+							Add Ingredient
+						</button>
+					</div>
+				</form>
+				<div id="recipe-ingredient-modal-status" class="status"></div>
+			</div>
+		</div>
+		`;
+
+	attachUploadDropzones(page);
+	attachRecipeDetailEvents(recipe.id);
+};
+
+const renderRecipes = (recipes: Recipe[]) => {
+	const results = document.getElementById("recipe-results");
+	if (!results) {
+		return;
+	}
+
+	if (!recipes.length) {
+		results.innerHTML =
+			'<div class="empty">No recipes yet. Add the first one to start building your meal library.</div>';
+		return;
+	}
+
+	results.innerHTML = recipes
+		.map((recipe) => {
+			const metaParts = [
+				recipe.servings === null
+					? null
+					: recipe.servings === 1
+						? "1 serving"
+						: `${recipe.servings} servings`,
+				recipe.is_active ? "Active" : "Inactive",
+			].filter((value): value is string => value !== null);
+
+			return `
+				<a class="recipe-card" href="/recipes/${recipe.id}" data-link>
+					<div class="recipe-card__header">
+						<h2>${recipe.name}</h2>
+						<span class="tag tag--neutral">${recipe.is_active ? "Active" : "Inactive"}</span>
+					</div>
+					${
+						recipe.description
+							? `<p class="recipe-card__description">${recipe.description}</p>`
+							: ""
+					}
+					<div class="recipe-card__meta">${metaParts.join(" • ")}</div>
+				</a>
+			`;
+		})
+		.join("");
 };
 
 const renderProductCard = (product: Product) => {
@@ -893,6 +1721,172 @@ const fetchAllProducts = async () => {
 	return body as Product[];
 };
 
+const fetchRecipes = async () => {
+	const response = await fetch("/api/recipes?sort=name&order=asc");
+	const body = (await response.json()) as Recipe[] | { error?: string };
+
+	if (!response.ok) {
+		throw new Error(
+			"error" in body
+				? (body.error ?? "Failed to load recipes")
+				: "Failed to load recipes",
+		);
+	}
+
+	return body as Recipe[];
+};
+
+const fetchRecipe = async (recipeId: number) => {
+	const response = await fetch(`/api/recipes/${recipeId}`);
+	const body = (await response.json()) as Recipe | { error?: string };
+
+	if (!response.ok) {
+		throw new Error(
+			"error" in body
+				? (body.error ?? "Failed to load recipe")
+				: "Failed to load recipe",
+		);
+	}
+
+	return body as Recipe;
+};
+
+const createRecipeIngredient = async (payload: {
+	recipe_id: number;
+	product_id: number;
+	quantity: number;
+	unit: string;
+	is_optional: boolean;
+	notes: string | null;
+}) => {
+	const response = await fetch("/api/recipe-ingredients", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(payload),
+	});
+	const body = (await response.json()) as
+		| RecipeIngredient
+		| { error?: string };
+
+	if (!response.ok) {
+		throw new Error(
+			"error" in body
+				? (body.error ?? "Failed to create recipe ingredient")
+				: "Failed to create recipe ingredient",
+		);
+	}
+
+	return body as RecipeIngredient;
+};
+
+const updateRecipeIngredient = async (
+	ingredientId: number,
+	payload: {
+		product_id?: number;
+		quantity?: number;
+		unit?: string;
+		is_optional?: boolean;
+		notes?: string | null;
+	},
+) => {
+	const response = await fetch(`/api/recipe-ingredients/${ingredientId}`, {
+		method: "PATCH",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(payload),
+	});
+	const body = (await response.json()) as
+		| RecipeIngredient
+		| { error?: string };
+
+	if (!response.ok) {
+		throw new Error(
+			"error" in body
+				? (body.error ?? "Failed to update recipe ingredient")
+				: "Failed to update recipe ingredient",
+		);
+	}
+
+	return body as RecipeIngredient;
+};
+
+const deleteRecipeIngredient = async (ingredientId: number) => {
+	const response = await fetch(`/api/recipe-ingredients/${ingredientId}`, {
+		method: "DELETE",
+	});
+
+	if (response.status !== 204) {
+		const body = (await response.json()) as { error?: string };
+		throw new Error(body.error ?? "Failed to delete recipe ingredient");
+	}
+};
+
+const deleteRecipeImage = async (recipeId: number, imageId: number) => {
+	const response = await fetch(
+		`/api/recipes/${recipeId}/pictures/${imageId}`,
+		{
+			method: "DELETE",
+		},
+	);
+
+	if (response.status !== 204) {
+		const body = (await response.json()) as { error?: string };
+		throw new Error(body.error ?? "Failed to delete recipe image");
+	}
+};
+
+const updateRecipe = async (
+	recipeId: number,
+	payload: {
+		name?: string;
+		description?: string | null;
+		instructions?: string | null;
+		servings?: number | null;
+		is_active?: boolean;
+	},
+) => {
+	const response = await fetch(`/api/recipes/${recipeId}`, {
+		method: "PATCH",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(payload),
+	});
+	const body = (await response.json()) as Recipe | { error?: string };
+
+	if (!response.ok) {
+		throw new Error(
+			"error" in body
+				? (body.error ?? "Failed to update recipe")
+				: "Failed to update recipe",
+		);
+	}
+
+	return body as Recipe;
+};
+
+const createRecipe = async (payload: {
+	name: string;
+	description: string | null;
+	instructions: string | null;
+	servings: number | null;
+	is_active: boolean;
+}) => {
+	const response = await fetch("/api/recipes", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(payload),
+	});
+	const body = (await response.json()) as Recipe | { error?: string };
+
+	if (!response.ok) {
+		throw new Error(
+			"error" in body
+				? (body.error ?? "Failed to create recipe")
+				: "Failed to create recipe",
+		);
+	}
+
+	return body as Recipe;
+};
+
 const fetchReceipts = async () => {
 	const response = await fetch("/api/receipts?sort=purchased_at&order=desc");
 	const body = (await response.json()) as
@@ -1157,6 +2151,26 @@ const loadInventoryPageData = async (statusMessage?: string) => {
 	}
 };
 
+const loadRecipes = async () => {
+	try {
+		const recipes = await fetchRecipes();
+		renderRecipes(recipes);
+		setStatus(
+			"recipe-list-status",
+			recipes.length
+				? `Loaded ${recipes.length} recipe(s).`
+				: "No recipes yet.",
+		);
+	} catch (error) {
+		renderRecipes([]);
+		setStatus(
+			"recipe-list-status",
+			error instanceof Error ? error.message : "Failed to load recipes.",
+			true,
+		);
+	}
+};
+
 const loadProducts = async () => {
 	const barcodeFilter = document.getElementById("barcode-filter");
 	const searchType = document.getElementById("product-search-type");
@@ -1278,6 +2292,22 @@ const uploadReceiptPicture = async (receiptId: number, file: File) => {
 	}
 };
 
+const uploadRecipePictures = async (recipeId: number, files: File[]) => {
+	const formData = new FormData();
+	for (const file of files) {
+		formData.append("file", file);
+	}
+
+	const response = await fetch(`/api/recipes/${recipeId}/pictures`, {
+		method: "POST",
+		body: formData,
+	});
+	const body = (await response.json()) as { error?: string };
+	if (!response.ok) {
+		throw new Error(body.error ?? "Failed to upload recipe images");
+	}
+};
+
 const loadShoppingListItems = async (products?: Product[]) => {
 	try {
 		const mode = getShoppingListMode();
@@ -1323,7 +2353,18 @@ const loadShoppingListItems = async (products?: Product[]) => {
 	}
 };
 
-const findOrCreateProductByName = async (name: string) => {
+const findOrCreateProductByName = async (
+	name: string,
+	defaults: {
+		category: string;
+		default_unit: string;
+		is_perishable: boolean;
+	} = {
+		category: "shopping",
+		default_unit: "pcs",
+		is_perishable: false,
+	},
+) => {
 	const lookupResponse = await fetch(
 		`/api/products?name=${encodeURIComponent(name)}`,
 	);
@@ -1349,10 +2390,10 @@ const findOrCreateProductByName = async (name: string) => {
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({
 			name,
-			category: "shopping",
+			category: defaults.category,
 			barcode: null,
-			default_unit: "pcs",
-			is_perishable: false,
+			default_unit: defaults.default_unit,
+			is_perishable: defaults.is_perishable,
 		}),
 	});
 	const createBody = (await createResponse.json()) as
@@ -1452,14 +2493,14 @@ const attachProductPageEvents = () => {
 		const isPerishableInput = document.getElementById("is_perishable");
 		const pictureInput = document.getElementById("picture");
 
-		if (
-			!(nameInput instanceof HTMLInputElement) ||
-			!(categoryInput instanceof HTMLInputElement) ||
-			!(barcodeInput instanceof HTMLInputElement) ||
-			!(defaultUnitInput instanceof HTMLInputElement) ||
-			!(isPerishableInput instanceof HTMLSelectElement) ||
-			!(pictureInput instanceof HTMLInputElement)
-		) {
+			if (
+				!(nameInput instanceof HTMLInputElement) ||
+				!(categoryInput instanceof HTMLInputElement) ||
+				!(barcodeInput instanceof HTMLInputElement) ||
+				!(defaultUnitInput instanceof HTMLSelectElement) ||
+				!(isPerishableInput instanceof HTMLSelectElement) ||
+				!(pictureInput instanceof HTMLInputElement)
+			) {
 			return;
 		}
 
@@ -1658,6 +2699,472 @@ const attachShoppingListPageEvents = () => {
 		});
 };
 
+const attachRecipeCreatePageEvents = () => {
+	document
+		.getElementById("recipe-create-form")
+		?.addEventListener("submit", async (event) => {
+			event.preventDefault();
+
+			const nameInput = document.getElementById("recipe-name");
+			const servingsInput = document.getElementById("recipe-servings");
+			const descriptionInput = document.getElementById("recipe-description");
+			const instructionsInput = document.getElementById("recipe-instructions");
+			const isActiveInput = document.getElementById("recipe-is-active");
+
+			if (
+				!(nameInput instanceof HTMLInputElement) ||
+				!(servingsInput instanceof HTMLInputElement) ||
+				!(descriptionInput instanceof HTMLTextAreaElement) ||
+				!(instructionsInput instanceof HTMLTextAreaElement) ||
+				!(isActiveInput instanceof HTMLInputElement)
+			) {
+				return;
+			}
+
+			const name = nameInput.value.trim();
+			if (!name) {
+				setStatus("recipe-create-status", "Recipe name is required", true);
+				return;
+			}
+
+			const servings = servingsInput.value.trim();
+			const parsedServings = servings
+				? Number.parseInt(servings, 10)
+				: null;
+			if (
+				parsedServings !== null &&
+				(!Number.isInteger(parsedServings) || parsedServings < 1)
+			) {
+				setStatus(
+					"recipe-create-status",
+					"Servings must be a whole number greater than zero",
+					true,
+				);
+				return;
+			}
+
+			try {
+				const recipe = await createRecipe({
+					name,
+					description: descriptionInput.value.trim() || null,
+					instructions: instructionsInput.value.trim() || null,
+					servings: parsedServings,
+					is_active: isActiveInput.checked,
+				});
+				setStatus(
+					"recipe-create-status",
+					`Created recipe #${recipe.id}: ${recipe.name}`,
+				);
+				navigate("/recipes");
+			} catch (error) {
+				setStatus(
+					"recipe-create-status",
+					error instanceof Error
+						? error.message
+						: "Failed to create recipe",
+					true,
+				);
+			}
+		});
+};
+
+const attachRecipeDetailEvents = (recipeId: number) => {
+	const refreshRecipeDetail = async () => {
+		const updated = await fetchRecipe(recipeId);
+		renderRecipeDetail(updated);
+		return updated;
+	};
+	const modal = document.getElementById("recipe-ingredient-modal");
+	const ingredientForm = document.getElementById("recipe-ingredient-modal-form");
+	const ingredientIdInput = document.getElementById("recipe-ingredient-id");
+	const ingredientNameInput = document.getElementById("recipe-ingredient-name");
+	const ingredientQuantityInput = document.getElementById(
+		"recipe-ingredient-quantity",
+	);
+	const ingredientUnitInput = document.getElementById("recipe-ingredient-unit");
+	const ingredientNotesInput = document.getElementById("recipe-ingredient-notes");
+	const ingredientOptionalInput = document.getElementById(
+		"recipe-ingredient-optional",
+	);
+	const ingredientModalTitle = document.getElementById(
+		"recipe-ingredient-modal-title",
+	);
+	const ingredientModalSubmitButton = document.getElementById(
+		"recipe-ingredient-modal-submit",
+	);
+	const resetIngredientModal = () => {
+		if (ingredientForm instanceof HTMLFormElement) {
+			ingredientForm.reset();
+		}
+		if (ingredientUnitInput instanceof HTMLSelectElement) {
+			setUnitSelectValue(ingredientUnitInput, "pcs", "pcs");
+		}
+		if (ingredientIdInput instanceof HTMLInputElement) {
+			ingredientIdInput.value = "";
+		}
+		if (ingredientModalTitle instanceof HTMLElement) {
+			ingredientModalTitle.textContent = "Add Ingredient";
+		}
+		if (ingredientModalSubmitButton instanceof HTMLButtonElement) {
+			ingredientModalSubmitButton.textContent = "Add Ingredient";
+		}
+		setStatus("recipe-ingredient-modal-status", "");
+	};
+	const closeIngredientModal = () => {
+		if (!(modal instanceof HTMLElement)) {
+			return;
+		}
+		modal.hidden = true;
+		document.body.classList.remove("modal-open");
+	};
+	const openIngredientModal = () => {
+		if (!(modal instanceof HTMLElement)) {
+			return;
+		}
+		modal.hidden = false;
+		document.body.classList.add("modal-open");
+		setStatus("recipe-ingredient-modal-status", "");
+		if (ingredientNameInput instanceof HTMLInputElement) {
+			ingredientNameInput.focus();
+		}
+	};
+	const openIngredientCreateModal = () => {
+		resetIngredientModal();
+		openIngredientModal();
+	};
+	const openIngredientEditModal = (editButton: HTMLElement) => {
+		if (
+			!(ingredientIdInput instanceof HTMLInputElement) ||
+			!(ingredientNameInput instanceof HTMLInputElement) ||
+			!(ingredientQuantityInput instanceof HTMLInputElement) ||
+			!(ingredientUnitInput instanceof HTMLSelectElement) ||
+			!(ingredientNotesInput instanceof HTMLInputElement) ||
+			!(ingredientOptionalInput instanceof HTMLInputElement)
+		) {
+			return;
+		}
+
+		ingredientIdInput.value = editButton.dataset.editRecipeIngredientId ?? "";
+		ingredientNameInput.value = decodeURIComponent(
+			editButton.dataset.recipeIngredientName ?? "",
+		);
+		ingredientQuantityInput.value =
+			editButton.dataset.recipeIngredientQuantity ?? "1";
+		setUnitSelectValue(
+			ingredientUnitInput,
+			decodeURIComponent(editButton.dataset.recipeIngredientUnit ?? ""),
+			"pcs",
+		);
+		ingredientNotesInput.value = decodeURIComponent(
+			editButton.dataset.recipeIngredientNotes ?? "",
+		);
+		ingredientOptionalInput.checked =
+			editButton.dataset.recipeIngredientOptional === "true";
+		if (ingredientModalTitle instanceof HTMLElement) {
+			ingredientModalTitle.textContent = "Edit Ingredient";
+		}
+		if (ingredientModalSubmitButton instanceof HTMLButtonElement) {
+			ingredientModalSubmitButton.textContent = "Save Ingredient";
+		}
+		setStatus("recipe-ingredient-modal-status", "");
+		openIngredientModal();
+	};
+
+	document
+		.getElementById("open-recipe-ingredient-modal-button")
+		?.addEventListener("click", openIngredientCreateModal);
+
+	for (const button of document.querySelectorAll(
+		"[data-recipe-ingredient-modal-close]",
+	)) {
+		button.addEventListener("click", closeIngredientModal);
+	}
+
+	document
+		.getElementById("recipe-ingredient-modal-form")
+		?.addEventListener("submit", async (event) => {
+			event.preventDefault();
+
+			const nameInput = document.getElementById("recipe-ingredient-name");
+			const quantityInput = document.getElementById(
+				"recipe-ingredient-quantity",
+			);
+			const unitInput = document.getElementById("recipe-ingredient-unit");
+			const notesInput = document.getElementById("recipe-ingredient-notes");
+			const optionalInput = document.getElementById(
+				"recipe-ingredient-optional",
+			);
+
+			if (
+				!(nameInput instanceof HTMLInputElement) ||
+				!(quantityInput instanceof HTMLInputElement) ||
+				!(unitInput instanceof HTMLSelectElement) ||
+				!(notesInput instanceof HTMLInputElement) ||
+				!(optionalInput instanceof HTMLInputElement) ||
+				!(ingredientIdInput instanceof HTMLInputElement)
+			) {
+				return;
+			}
+
+			const ingredientId = ingredientIdInput.value.trim();
+			const name = nameInput.value.trim();
+			if (!name) {
+				setStatus(
+					"recipe-ingredient-modal-status",
+					"Ingredient name is required",
+					true,
+				);
+				return;
+			}
+
+			const quantity = Number.parseFloat(quantityInput.value);
+			if (!Number.isFinite(quantity) || quantity <= 0) {
+				setStatus(
+					"recipe-ingredient-modal-status",
+					"Quantity must be greater than zero",
+					true,
+				);
+				return;
+			}
+
+			try {
+				const product = await findOrCreateProductByName(name, {
+					category: "ingredient",
+					default_unit: "pcs",
+					is_perishable: false,
+				});
+				if (ingredientId) {
+					const parsedIngredientId = Number.parseInt(ingredientId, 10);
+					if (!Number.isInteger(parsedIngredientId)) {
+						throw new Error("Ingredient id is invalid");
+					}
+					await updateRecipeIngredient(parsedIngredientId, {
+						product_id: product.id,
+						quantity,
+						unit: unitInput.value.trim() || product.default_unit || "pcs",
+						is_optional: optionalInput.checked,
+						notes: notesInput.value.trim() || null,
+					});
+				} else {
+					await createRecipeIngredient({
+						recipe_id: recipeId,
+						product_id: product.id,
+						quantity,
+						unit: unitInput.value.trim() || product.default_unit || "pcs",
+						is_optional: optionalInput.checked,
+						notes: notesInput.value.trim() || null,
+					});
+				}
+				closeIngredientModal();
+				resetIngredientModal();
+				const updated = await refreshRecipeDetail();
+				setStatus(
+					"recipe-ingredient-status",
+					ingredientId
+						? `Saved ${product.name} in ${updated.name}.`
+						: `Added ${product.name} to ${updated.name}.`,
+				);
+			} catch (error) {
+				setStatus(
+					"recipe-ingredient-modal-status",
+					error instanceof Error
+						? error.message
+						: ingredientId
+							? "Failed to save recipe ingredient"
+							: "Failed to add recipe ingredient",
+					true,
+				);
+			}
+		});
+
+	document
+		.getElementById("recipe-picture-form")
+		?.addEventListener("submit", async (event) => {
+			event.preventDefault();
+
+			const pictureInput = document.getElementById("recipe-picture-input");
+			if (!(pictureInput instanceof HTMLInputElement)) {
+				return;
+			}
+
+			const pictures = pictureInput.files
+				? Array.from(pictureInput.files)
+				: [];
+			if (!pictures.length) {
+				setStatus(
+					"recipe-picture-status",
+					"Choose one or more images before uploading.",
+					true,
+				);
+				return;
+			}
+
+			try {
+				await uploadRecipePictures(recipeId, pictures);
+				const updated = await refreshRecipeDetail();
+				setStatus(
+					"recipe-picture-status",
+					pictures.length === 1
+						? `Uploaded 1 image for ${updated.name}.`
+						: `Uploaded ${pictures.length} images for ${updated.name}.`,
+				);
+			} catch (error) {
+				setStatus(
+					"recipe-picture-status",
+					error instanceof Error
+						? error.message
+						: "Failed to upload recipe images",
+					true,
+				);
+			}
+		});
+
+	document
+		.getElementById("recipe-detail-page")
+		?.addEventListener("click", async (event) => {
+			const target = event.target;
+			if (!(target instanceof HTMLElement)) {
+				return;
+			}
+
+			const deleteButton = target.closest<HTMLElement>(
+				"[data-delete-recipe-image-id]",
+			);
+			if (deleteButton) {
+				const imageId = Number.parseInt(
+					deleteButton.dataset.deleteRecipeImageId ?? "",
+					10,
+				);
+				if (!Number.isInteger(imageId)) {
+					return;
+				}
+
+				try {
+					await deleteRecipeImage(recipeId, imageId);
+					await refreshRecipeDetail();
+					setStatus("recipe-picture-status", "Removed recipe image.");
+				} catch (error) {
+					setStatus(
+						"recipe-picture-status",
+						error instanceof Error
+							? error.message
+							: "Failed to delete recipe image",
+						true,
+					);
+				}
+				return;
+			}
+
+			const editIngredientButton = target.closest<HTMLElement>(
+				"[data-edit-recipe-ingredient-id]",
+			);
+			if (editIngredientButton) {
+				openIngredientEditModal(editIngredientButton);
+				return;
+			}
+
+			const deleteIngredientButton = target.closest<HTMLElement>(
+				"[data-delete-recipe-ingredient-id]",
+			);
+			if (!deleteIngredientButton) {
+				return;
+			}
+
+			const ingredientId = Number.parseInt(
+				deleteIngredientButton.dataset.deleteRecipeIngredientId ?? "",
+				10,
+			);
+			if (!Number.isInteger(ingredientId)) {
+				return;
+			}
+
+			try {
+				await deleteRecipeIngredient(ingredientId);
+				const updated = await refreshRecipeDetail();
+				setStatus(
+					"recipe-ingredient-status",
+					`Removed an ingredient from ${updated.name}.`,
+				);
+			} catch (error) {
+				setStatus(
+					"recipe-ingredient-status",
+					error instanceof Error
+						? error.message
+						: "Failed to delete recipe ingredient",
+					true,
+				);
+			}
+		});
+
+	document
+		.getElementById("recipe-detail-form")
+		?.addEventListener("submit", async (event) => {
+			event.preventDefault();
+
+			const nameInput = document.getElementById("recipe-detail-name");
+			const servingsInput = document.getElementById("recipe-detail-servings");
+			const descriptionInput = document.getElementById(
+				"recipe-detail-description",
+			);
+			const instructionsInput = document.getElementById(
+				"recipe-detail-instructions",
+			);
+			const isActiveInput = document.getElementById("recipe-detail-is-active");
+
+			if (
+				!(nameInput instanceof HTMLInputElement) ||
+				!(servingsInput instanceof HTMLInputElement) ||
+				!(descriptionInput instanceof HTMLTextAreaElement) ||
+				!(instructionsInput instanceof HTMLTextAreaElement) ||
+				!(isActiveInput instanceof HTMLInputElement)
+			) {
+				return;
+			}
+
+			const name = nameInput.value.trim();
+			if (!name) {
+				setStatus("recipe-detail-status", "Recipe name is required", true);
+				return;
+			}
+
+			const servings = servingsInput.value.trim();
+			const parsedServings = servings
+				? Number.parseInt(servings, 10)
+				: null;
+			if (
+				parsedServings !== null &&
+				(!Number.isInteger(parsedServings) || parsedServings < 1)
+			) {
+				setStatus(
+					"recipe-detail-status",
+					"Servings must be a whole number greater than zero",
+					true,
+				);
+				return;
+			}
+
+			try {
+				const updated = await updateRecipe(recipeId, {
+					name,
+					description: descriptionInput.value.trim() || null,
+					instructions: instructionsInput.value.trim() || null,
+					servings: parsedServings,
+					is_active: isActiveInput.checked,
+				});
+				renderRecipeDetail(updated);
+				setStatus("recipe-detail-status", `Saved ${updated.name}.`);
+			} catch (error) {
+				setStatus(
+					"recipe-detail-status",
+					error instanceof Error
+						? error.message
+						: "Failed to update recipe",
+					true,
+				);
+			}
+		});
+};
+
 const loadReceipts = async () => {
 	try {
 		const receipts = await fetchReceipts();
@@ -1819,10 +3326,13 @@ const renderProductsPage = () => {
 								<input id="category" name="category" placeholder="food" required />
 							</label>
 
-							<label>
-								Unit
-								<input id="default_unit" name="default_unit" placeholder="pcs" />
-							</label>
+							${renderUnitSelect({
+								id: "default_unit",
+								name: "default_unit",
+								label: "Unit",
+								selectedValue: null,
+								placeholderLabel: "No default unit",
+							})}
 						</div>
 
 						<label>
@@ -1830,10 +3340,12 @@ const renderProductsPage = () => {
 							<input id="barcode" name="barcode" placeholder="6414893400012" />
 						</label>
 
-						<label>
-							Picture
-							<input id="picture" name="picture" type="file" accept="image/*" />
-						</label>
+						${renderUploadDropzone({
+							inputId: "picture",
+							label: "Picture",
+							name: "picture",
+							emptyText: "Choose a product image or drop one here.",
+						})}
 
 						<label>
 							Perishable
@@ -1853,6 +3365,7 @@ const renderProductsPage = () => {
 		`,
 	);
 
+	attachUploadDropzones(document.body);
 	attachProductPageEvents();
 	void loadProducts();
 };
@@ -2566,10 +4079,11 @@ const renderReceiptsPage = () => {
 							</label>
 						</div>
 
-						<label>
-							Receipt Picture
-							<input id="receipt-picture" type="file" accept="image/*" />
-						</label>
+						${renderUploadDropzone({
+							inputId: "receipt-picture",
+							label: "Receipt Picture",
+							emptyText: "Choose a receipt image or drop one here.",
+						})}
 
 						<div class="actions">
 							<button class="primary" type="submit">Create Receipt</button>
@@ -2587,6 +4101,7 @@ const renderReceiptsPage = () => {
 		`,
 	);
 
+	attachUploadDropzones(document.body);
 	attachReceiptsPageEvents();
 	void loadReceipts();
 };
@@ -2711,6 +4226,8 @@ window.onload = () => {
 		"/receipts": renderReceiptsPage,
 		"/receipts/:id": renderReceiptDetailPage,
 		"/shopping-lists": renderShoppingListsPage,
+		"/recipes/new": renderRecipeCreatePage,
+		"/recipes/:id": renderRecipeDetailPage,
 		"/recipes": renderRecipesPage,
 		"/*": renderNotFoundPage,
 	});

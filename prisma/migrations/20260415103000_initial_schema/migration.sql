@@ -84,6 +84,10 @@ CREATE TABLE "recipes" (
   "instructions" TEXT,
   "servings" INTEGER,
   "is_active" BOOLEAN NOT NULL,
+  "picture_blob" BLOB,
+  "picture_content_type" TEXT,
+  "picture_filename" TEXT,
+  "picture_uploaded_at" TEXT,
   "created_at" TEXT NOT NULL,
   "updated_at" TEXT NOT NULL
 );

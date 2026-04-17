@@ -124,9 +124,23 @@ model Recipe {
 	updated_at          String             @map("updated_at")
 	ingredients         RecipeIngredient[]
 	meal_plan_items     MealPlanItem[]
+	recipe_images       RecipeImage[]
 	shopping_list_items ShoppingListItem[]
 
 	@@map("recipes")
+}
+
+model RecipeImage {
+	id           Int    @id @default(autoincrement())
+	recipe_id    Int    @map("recipe_id")
+	blob         Bytes
+	content_type String @map("content_type")
+	filename     String?
+	created_at   String @map("created_at")
+	recipe       Recipe @relation(fields: [recipe_id], references: [id])
+
+	@@index([recipe_id], map: "idx_recipe_images_recipe_id")
+	@@map("recipe_images")
 }
 
 model RecipeIngredient {

@@ -91,6 +91,31 @@ describe("Pupler API e2e", () => {
 		expect(page.body).toContain("<body></body>");
 	});
 
+	test("serves the app shell for recipe pages", async () => {
+		const server = await startServer();
+
+		const listPage = await server.call<string>("/recipes");
+		expect(listPage.response.status).toBe(200);
+		expect(listPage.response.headers.get("content-type")).toContain(
+			"text/html",
+		);
+		expect(listPage.body).toContain("<title>Pupler</title>");
+
+		const createPage = await server.call<string>("/recipes/new");
+		expect(createPage.response.status).toBe(200);
+		expect(createPage.response.headers.get("content-type")).toContain(
+			"text/html",
+		);
+		expect(createPage.body).toContain("<title>Pupler</title>");
+
+		const detailPage = await server.call<string>("/recipes/1");
+		expect(detailPage.response.status).toBe(200);
+		expect(detailPage.response.headers.get("content-type")).toContain(
+			"text/html",
+		);
+		expect(detailPage.body).toContain("<title>Pupler</title>");
+	});
+
 	test("serves the 404 page for unknown browser routes", async () => {
 		const server = await startServer();
 
@@ -346,6 +371,58 @@ describe("Pupler API e2e", () => {
 		expect(picture.headers.get("content-type")).toBe("image/png");
 		const bytes = new Uint8Array(await picture.arrayBuffer());
 		expect(Array.from(bytes)).toEqual([4, 3, 2, 1]);
+	});
+
+	test("uploads and fetches multiple recipe images over HTTP", async () => {
+		const server = await startServer();
+
+		const created = await server.call<{ id: number }>("/api/recipes", {
+			method: "POST",
+			body: {
+				name: "Tomato soup",
+				description: null,
+				instructions: null,
+				servings: 4,
+				is_active: true,
+			},
+		});
+		expect(created.response.status).toBe(201);
+
+		const formData = new FormData();
+		formData.append(
+			"file",
+			new File([new Uint8Array([1, 3, 5, 7])], "recipe.png", {
+				type: "image/png",
+			}),
+		);
+		formData.append(
+			"file",
+			new File([new Uint8Array([2, 4, 6, 8])], "recipe-2.png", {
+				type: "image/png",
+			}),
+		);
+
+		const upload = await server.call<{
+			id: number;
+			filename: string | null;
+		}[]>(`/api/recipes/${created.body.id}/pictures`, {
+			method: "POST",
+			body: formData,
+		});
+		expect(upload.response.status).toBe(201);
+		expect(upload.body).toHaveLength(2);
+		expect(upload.body.map((image) => image.filename)).toEqual([
+			"recipe.png",
+			"recipe-2.png",
+		]);
+
+		const picture = await fetch(
+			`${server.baseUrl}/api/recipes/${created.body.id}/pictures/${upload.body[0]!.id}`,
+		);
+		expect(picture.status).toBe(200);
+		expect(picture.headers.get("content-type")).toBe("image/png");
+		const bytes = new Uint8Array(await picture.arrayBuffer());
+		expect(Array.from(bytes)).toEqual([1, 3, 5, 7]);
 	});
 
 	test("creates receipt items over HTTP", async () => {

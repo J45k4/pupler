@@ -38,7 +38,12 @@ export {
 	recipeIngredientDetailRoute,
 	recipeIngredientsCollectionRoute,
 } from "./recipe-ingredients";
-export { recipeDetailRoute, recipesCollectionRoute } from "./recipes";
+export {
+	recipeDetailRoute,
+	recipeImageDetailRoute,
+	recipeImagesCollectionRoute,
+	recipesCollectionRoute,
+} from "./recipes";
 export {
 	shoppingListItemDetailRoute,
 	shoppingListItemsCollectionRoute,

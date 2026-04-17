@@ -266,6 +266,10 @@ Base resource: `/api/recipes`
 | PUT    | `/api/recipes/:id` | Replace recipe          |
 | PATCH  | `/api/recipes/:id` | Update part of a recipe |
 | DELETE | `/api/recipes/:id` | Delete recipe           |
+| POST   | `/api/recipes/:id/pictures` | Upload one or more recipe images |
+| GET    | `/api/recipes/:id/pictures` | List recipe image metadata |
+| GET    | `/api/recipes/:id/pictures/:pictureId` | Fetch one recipe image |
+| DELETE | `/api/recipes/:id/pictures/:pictureId` | Remove one recipe image |
 
 Recipe payload fields:
 
@@ -279,6 +283,21 @@ Recipe payload fields:
 | is_active    | boolean   | Required         |
 | created_at   | timestamp | Server generated |
 | updated_at   | timestamp | Server generated |
+
+Recipe web UI:
+
+- the `/recipes` page lists saved recipes and exposes an `Add Recipe` action
+- `/recipes/new` is a dedicated create page for recipe basics like name, servings, description, instructions, and active state
+- clicking a recipe in `/recipes` opens a dedicated `/recipes/:id` page where the recipe can be edited directly and ingredients can be added or removed
+- the recipe detail layout shows recipe info and ingredients in separate panels, with the ingredient panel following the main info/details panel
+- recipe ingredients are added from an `Add Ingredient` modal on the recipe detail page, and selecting an existing ingredient opens the same modal prefilled for editing
+- product default units and recipe ingredient units now use one shared HTML select with grouped common unit options, while still preserving unknown existing units during edit flows
+- the recipe ingredient modal will reuse an existing product or create a lightweight ingredient product record when needed
+- the recipe detail page can upload, preview, and remove multiple recipe images
+- product, receipt, and recipe image uploads use one shared drag-and-drop upload field component in the frontend
+- drag-over state on shared upload fields now uses a stronger highlighted dashed border, and standalone upload forms like the recipe image uploader submit immediately when files are dropped
+- the frontend navbar keeps the same visual styling for visited links instead of falling back to browser default colors
+- the frontend navbar also keeps route matching consistent so the root `Overview` link still renders with normal nav styling on non-root pages
 
 ### recipe_ingredients
 
@@ -476,7 +495,7 @@ Recipe metadata.
 
 ### recipe_ingredients
 
-Join table between recipes and products.
+Join table between recipes and products. The recipe detail API now includes the joined ingredient rows with basic product metadata so the frontend can render ingredient lists without extra lookups.
 
 | Column      | Type          | Constraints / Notes         |
 | ----------- | ------------- | --------------------------- |
