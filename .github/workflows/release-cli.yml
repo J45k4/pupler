@@ -61,6 +61,13 @@ jobs:
           mv dist/pupler-cli "dist/${{ matrix.cli_asset_name }}"
           mv dist/pupler-server "dist/${{ matrix.server_asset_name }}"
 
+      - name: Re-sign macOS binaries
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          codesign --force --sign - "dist/${{ matrix.cli_asset_name }}"
+          codesign --force --sign - "dist/${{ matrix.server_asset_name }}"
+
       - name: Prepare release assets (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
