@@ -22,6 +22,17 @@ afterEach(async () => {
 });
 
 describe("Pupler API e2e", () => {
+	test("serves the app version endpoint", async () => {
+		const server = await startServer();
+
+		const version = await server.call<{ version: string; app_version: string }>("/version");
+		expect(version.response.status).toBe(200);
+		expect(version.body).toEqual({
+			version: "dev",
+			app_version: "dev",
+		});
+	});
+
 	test("serves the index page from the root route", async () => {
 		const server = await startServer();
 

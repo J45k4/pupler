@@ -41,6 +41,14 @@ type ServerOptions = {
 
 type Environment = Record<string, string | undefined>;
 
+export const resolveAppVersion = (env: Environment = process.env) =>
+	env.APP_VERSION ?? "dev";
+
+export const versionPayload = (env: Environment = process.env) => ({
+	version: resolveAppVersion(env),
+	app_version: resolveAppVersion(env),
+});
+
 export const resolveDatabasePath = (
 	override?: string,
 	env: Environment = process.env,
@@ -91,6 +99,7 @@ export const server = (options: ServerOptions = {}) => {
 			"/api/shopping-list-items": shoppingListItemsCollectionRoute(db),
 			"/api/shopping-list-items/:id": shoppingListItemDetailRoute(db),
 			"/health": new Response("ok"),
+			"/version": Response.json(versionPayload()),
 			"/api/*": Response.json(
 				{ error: "Route not found" },
 				{ status: 404 },
@@ -115,7 +124,7 @@ export const server = (options: ServerOptions = {}) => {
 };
 
 if (import.meta.main) {
-	const version = process.env.APP_VERSION ?? "dev";
+	const version = resolveAppVersion();
 	const dbPath = resolveDatabasePath();
 	const filesPath = resolveFilesPath(dbPath);
 	const instance = server({ dbPath, filesPath });

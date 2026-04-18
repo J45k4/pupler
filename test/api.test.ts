@@ -31,7 +31,11 @@ import {
 	shoppingListItemDetailRoute,
 	shoppingListItemsCollectionRoute,
 } from "../src/api";
-import { resolveDatabasePath, resolveFilesPath } from "../src/main";
+import {
+	resolveDatabasePath,
+	resolveFilesPath,
+	versionPayload,
+} from "../src/main";
 import { applyTestSchema } from "./support/test-db";
 
 const dbs: ReturnType<typeof openDatabase>[] = [];
@@ -52,10 +56,11 @@ afterEach(async () => {
 const createRoutes = () => {
 	const tempDir = mkdtempSync(join(tmpdir(), "pupler-api-"));
 	const dbPath = join(tempDir, "pupler.sqlite");
+	const filesPath = join(tempDir, "files");
 	tempDirs.push(tempDir);
 	applyTestSchema(dbPath);
 
-	const db = openDatabase(dbPath);
+	const db = openDatabase(dbPath, filesPath);
 	dbs.push(db);
 
 	return {
@@ -86,6 +91,7 @@ const createRoutes = () => {
 			"/api/inventory-items/:id": inventoryItemDetailRoute(db),
 			"/api/shopping-list-items": shoppingListItemsCollectionRoute(db),
 			"/api/shopping-list-items/:id": shoppingListItemDetailRoute(db),
+			"/version": Response.json(versionPayload()),
 		},
 	};
 };
@@ -110,6 +116,9 @@ const request = async (
 				? pathname.replace(/\/[^/]+$/, "/:id")
 				: pathname;
 	const handler = routes.handlers[routeKey as keyof typeof routes.handlers];
+	if (handler instanceof Response) {
+		return handler.clone();
+	}
 	const req = new Request(`http://localhost${path}`, {
 		method: options.method ?? "GET",
 		headers: options.headers,
@@ -120,6 +129,17 @@ const request = async (
 };
 
 describe("Pupler API", () => {
+	test("exposes the app version", async () => {
+		const routes = createRoutes();
+
+		const response = await request(routes, "/version");
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({
+			version: "dev",
+			app_version: "dev",
+		});
+	});
+
 	test("creates and looks up a product by barcode", async () => {
 		const routes = createRoutes();
 
