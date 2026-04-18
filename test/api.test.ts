@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
@@ -31,6 +31,7 @@ import {
 	shoppingListItemDetailRoute,
 	shoppingListItemsCollectionRoute,
 } from "../src/api";
+import { resolveDatabasePath, resolveFilesPath } from "../src/main";
 import { applyTestSchema } from "./support/test-db";
 
 const dbs: ReturnType<typeof openDatabase>[] = [];
@@ -58,30 +59,34 @@ const createRoutes = () => {
 	dbs.push(db);
 
 	return {
-		"/api/ingredients": ingredientsCollectionRoute(db),
-		"/api/ingredients/:id": ingredientDetailRoute(db),
-		"/api/products": productsCollectionRoute(db),
-		"/api/products/:id": productDetailRoute(db),
-		"/api/products/:id/picture": productPictureRoute(db),
-		"/api/product-links": productLinksCollectionRoute(db),
-		"/api/product-links/:id": productLinkDetailRoute(db),
-		"/api/receipts": receiptsCollectionRoute(db),
-		"/api/receipts/:id": receiptDetailRoute(db),
-		"/api/receipts/:id/picture": receiptPictureRoute(db),
-		"/api/recipes": recipesCollectionRoute(db),
-		"/api/recipes/:id": recipeDetailRoute(db),
-		"/api/recipes/:id/pictures": recipeImagesCollectionRoute(db),
-		"/api/recipes/:id/pictures/:pictureId": recipeImageDetailRoute(db),
-		"/api/recipe-ingredients": recipeIngredientsCollectionRoute(db),
-		"/api/recipe-ingredients/:id": recipeIngredientDetailRoute(db),
-		"/api/receipt-items": receiptItemsCollectionRoute(db),
-		"/api/receipt-items/:id": receiptItemDetailRoute(db),
-		"/api/inventory-containers": inventoryContainersCollectionRoute(db),
-		"/api/inventory-containers/:id": inventoryContainerDetailRoute(db),
-		"/api/inventory-items": inventoryItemsCollectionRoute(db),
-		"/api/inventory-items/:id": inventoryItemDetailRoute(db),
-		"/api/shopping-list-items": shoppingListItemsCollectionRoute(db),
-		"/api/shopping-list-items/:id": shoppingListItemDetailRoute(db),
+		db,
+		filesPath: db.filesPath,
+		handlers: {
+			"/api/ingredients": ingredientsCollectionRoute(db),
+			"/api/ingredients/:id": ingredientDetailRoute(db),
+			"/api/products": productsCollectionRoute(db),
+			"/api/products/:id": productDetailRoute(db),
+			"/api/products/:id/picture": productPictureRoute(db),
+			"/api/product-links": productLinksCollectionRoute(db),
+			"/api/product-links/:id": productLinkDetailRoute(db),
+			"/api/receipts": receiptsCollectionRoute(db),
+			"/api/receipts/:id": receiptDetailRoute(db),
+			"/api/receipts/:id/picture": receiptPictureRoute(db),
+			"/api/recipes": recipesCollectionRoute(db),
+			"/api/recipes/:id": recipeDetailRoute(db),
+			"/api/recipes/:id/pictures": recipeImagesCollectionRoute(db),
+			"/api/recipes/:id/pictures/:pictureId": recipeImageDetailRoute(db),
+			"/api/recipe-ingredients": recipeIngredientsCollectionRoute(db),
+			"/api/recipe-ingredients/:id": recipeIngredientDetailRoute(db),
+			"/api/receipt-items": receiptItemsCollectionRoute(db),
+			"/api/receipt-items/:id": receiptItemDetailRoute(db),
+			"/api/inventory-containers": inventoryContainersCollectionRoute(db),
+			"/api/inventory-containers/:id": inventoryContainerDetailRoute(db),
+			"/api/inventory-items": inventoryItemsCollectionRoute(db),
+			"/api/inventory-items/:id": inventoryItemDetailRoute(db),
+			"/api/shopping-list-items": shoppingListItemsCollectionRoute(db),
+			"/api/shopping-list-items/:id": shoppingListItemDetailRoute(db),
+		},
 	};
 };
 
@@ -104,7 +109,7 @@ const request = async (
 			: pathname.split("/").filter(Boolean).length === 3
 				? pathname.replace(/\/[^/]+$/, "/:id")
 				: pathname;
-	const handler = routes[routeKey as keyof typeof routes];
+	const handler = routes.handlers[routeKey as keyof typeof routes.handlers];
 	const req = new Request(`http://localhost${path}`, {
 		method: options.method ?? "GET",
 		headers: options.headers,
@@ -366,6 +371,16 @@ describe("Pupler API", () => {
 		expect(uploadResponse.status).toBe(200);
 		const uploadBody = await uploadResponse.json();
 		expect(uploadBody.content_type).toBe("image/png");
+		const storedPicture = await routes.db.client.product.findUnique({
+			where: { id: created.id },
+			select: { picture_path: true },
+		});
+		expect(storedPicture?.picture_path).toBeTruthy();
+		const storedPicturePath = join(
+			routes.filesPath,
+			storedPicture?.picture_path ?? "",
+		);
+		expect(existsSync(storedPicturePath)).toBe(true);
 
 		const pictureResponse = await request(
 			routes,
@@ -379,6 +394,15 @@ describe("Pupler API", () => {
 		expect(pictureResponse.headers.get("content-type")).toBe("image/png");
 		const bytes = new Uint8Array(await pictureResponse.arrayBuffer());
 		expect(Array.from(bytes)).toEqual([1, 2, 3, 4]);
+
+		const deleteResponse = await request(
+			routes,
+			`/api/products/${created.id}/picture`,
+			{ method: "DELETE" },
+			{ id: String(created.id) },
+		);
+		expect(deleteResponse.status).toBe(204);
+		expect(existsSync(storedPicturePath)).toBe(false);
 	});
 
 	test("uploads and fetches a purchase receipt picture", async () => {
@@ -416,6 +440,16 @@ describe("Pupler API", () => {
 		expect(uploadResponse.status).toBe(200);
 		const uploadBody = await uploadResponse.json();
 		expect(uploadBody.content_type).toBe("image/png");
+		const storedPicture = await routes.db.client.receipt.findUnique({
+			where: { id: created.id },
+			select: { picture_path: true },
+		});
+		expect(storedPicture?.picture_path).toBeTruthy();
+		const storedPicturePath = join(
+			routes.filesPath,
+			storedPicture?.picture_path ?? "",
+		);
+		expect(existsSync(storedPicturePath)).toBe(true);
 
 		const pictureResponse = await request(
 			routes,
@@ -429,6 +463,15 @@ describe("Pupler API", () => {
 		expect(pictureResponse.headers.get("content-type")).toBe("image/png");
 		const bytes = new Uint8Array(await pictureResponse.arrayBuffer());
 		expect(Array.from(bytes)).toEqual([5, 6, 7, 8]);
+
+		const deleteResponse = await request(
+			routes,
+			`/api/receipts/${created.id}/picture`,
+			{ method: "DELETE" },
+			{ id: String(created.id) },
+		);
+		expect(deleteResponse.status).toBe(204);
+		expect(existsSync(storedPicturePath)).toBe(false);
 	});
 
 	test("uploads and fetches multiple recipe images", async () => {
@@ -483,6 +526,13 @@ describe("Pupler API", () => {
 			"soup.png",
 			"soup-2.png",
 		]);
+		const storedImage = await routes.db.client.recipeImage.findUnique({
+			where: { id: uploaded[0]!.id },
+			select: { path: true },
+		});
+		expect(storedImage?.path).toBeTruthy();
+		const storedImagePath = join(routes.filesPath, storedImage?.path ?? "");
+		expect(existsSync(storedImagePath)).toBe(true);
 
 		const pictureResponse = await request(
 			routes,
@@ -506,6 +556,91 @@ describe("Pupler API", () => {
 			recipe_images: Array<{ id: number }>;
 		};
 		expect(detail.recipe_images).toHaveLength(2);
+
+		const deleteResponse = await request(
+			routes,
+			`/api/recipes/${created.id}/pictures/${uploaded[0]!.id}`,
+			{ method: "DELETE" },
+			{ id: String(created.id), pictureId: String(uploaded[0]!.id) },
+		);
+		expect(deleteResponse.status).toBe(204);
+		expect(existsSync(storedImagePath)).toBe(false);
+	});
+
+	test("returns 404 when a stored product picture file is missing", async () => {
+		const routes = createRoutes();
+
+		const createResponse = await request(routes, "/api/products", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: "Pear",
+				category: "food",
+				barcode: "112",
+				default_unit: "pcs",
+				is_perishable: true,
+			}),
+		});
+		const created = await createResponse.json();
+
+		const formData = new FormData();
+		formData.set(
+			"file",
+			new File([new Uint8Array([2, 4, 6, 8])], "pear.png", {
+				type: "image/png",
+			}),
+		);
+
+		const uploadResponse = await request(
+			routes,
+			`/api/products/${created.id}/picture`,
+			{
+				method: "POST",
+				body: formData,
+			},
+			{ id: String(created.id) },
+		);
+		expect(uploadResponse.status).toBe(200);
+
+		const storedPicture = await routes.db.client.product.findUnique({
+			where: { id: created.id },
+			select: { picture_path: true },
+		});
+		const storedPicturePath = join(
+			routes.filesPath,
+			storedPicture?.picture_path ?? "",
+		);
+		rmSync(storedPicturePath, { force: true });
+
+		const pictureResponse = await request(
+			routes,
+			`/api/products/${created.id}/picture`,
+			{
+				method: "GET",
+			},
+			{ id: String(created.id) },
+		);
+		expect(pictureResponse.status).toBe(404);
+		const body = await pictureResponse.json();
+		expect(body.error).toBe("Product picture not found");
+	});
+
+	test("resolves data directories from DATA_PATH and DB_PATH", () => {
+		expect(resolveDatabasePath(undefined, { DATA_PATH: "/srv/pupler" })).toBe(
+			"/srv/pupler/pupler.db",
+		);
+		expect(resolveFilesPath("/custom/data.sqlite", { DATA_PATH: "/srv/pupler" })).toBe(
+			"/srv/pupler/files",
+		);
+		expect(
+			resolveDatabasePath(undefined, {
+				DATA_PATH: "/srv/pupler",
+				DB_PATH: "/var/lib/pupler/custom.db",
+			}),
+		).toBe("/var/lib/pupler/custom.db");
+		expect(resolveFilesPath("/var/lib/pupler/custom.db", {})).toBe(
+			"/var/lib/pupler/files",
+		);
 	});
 
 	test("returns standalone and linked recipe ingredients in recipe detail responses", async () => {

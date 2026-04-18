@@ -13,6 +13,7 @@ export type ApiResponse<TBody = unknown> = {
 type RunningServer = {
 	baseUrl: string;
 	dbPath: string;
+	filesPath: string;
 	process: Bun.Subprocess<"ignore", "pipe", "pipe">;
 	tempDir: string;
 };
@@ -70,12 +71,14 @@ export const waitForHealth = async (baseUrl: string, timeoutMs = 5000) => {
 export class TestServer {
 	readonly baseUrl: string;
 	readonly dbPath: string;
+	readonly filesPath: string;
 	readonly process: Bun.Subprocess<"ignore", "pipe", "pipe">;
 	readonly tempDir: string;
 
 	constructor(server: RunningServer) {
 		this.baseUrl = server.baseUrl;
 		this.dbPath = server.dbPath;
+		this.filesPath = server.filesPath;
 		this.process = server.process;
 		this.tempDir = server.tempDir;
 	}
@@ -101,6 +104,7 @@ export class TestServer {
 		const server = new TestServer({
 			baseUrl: `http://127.0.0.1:${port}`,
 			dbPath,
+			filesPath: join(tempDir, "files"),
 			process: child,
 			tempDir,
 		});

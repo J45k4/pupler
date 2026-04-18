@@ -1,7 +1,7 @@
 import type { BunRequest } from "bun";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import { PrismaLibSql } from "@prisma/adapter-libsql";
 
@@ -33,6 +33,7 @@ export type SortDirection = "asc" | "desc";
 export type Database = {
 	client: QueryClient;
 	dbPath: string;
+	filesPath: string;
 	tempDir?: string;
 };
 
@@ -271,12 +272,22 @@ export const parseIdParam = (value: string) => {
 	return id;
 };
 
-const toDatabaseUrl = (dbPath: string) =>
-	dbPath.startsWith("file:") ? dbPath : `file:${dbPath}`;
+export const normalizeDatabasePath = (dbPath: string) => {
+	if (!dbPath.startsWith("file:")) {
+		return dbPath;
+	}
+
+	const [pathPart] = dbPath.slice("file:".length).split("?", 1);
+	return decodeURIComponent(pathPart ?? "");
+};
+
+const toDatabaseUrl = (dbPath: string) => `file:${dbPath}`;
 
 const prepareDatabasePath = (dbPath: string) => {
-	if (dbPath !== ":memory:") {
-		return { dbPath, tempDir: undefined };
+	const normalizedPath = normalizeDatabasePath(dbPath);
+
+	if (normalizedPath !== ":memory:") {
+		return { dbPath: normalizedPath, tempDir: undefined };
 	}
 
 	const tempDir = mkdtempSync(join(tmpdir(), "pupler-db-"));
@@ -286,9 +297,15 @@ const prepareDatabasePath = (dbPath: string) => {
 	};
 };
 
-export const openDatabase = (dbPath = "pupler.db") => {
+export const deriveFilesPath = (dbPath: string) =>
+	join(dirname(resolve(normalizeDatabasePath(dbPath))), "files");
+
+export const openDatabase = (dbPath = "pupler.db", filesPath?: string) => {
 	const prepared = prepareDatabasePath(dbPath);
+	mkdirSync(dirname(prepared.dbPath), { recursive: true });
 	const databaseUrl = toDatabaseUrl(prepared.dbPath);
+	const resolvedFilesPath = resolve(filesPath ?? deriveFilesPath(prepared.dbPath));
+	mkdirSync(resolvedFilesPath, { recursive: true });
 
 	const adapter = new PrismaLibSql({ url: databaseUrl });
 	const client = new PrismaClient({ adapter });
@@ -296,6 +313,7 @@ export const openDatabase = (dbPath = "pupler.db") => {
 	return {
 		client,
 		dbPath: prepared.dbPath,
+		filesPath: resolvedFilesPath,
 		tempDir: prepared.tempDir,
 	} satisfies Database;
 };

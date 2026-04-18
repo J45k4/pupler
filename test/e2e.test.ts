@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 
 import { TestServer } from "./support/test-server";
 
@@ -327,6 +329,7 @@ describe("Pupler API e2e", () => {
 		expect(upload.response.status).toBe(200);
 		expect(upload.body.content_type).toBe("image/png");
 		expect(upload.body.filename).toBe("tomato.png");
+		expect(existsSync(join(server.filesPath, "product-pictures"))).toBe(true);
 
 		const picture = await fetch(
 			`${server.baseUrl}/api/products/${created.body.id}/picture`,
@@ -370,6 +373,7 @@ describe("Pupler API e2e", () => {
 		expect(upload.response.status).toBe(200);
 		expect(upload.body.content_type).toBe("image/png");
 		expect(upload.body.filename).toBe("receipt.png");
+		expect(existsSync(join(server.filesPath, "receipt-pictures"))).toBe(true);
 
 		const picture = await fetch(
 			`${server.baseUrl}/api/receipts/${created.body.id}/picture`,
@@ -422,6 +426,7 @@ describe("Pupler API e2e", () => {
 			"recipe.png",
 			"recipe-2.png",
 		]);
+		expect(existsSync(join(server.filesPath, "recipe-images"))).toBe(true);
 
 		const picture = await fetch(
 			`${server.baseUrl}/api/recipes/${created.body.id}/pictures/${upload.body[0]!.id}`,

@@ -5,8 +5,8 @@ Pupler is a service for managing stuff.
 ## Docker image
 
 The container listens on port `5995` and stores its SQLite database at
-`/data/pupler.db` inside the container. The image uses
-`DATABASE_URL=file:/data/pupler.db` and runs `prisma migrate deploy`
+`/data/pupler.db` inside the container, with uploaded files stored under
+`/data/files`. The image uses `DATA_PATH=/data` and runs `prisma migrate deploy`
 automatically from `run.sh` before starting the server.
 
 Build locally:
@@ -71,6 +71,20 @@ Static deployment assets are also included in:
 
 - [`deploy/compose.yaml`](./deploy/compose.yaml)
 - [`deploy/pupler.service`](./deploy/pupler.service)
+
+## Data paths
+
+Pupler resolves its SQLite location in this order:
+
+- explicit server `dbPath` override
+- `DB_PATH`
+- `DATA_PATH/pupler.db`
+- fallback `./pupler.db`
+
+Uploaded files are stored in:
+
+- `DATA_PATH/files` when `DATA_PATH` is set
+- otherwise a sibling `files/` directory next to the resolved SQLite file
 
 ## CLI receipt repair
 

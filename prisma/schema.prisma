@@ -29,7 +29,7 @@ model Product {
 	barcode              String?            @unique
 	default_unit         String?            @map("default_unit")
 	is_perishable        Boolean            @map("is_perishable")
-	picture_blob         Bytes?             @map("picture_blob")
+	picture_path         String?            @map("picture_path")
 	picture_content_type String?            @map("picture_content_type")
 	picture_filename     String?            @map("picture_filename")
 	picture_uploaded_at  String?            @map("picture_uploaded_at")
@@ -64,7 +64,7 @@ model Receipt {
 	purchased_at         String        @map("purchased_at")
 	currency             String
 	total_amount         Float?        @map("total_amount")
-	picture_blob         Bytes?        @map("picture_blob")
+	picture_path         String?       @map("picture_path")
 	picture_content_type String?       @map("picture_content_type")
 	picture_filename     String?       @map("picture_filename")
 	picture_uploaded_at  String?       @map("picture_uploaded_at")
@@ -154,7 +154,7 @@ model Recipe {
 model RecipeImage {
 	id           Int    @id @default(autoincrement())
 	recipe_id    Int    @map("recipe_id")
-	blob         Bytes
+	path         String
 	content_type String @map("content_type")
 	filename     String?
 	created_at   String @map("created_at")

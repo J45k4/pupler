@@ -22,6 +22,11 @@ import {
 	type JsonObject,
 } from "./core";
 import {
+	deleteStoredFileBestEffort,
+	readStoredFile,
+	writeUploadedFile,
+} from "./file-storage";
+import {
 	ingredientSummarySelect,
 	productSummarySelect,
 } from "./reference-details";
@@ -137,27 +142,65 @@ const createRecipeImages = async (
 	db: Database,
 	recipeId: number,
 	files: File[],
-) =>
-	Promise.all(
-		files.map(async (file) =>
-			db.client.recipeImage.create({
-				data: {
-					recipe_id: recipeId,
-					blob: new Uint8Array(await file.arrayBuffer()),
-					content_type: file.type,
-					filename: file.name || null,
-					created_at: utcNow(),
-				},
-				select: {
-					id: true,
-					recipe_id: true,
-					content_type: true,
-					filename: true,
-					created_at: true,
-				},
-			}),
-		),
-	);
+) => {
+	const writtenFiles: Array<{
+		createdAt: string;
+		file: File;
+		relativePath: string;
+	}> = [];
+
+	try {
+		for (const file of files) {
+			const storedFile = await writeUploadedFile(db, {
+				assetType: "recipe-images",
+				file,
+				resourceId: recipeId,
+			});
+			writtenFiles.push({
+				createdAt: utcNow(),
+				file,
+				relativePath: storedFile.relativePath,
+			});
+		}
+	} catch (error) {
+		await Promise.all(
+			writtenFiles.map(({ relativePath }) =>
+				deleteStoredFileBestEffort(db, relativePath),
+			),
+		);
+		throw error;
+	}
+
+	try {
+		return await db.client.$transaction(
+			writtenFiles.map(({ createdAt, file, relativePath }) =>
+				db.client.recipeImage.create({
+					data: {
+						recipe_id: recipeId,
+						path: relativePath,
+						content_type: file.type,
+						filename: file.name || null,
+						created_at: createdAt,
+					},
+					select: {
+						id: true,
+						recipe_id: true,
+						content_type: true,
+						filename: true,
+						created_at: true,
+					},
+				}),
+			),
+		);
+	} catch (error) {
+		await Promise.all(
+			writtenFiles.map(({ relativePath }) =>
+				deleteStoredFileBestEffort(db, relativePath),
+			),
+		);
+		throw error;
+	}
+};
 
 const parseSort = (url: URL) => {
 	const sort = url.searchParams.get("sort");
@@ -352,24 +395,28 @@ export const recipeImageDetailRoute = (db: Database) =>
 		}
 
 		if (req.method === "GET") {
-			return new Response(image.blob, {
-				status: 200,
-				headers: {
-					"Content-Type": image.content_type,
-					"Cache-Control": "no-store",
-					...(image.filename
-						? {
-								"Content-Disposition": `inline; filename="${image.filename}"`,
-							}
-						: {}),
+			return new Response(
+				await readStoredFile(db, image.path, "Recipe image not found"),
+				{
+					status: 200,
+					headers: {
+						"Content-Type": image.content_type,
+						"Cache-Control": "no-store",
+						...(image.filename
+							? {
+									"Content-Disposition": `inline; filename="${image.filename}"`,
+								}
+							: {}),
+					},
 				},
-			});
+			);
 		}
 
 		if (req.method === "DELETE") {
 			await db.client.recipeImage.delete({
 				where: { id: pictureId },
 			});
+			await deleteStoredFileBestEffort(db, image.path);
 			return empty(204);
 		}
 

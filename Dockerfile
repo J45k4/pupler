@@ -18,7 +18,7 @@ RUN chmod +x ./run.sh
 ENV NODE_ENV=production
 ENV APP_VERSION=$version
 ENV PORT=5995
-ENV DATABASE_URL=file:/data/pupler.db
+ENV DATA_PATH=/data
 
 RUN mkdir -p /data
 

@@ -21,6 +21,11 @@ import {
 	type Database,
 	type JsonObject,
 } from "./core";
+import {
+	deleteStoredFileBestEffort,
+	readStoredFile,
+	writeUploadedFile,
+} from "./file-storage";
 
 const MAX_PURCHASE_RECEIPT_PICTURE_BYTES = 10 * 1024 * 1024;
 const SORT_FIELDS = new Set([
@@ -47,7 +52,7 @@ const fetchReceiptPicture = (db: Database, receiptId: number) =>
 		where: { id: receiptId },
 		select: {
 			id: true,
-			picture_blob: true,
+			picture_path: true,
 			picture_content_type: true,
 			picture_filename: true,
 			picture_uploaded_at: true,
@@ -243,33 +248,38 @@ export const receiptPictureRoute = (db: Database) =>
 
 		if (req.method === "GET") {
 			const row = await fetchReceiptPicture(db, receiptId);
-			if (!row?.picture_blob || !row.picture_content_type) {
+			if (!row?.picture_path || !row.picture_content_type) {
 				throw new HttpError(404, "Receipt picture not found");
 			}
-			return new Response(row.picture_blob, {
-				status: 200,
-				headers: {
-					"Content-Type": row.picture_content_type,
-					"Cache-Control": "no-store",
-					...(row.picture_filename
-						? {
-								"Content-Disposition": `inline; filename="${row.picture_filename}"`,
-							}
-						: {}),
+			return new Response(
+				await readStoredFile(db, row.picture_path, "Receipt picture not found"),
+				{
+					status: 200,
+					headers: {
+						"Content-Type": row.picture_content_type,
+						"Cache-Control": "no-store",
+						...(row.picture_filename
+							? {
+									"Content-Disposition": `inline; filename="${row.picture_filename}"`,
+								}
+							: {}),
+					},
 				},
-			});
+			);
 		}
 
 		if (req.method === "DELETE") {
+			const existingPicture = await fetchReceiptPicture(db, receiptId);
 			await db.client.receipt.update({
 				where: { id: receiptId },
 				data: {
-					picture_blob: null,
+					picture_path: null,
 					picture_content_type: null,
 					picture_filename: null,
 					picture_uploaded_at: null,
 				},
 			});
+			await deleteStoredFileBestEffort(db, existingPicture?.picture_path);
 			return empty(204);
 		}
 
@@ -289,16 +299,29 @@ export const receiptPictureRoute = (db: Database) =>
 				throw new HttpError(413, "Uploaded file exceeds the 10 MB limit");
 			}
 
-			const buffer = new Uint8Array(await uploaded.arrayBuffer());
-			await db.client.receipt.update({
-				where: { id: receiptId },
-				data: {
-					picture_blob: buffer,
-					picture_content_type: uploaded.type,
-					picture_filename: uploaded.name || null,
-					picture_uploaded_at: utcNow(),
-				},
+			const previousPicture = await fetchReceiptPicture(db, receiptId);
+			const storedFile = await writeUploadedFile(db, {
+				assetType: "receipt-pictures",
+				file: uploaded,
+				resourceId: receiptId,
 			});
+
+			try {
+				await db.client.receipt.update({
+					where: { id: receiptId },
+					data: {
+						picture_path: storedFile.relativePath,
+						picture_content_type: uploaded.type,
+						picture_filename: uploaded.name || null,
+						picture_uploaded_at: utcNow(),
+					},
+				});
+			} catch (error) {
+				await deleteStoredFileBestEffort(db, storedFile.relativePath);
+				throw error;
+			}
+
+			await deleteStoredFileBestEffort(db, previousPicture?.picture_path);
 
 			return json(200, {
 				receipt_id: receiptId,

@@ -47,7 +47,7 @@ services:
     environment:
       APP_VERSION: ${PUPLER_IMAGE:-jaska/pupler:latest}
       PORT: "5995"
-      DATABASE_URL: file:/data/pupler.db
+      DATA_PATH: ${DATA_PATH:-/data}
     volumes:
       - pupler-data:/data
 
@@ -59,6 +59,7 @@ cat >"$INSTALL_DIR/.env" <<EOF
 PUPLER_IMAGE=${PUPLER_IMAGE}
 PUPLER_PORT=${PUPLER_PORT}
 PUPLER_BIND_ADDRESS=${PUPLER_BIND_ADDRESS}
+DATA_PATH=/data
 EOF
 
 cat >/etc/systemd/system/${SERVICE_NAME}.service <<EOF

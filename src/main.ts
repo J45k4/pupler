@@ -27,6 +27,7 @@ import {
 	shoppingListItemDetailRoute,
 	shoppingListItemsCollectionRoute,
 } from "./api";
+import { deriveFilesPath } from "./api/core";
 
 import index from "./web/index.html";
 
@@ -34,19 +35,31 @@ const notFoundPage = Bun.file(new URL("./web/404.html", import.meta.url));
 
 type ServerOptions = {
 	dbPath?: string;
+	filesPath?: string;
 	port?: number;
 };
 
-const resolveDatabasePath = (override?: string) =>
-	override ?? process.env.DB_PATH ?? process.env.DATABASE_URL ?? "pupler.db";
+type Environment = Record<string, string | undefined>;
+
+export const resolveDatabasePath = (
+	override?: string,
+	env: Environment = process.env,
+) =>
+	override ?? env.DB_PATH ?? (env.DATA_PATH ? `${env.DATA_PATH}/pupler.db` : "pupler.db");
+
+export const resolveFilesPath = (
+	dbPath: string,
+	env: Environment = process.env,
+) => (env.DATA_PATH ? `${env.DATA_PATH}/files` : deriveFilesPath(dbPath));
 
 export const server = (options: ServerOptions = {}) => {
 	const dbPath = resolveDatabasePath(options.dbPath);
+	const filesPath = options.filesPath ?? resolveFilesPath(dbPath);
 	const envPort = process.env.PORT
 		? Number.parseInt(process.env.PORT, 10)
 		: undefined;
 	const port = options.port ?? (Number.isFinite(envPort) ? envPort : 5995);
-	const db = openDatabase(dbPath);
+	const db = openDatabase(dbPath, filesPath);
 
 	return Bun.serve({
 		port,
@@ -104,8 +117,9 @@ export const server = (options: ServerOptions = {}) => {
 if (import.meta.main) {
 	const version = process.env.APP_VERSION ?? "dev";
 	const dbPath = resolveDatabasePath();
-	const instance = server({ dbPath });
+	const filesPath = resolveFilesPath(dbPath);
+	const instance = server({ dbPath, filesPath });
 	console.log(
-		`Pupler ${version} listening on ${instance.url} using ${dbPath}`,
+		`Pupler ${version} listening on ${instance.url} using ${dbPath} with files at ${filesPath}`,
 	);
 }
