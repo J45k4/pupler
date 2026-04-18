@@ -10,8 +10,10 @@ COPY prisma ./prisma
 RUN bun install --frozen-lockfile
 
 COPY src ./src
+COPY run.sh ./run.sh
 
 RUN bun run prisma:generate
+RUN chmod +x ./run.sh
 
 ENV NODE_ENV=production
 ENV APP_VERSION=$version
@@ -24,4 +26,4 @@ VOLUME ["/data"]
 
 EXPOSE 5995
 
-CMD ["sh", "-c", "bun run prisma:migrate:deploy && exec bun src/main.ts"]
+CMD ["./run.sh"]

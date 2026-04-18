@@ -7,7 +7,7 @@ Pupler is a service for managing stuff.
 The container listens on port `5995` and stores its SQLite database at
 `/data/pupler.db` inside the container. The image uses
 `DATABASE_URL=file:/data/pupler.db` and runs `prisma migrate deploy`
-automatically before starting the server.
+automatically from `run.sh` before starting the server.
 
 Build locally:
 
