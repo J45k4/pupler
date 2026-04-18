@@ -21,6 +21,10 @@ import {
 	type Database,
 	type JsonObject,
 } from "./core";
+import {
+	ensureProductExists,
+	ensureReceiptExists,
+} from "./reference-details";
 
 const SORT_FIELDS = new Set([
 	"id",
@@ -153,10 +157,13 @@ export const receiptItemsCollectionRoute = (db: Database) =>
 		}
 
 		if (req.method === "POST") {
+			const values = parseCreateValues(await readJsonObject(req));
+			await ensureReceiptExists(db, values.receipt_id);
+			await ensureProductExists(db, values.product_id);
 			return json(
 				201,
 				await db.client.receiptItem.create({
-					data: parseCreateValues(await readJsonObject(req)),
+					data: values,
 				}),
 			);
 		}
@@ -174,25 +181,46 @@ export const receiptItemDetailRoute = (db: Database) =>
 
 		if (req.method === "GET") return json(200, existingRow);
 		if (req.method === "PUT") {
+			const values = parseReplaceValues(await readJsonObject(req), existingRow);
+			await ensureReceiptExists(db, values.receipt_id);
+			await ensureProductExists(db, values.product_id);
 			return json(
 				200,
 				await db.client.receiptItem.update({
 					where: { id },
-					data: parseReplaceValues(await readJsonObject(req), existingRow),
+					data: values,
 				}),
 			);
 		}
 		if (req.method === "PATCH") {
+			const values = parsePatchValues(await readJsonObject(req));
+			await ensureReceiptExists(
+				db,
+				(values.receipt_id as number | undefined) ?? existingRow.receipt_id,
+			);
+			await ensureProductExists(
+				db,
+				(values.product_id as number | undefined) ?? existingRow.product_id,
+			);
 			return json(
 				200,
 				await db.client.receiptItem.update({
 					where: { id },
-					data: parsePatchValues(await readJsonObject(req)),
+					data: values,
 				}),
 			);
 		}
 		if (req.method === "DELETE") {
-			await db.client.receiptItem.delete({ where: { id } });
+			await db.client.$transaction([
+				db.client.inventoryItem.updateMany({
+					where: { receipt_item_id: id },
+					data: {
+						receipt_item_id: null,
+						updated_at: utcNow(),
+					},
+				}),
+				db.client.receiptItem.delete({ where: { id } }),
+			]);
 			return empty(204);
 		}
 		throw new HttpError(405, "Method not allowed for this route");

@@ -64,3 +64,24 @@ Static deployment assets are also included in:
 
 - [`deploy/compose.yaml`](./deploy/compose.yaml)
 - [`deploy/pupler.service`](./deploy/pupler.service)
+
+## CLI receipt repair
+
+The CLI already supports partial updates and deletes for receipts and receipt
+items, which makes OCR cleanup and manual corrections much easier.
+
+Examples:
+
+```bash
+# List the items on one receipt
+bun ./cli/cli.ts receipt-items list --receipt-id 1
+
+# Fix a receipt total or store name
+bun ./cli/cli.ts receipts update 1 --store-name "K-Citymarket" --total-amount 61.12
+
+# Fix one receipt item
+bun ./cli/cli.ts receipt-items update 17 --product-id 42 --quantity 1.038 --line-total 1.92
+
+# Remove a mistaken receipt item
+bun ./cli/cli.ts receipt-items delete 17
+```

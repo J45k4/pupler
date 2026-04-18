@@ -486,6 +486,195 @@ describe("Pupler API e2e", () => {
 		expect(listed.body[0].receipt_id).toBe(receipt.body.id);
 	});
 
+	test("repairs receipt items over HTTP and unlinks inventory on delete", async () => {
+		const server = await startServer();
+
+		const product = await server.call<{ id: number }>("/api/products", {
+			method: "POST",
+			body: {
+				name: "Yogurt",
+				category: "food",
+				barcode: "556",
+				default_unit: "cup",
+				is_perishable: true,
+			},
+		});
+		expect(product.response.status).toBe(201);
+
+		const replacementProduct = await server.call<{ id: number }>("/api/products", {
+			method: "POST",
+			body: {
+				name: "Skyr",
+				category: "food",
+				barcode: "557",
+				default_unit: "cup",
+				is_perishable: true,
+			},
+		});
+		expect(replacementProduct.response.status).toBe(201);
+
+		const receipt = await server.call<{ id: number }>("/api/receipts", {
+			method: "POST",
+			body: {
+				store_name: "K-Citymarket",
+				purchased_at: "2026-04-13T12:00:00.000Z",
+				currency: "EUR",
+				total_amount: 7.8,
+			},
+		});
+		expect(receipt.response.status).toBe(201);
+
+		const created = await server.call<{
+			id: number;
+			receipt_id: number;
+			product_id: number;
+		}>('/api/receipt-items', {
+			method: 'POST',
+			body: {
+				receipt_id: receipt.body.id,
+				product_id: product.body.id,
+				quantity: 3,
+				unit: 'cup',
+				unit_price: 2.6,
+				line_total: 7.8,
+			},
+		});
+		expect(created.response.status).toBe(201);
+
+		const inventory = await server.call<{ id: number; receipt_item_id: number | null }>(
+			'/api/inventory-items',
+			{
+				method: 'POST',
+				body: {
+					name: 'Yogurt cup',
+					ingredient_id: null,
+					product_id: product.body.id,
+					receipt_item_id: created.body.id,
+					container_id: null,
+					quantity: 1,
+					unit: 'cup',
+					purchased_at: null,
+					expires_at: null,
+					consumed_at: null,
+					notes: null,
+				},
+			},
+		);
+		expect(inventory.response.status).toBe(201);
+
+		const updated = await server.call<{ product_id: number; quantity: number; line_total: number | null }>(
+			`/api/receipt-items/${created.body.id}`,
+			{
+				method: 'PATCH',
+				body: {
+					product_id: replacementProduct.body.id,
+					quantity: 2,
+					line_total: 5.2,
+				},
+			},
+		);
+		expect(updated.response.status).toBe(200);
+		expect(updated.body.product_id).toBe(replacementProduct.body.id);
+		expect(updated.body.quantity).toBe(2);
+		expect(updated.body.line_total).toBe(5.2);
+
+		const invalid = await server.call<{ error: string }>(
+			`/api/receipt-items/${created.body.id}`,
+			{
+				method: 'PATCH',
+				body: { product_id: 999999 },
+			},
+		);
+		expect(invalid.response.status).toBe(400);
+		expect(invalid.body.error).toContain('missing product');
+
+		const deleted = await server.call(`/api/receipt-items/${created.body.id}`, {
+			method: 'DELETE',
+		});
+		expect(deleted.response.status).toBe(204);
+
+		const refreshedInventory = await server.call<{ receipt_item_id: number | null }>(
+			`/api/inventory-items/${inventory.body.id}`,
+		);
+		expect(refreshedInventory.response.status).toBe(200);
+		expect(refreshedInventory.body.receipt_item_id).toBeNull();
+	});
+
+	test("deletes receipts over HTTP with linked receipt items", async () => {
+		const server = await startServer();
+
+		const product = await server.call<{ id: number }>("/api/products", {
+			method: "POST",
+			body: {
+				name: "Cream",
+				category: "food",
+				barcode: "558",
+				default_unit: "pcs",
+				is_perishable: true,
+			},
+		});
+		expect(product.response.status).toBe(201);
+
+		const receipt = await server.call<{ id: number }>("/api/receipts", {
+			method: "POST",
+			body: {
+				store_name: "K-Citymarket",
+				purchased_at: "2026-04-13T12:00:00.000Z",
+				currency: "EUR",
+				total_amount: 3.4,
+			},
+		});
+		expect(receipt.response.status).toBe(201);
+
+		const item = await server.call<{ id: number }>("/api/receipt-items", {
+			method: "POST",
+			body: {
+				receipt_id: receipt.body.id,
+				product_id: product.body.id,
+				quantity: 1,
+				unit: "pcs",
+				unit_price: 3.4,
+				line_total: 3.4,
+			},
+		});
+		expect(item.response.status).toBe(201);
+
+		const inventory = await server.call<{ id: number }>('/api/inventory-items', {
+			method: 'POST',
+			body: {
+				name: 'Cream carton',
+				ingredient_id: null,
+				product_id: product.body.id,
+				receipt_item_id: item.body.id,
+				container_id: null,
+				quantity: 1,
+				unit: 'pcs',
+				purchased_at: null,
+				expires_at: null,
+				consumed_at: null,
+				notes: null,
+			},
+		});
+		expect(inventory.response.status).toBe(201);
+
+		const deleted = await server.call(`/api/receipts/${receipt.body.id}`, {
+			method: 'DELETE',
+		});
+		expect(deleted.response.status).toBe(204);
+
+		const missingReceipt = await server.call<{ error: string }>(`/api/receipts/${receipt.body.id}`);
+		expect(missingReceipt.response.status).toBe(404);
+
+		const missingItem = await server.call<{ error: string }>(`/api/receipt-items/${item.body.id}`);
+		expect(missingItem.response.status).toBe(404);
+
+		const refreshedInventory = await server.call<{ receipt_item_id: number | null }>(
+			`/api/inventory-items/${inventory.body.id}`,
+		);
+		expect(refreshedInventory.response.status).toBe(200);
+		expect(refreshedInventory.body.receipt_item_id).toBeNull();
+	});
+
 	test("creates inventory containers and assigns inventory items over HTTP", async () => {
 		const server = await startServer();
 

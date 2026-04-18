@@ -867,6 +867,227 @@ describe("Pupler API", () => {
 		expect(listed[0].line_total).toBe(5.4);
 	});
 
+	test("updates receipt items, validates references, and unlinks inventory on delete", async () => {
+		const routes = createRoutes();
+
+		const productResponse = await request(routes, "/api/products", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: "Banana",
+				category: "food",
+				barcode: "4441",
+				default_unit: "pcs",
+				is_perishable: true,
+			}),
+		});
+		const product = await productResponse.json();
+
+		const replacementProductResponse = await request(routes, "/api/products", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: "Plantain",
+				category: "food",
+				barcode: "4442",
+				default_unit: "pcs",
+				is_perishable: true,
+			}),
+		});
+		const replacementProduct = await replacementProductResponse.json();
+
+		const receiptResponse = await request(routes, "/api/receipts", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				store_name: "Prisma",
+				purchased_at: "2026-04-13T12:00:00.000Z",
+				currency: "EUR",
+				total_amount: 5.4,
+			}),
+		});
+		const receipt = await receiptResponse.json();
+
+		const itemResponse = await request(routes, "/api/receipt-items", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				receipt_id: receipt.id,
+				product_id: product.id,
+				quantity: 6,
+				unit: "pcs",
+				unit_price: 0.9,
+				line_total: 5.4,
+			}),
+		});
+		const item = await itemResponse.json();
+
+		const inventoryResponse = await request(routes, "/api/inventory-items", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: "Banana stash",
+				ingredient_id: null,
+				product_id: product.id,
+				receipt_item_id: item.id,
+				container_id: null,
+				quantity: 6,
+				unit: "pcs",
+				purchased_at: null,
+				expires_at: null,
+				consumed_at: null,
+				notes: null,
+			}),
+		});
+		expect(inventoryResponse.status).toBe(201);
+		const inventoryItem = await inventoryResponse.json();
+
+		const patchResponse = await request(
+			routes,
+			`/api/receipt-items/${item.id}`,
+			{
+				method: "PATCH",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					product_id: replacementProduct.id,
+					quantity: 3,
+					line_total: 2.7,
+				}),
+			},
+			{ id: String(item.id) },
+		);
+		expect(patchResponse.status).toBe(200);
+		const patched = await patchResponse.json();
+		expect(patched.product_id).toBe(replacementProduct.id);
+		expect(patched.quantity).toBe(3);
+		expect(patched.line_total).toBe(2.7);
+
+		const invalidPatchResponse = await request(
+			routes,
+			`/api/receipt-items/${item.id}`,
+			{
+				method: "PATCH",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ product_id: 999999 }),
+			},
+			{ id: String(item.id) },
+		);
+		expect(invalidPatchResponse.status).toBe(400);
+		expect((await invalidPatchResponse.json()).error).toContain("missing product");
+
+		const deleteResponse = await request(
+			routes,
+			`/api/receipt-items/${item.id}`,
+			{ method: "DELETE" },
+			{ id: String(item.id) },
+		);
+		expect(deleteResponse.status).toBe(204);
+
+		const refreshedInventoryResponse = await request(
+			routes,
+			`/api/inventory-items/${inventoryItem.id}`,
+			{},
+			{ id: String(inventoryItem.id) },
+		);
+		expect(refreshedInventoryResponse.status).toBe(200);
+		expect((await refreshedInventoryResponse.json()).receipt_item_id).toBeNull();
+	});
+
+	test("deletes receipts with their items and unlinks inventory references", async () => {
+		const routes = createRoutes();
+
+		const productResponse = await request(routes, "/api/products", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: "Milk",
+				category: "food",
+				barcode: "4450",
+				default_unit: "pcs",
+				is_perishable: true,
+			}),
+		});
+		const product = await productResponse.json();
+
+		const receiptResponse = await request(routes, "/api/receipts", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				store_name: "Prisma",
+				purchased_at: "2026-04-13T12:00:00.000Z",
+				currency: "EUR",
+				total_amount: 5.4,
+			}),
+		});
+		const receipt = await receiptResponse.json();
+
+		const itemResponse = await request(routes, "/api/receipt-items", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				receipt_id: receipt.id,
+				product_id: product.id,
+				quantity: 2,
+				unit: "pcs",
+				unit_price: 2.7,
+				line_total: 5.4,
+			}),
+		});
+		const item = await itemResponse.json();
+
+		const inventoryResponse = await request(routes, "/api/inventory-items", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: "Milk carton",
+				ingredient_id: null,
+				product_id: product.id,
+				receipt_item_id: item.id,
+				container_id: null,
+				quantity: 1,
+				unit: "pcs",
+				purchased_at: null,
+				expires_at: null,
+				consumed_at: null,
+				notes: null,
+			}),
+		});
+		const inventoryItem = await inventoryResponse.json();
+
+		const deleteResponse = await request(
+			routes,
+			`/api/receipts/${receipt.id}`,
+			{ method: "DELETE" },
+			{ id: String(receipt.id) },
+		);
+		expect(deleteResponse.status).toBe(204);
+
+		const receiptFetch = await request(
+			routes,
+			`/api/receipts/${receipt.id}`,
+			{},
+			{ id: String(receipt.id) },
+		);
+		expect(receiptFetch.status).toBe(404);
+
+		const itemFetch = await request(
+			routes,
+			`/api/receipt-items/${item.id}`,
+			{},
+			{ id: String(item.id) },
+		);
+		expect(itemFetch.status).toBe(404);
+
+		const refreshedInventoryResponse = await request(
+			routes,
+			`/api/inventory-items/${inventoryItem.id}`,
+			{},
+			{ id: String(inventoryItem.id) },
+		);
+		expect(refreshedInventoryResponse.status).toBe(200);
+		expect((await refreshedInventoryResponse.json()).receipt_item_id).toBeNull();
+	});
+
 	test("creates nested inventory containers", async () => {
 		const routes = createRoutes();
 

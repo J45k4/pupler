@@ -202,7 +202,32 @@ export const receiptDetailRoute = (db: Database) =>
 			);
 		}
 		if (req.method === "DELETE") {
-			await db.client.receipt.delete({ where: { id } });
+			await db.client.$transaction(async (tx) => {
+				const receiptItems = await tx.receiptItem.findMany({
+					where: { receipt_id: id },
+					select: { id: true },
+				});
+
+				if (receiptItems.length > 0) {
+					await tx.inventoryItem.updateMany({
+						where: {
+							receipt_item_id: {
+								in: receiptItems.map((item) => item.id),
+							},
+						},
+						data: {
+							receipt_item_id: null,
+							updated_at: utcNow(),
+						},
+					});
+
+					await tx.receiptItem.deleteMany({
+						where: { receipt_id: id },
+					});
+				}
+
+				await tx.receipt.delete({ where: { id } });
+			});
 			return empty(204);
 		}
 		throw new HttpError(405, "Method not allowed for this route");

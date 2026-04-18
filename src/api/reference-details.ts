@@ -102,6 +102,14 @@ const fetchProduct = (db: Database, id: number) =>
 		},
 	});
 
+const fetchReceipt = (db: Database, id: number) =>
+	db.client.receipt.findUnique({
+		where: { id },
+		select: {
+			id: true,
+		},
+	});
+
 export const ensureIngredientExists = async (
 	db: Database,
 	ingredientId: number | null | undefined,
@@ -140,6 +148,26 @@ export const ensureProductExists = async (
 	}
 
 	return product;
+};
+
+export const ensureReceiptExists = async (
+	db: Database,
+	receiptId: number | null | undefined,
+	field = "receipt_id",
+) => {
+	if (receiptId === undefined || receiptId === null) {
+		return null;
+	}
+
+	const receipt = await fetchReceipt(db, receiptId);
+	if (!receipt) {
+		throw new HttpError(
+			400,
+			`Field \`${field}\` references a missing receipt`,
+		);
+	}
+
+	return receipt;
 };
 
 export const validateIngredientProductRefs = async (
