@@ -23,7 +23,8 @@ docker run --rm -p 5995:5995 -v pupler-data:/data pupler:local
 ## Linux install
 
 The repo includes a Linux bootstrap installer at
-[deploy/install.sh](/Users/puppy/work/my/pupler/deploy/install.sh). It expects:
+[`deploy/install.sh`](./deploy/install.sh) and an updater at
+[`deploy/update.sh`](./deploy/update.sh). They expect:
 
 - Docker with the Compose v2 plugin
 - `systemd`
@@ -39,20 +40,26 @@ By default the installer:
 
 - writes the deployment bundle to `/opt/pupler`
 - installs a `pupler` systemd service
-- uses the image `ghcr.io/j45k4/pupler:latest`
+- uses the image `jaska/pupler:latest`
 - binds the service to `127.0.0.1:5995`
 
 You can override those defaults:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/J45k4/pupler/main/deploy/install.sh | \
-  sudo PUPLER_IMAGE=ghcr.io/j45k4/pupler:latest \
+  sudo PUPLER_IMAGE=jaska/pupler:latest \
   PUPLER_BIND_ADDRESS=0.0.0.0 \
   PUPLER_PORT=5995 \
   bash
 ```
 
+To update an existing install:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/J45k4/pupler/main/deploy/update.sh | sudo bash
+```
+
 Static deployment assets are also included in:
 
-- [deploy/compose.yaml](/Users/puppy/work/my/pupler/deploy/compose.yaml)
-- [deploy/pupler.service](/Users/puppy/work/my/pupler/deploy/pupler.service)
+- [`deploy/compose.yaml`](./deploy/compose.yaml)
+- [`deploy/pupler.service`](./deploy/pupler.service)

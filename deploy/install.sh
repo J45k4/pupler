@@ -27,7 +27,7 @@ fi
 
 INSTALL_DIR="${PUPLER_INSTALL_DIR:-/opt/pupler}"
 SERVICE_NAME="${PUPLER_SERVICE_NAME:-pupler}"
-IMAGE_REPO="${PUPLER_IMAGE_REPO:-ghcr.io/j45k4/pupler}"
+IMAGE_REPO="${PUPLER_IMAGE_REPO:-jaska/pupler}"
 IMAGE_TAG="${PUPLER_IMAGE_TAG:-latest}"
 PUPLER_IMAGE="${PUPLER_IMAGE:-${IMAGE_REPO}:${IMAGE_TAG}}"
 PUPLER_PORT="${PUPLER_PORT:-5995}"
@@ -38,13 +38,13 @@ mkdir -p "$INSTALL_DIR"
 cat >"$INSTALL_DIR/compose.yaml" <<'EOF'
 services:
   pupler:
-    image: ${PUPLER_IMAGE:-ghcr.io/j45k4/pupler:latest}
+    image: ${PUPLER_IMAGE:-jaska/pupler:latest}
     container_name: pupler
     restart: unless-stopped
     ports:
       - "${PUPLER_BIND_ADDRESS:-127.0.0.1}:${PUPLER_PORT:-5995}:5995"
     environment:
-      APP_VERSION: ${PUPLER_IMAGE:-ghcr.io/j45k4/pupler:latest}
+      APP_VERSION: ${PUPLER_IMAGE:-jaska/pupler:latest}
       PORT: "5995"
       DATABASE_URL: file:/data/pupler.db
     volumes:
@@ -54,13 +54,11 @@ volumes:
   pupler-data:
 EOF
 
-if [ ! -f "$INSTALL_DIR/.env" ]; then
-	cat >"$INSTALL_DIR/.env" <<EOF
+cat >"$INSTALL_DIR/.env" <<EOF
 PUPLER_IMAGE=${PUPLER_IMAGE}
 PUPLER_PORT=${PUPLER_PORT}
 PUPLER_BIND_ADDRESS=${PUPLER_BIND_ADDRESS}
 EOF
-fi
 
 cat >/etc/systemd/system/${SERVICE_NAME}.service <<EOF
 [Unit]
