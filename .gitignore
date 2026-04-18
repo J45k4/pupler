@@ -5,3 +5,4 @@ pupler.db
 node_modules
 src/generated
 .DS_Store
+dist/

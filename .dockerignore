@@ -1,0 +1,9 @@
+.git
+.gitignore
+.tmp
+node_modules
+pupler.db
+*.sqlite
+.DS_Store
+__pycache__/
+test

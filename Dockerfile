@@ -1,0 +1,24 @@
+FROM oven/bun:1
+
+WORKDIR /app
+
+COPY package.json bun.lock tsconfig.json prisma.config.ts ./
+COPY prisma ./prisma
+
+RUN bun install --frozen-lockfile
+
+COPY src ./src
+
+RUN bun run prisma:generate
+
+ENV NODE_ENV=production
+ENV PORT=5995
+ENV DB_PATH=/data/pupler.db
+
+RUN mkdir -p /data
+
+VOLUME ["/data"]
+
+EXPOSE 5995
+
+CMD ["bun", "src/main.ts"]

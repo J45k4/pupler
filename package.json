@@ -3,6 +3,9 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
+		"build:bins": "bun run build:server-bin && bun run build:cli-bin",
+		"build:cli-bin": "bun -e \"import { mkdirSync } from 'node:fs'; mkdirSync('dist', { recursive: true });\" && bun run prisma:generate && bun build --compile --outfile dist/pupler-cli ./cli/cli.ts",
+		"build:server-bin": "bun -e \"import { mkdirSync } from 'node:fs'; mkdirSync('dist', { recursive: true });\" && bun run prisma:generate && bun build --compile --outfile dist/pupler-server ./src/main.ts",
 		"cli": "bun ./cli/cli.ts",
 		"dev": "bun --watch src/main.ts",
 		"postinstall": "bun run prisma:generate",
