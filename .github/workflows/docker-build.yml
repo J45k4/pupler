@@ -26,6 +26,28 @@ jobs:
         shell: bash
         run: echo "sha7=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
+      - name: Compute image tags
+        id: tags
+        shell: bash
+        run: |
+          tags="jaska/pupler:${{ steps.slug.outputs.sha7 }}"
+
+          if [[ "${GITHUB_REF}" == refs/heads/master ]]; then
+            tags+=$'\n'"jaska/pupler:latest"
+          fi
+
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            version="${GITHUB_REF#refs/tags/}"
+            tags+=$'\n'"jaska/pupler:${version}"
+            tags+=$'\n'"jaska/pupler:latest"
+          fi
+
+          {
+            echo 'value<<EOF'
+            echo "$tags"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Log in to Docker Hub
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
@@ -42,7 +64,7 @@ jobs:
           context: .
           file: ./Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
-          tags: jaska/pupler:${{ steps.slug.outputs.sha7 }}
+          tags: ${{ steps.tags.outputs.value }}
           build-args: |
             version=${{ steps.slug.outputs.sha7 }}
           cache-from: type=gha
