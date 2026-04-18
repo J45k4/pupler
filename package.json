@@ -15,6 +15,7 @@
 		"prisma:migrate:dev": "bunx --bun prisma migrate dev --schema prisma/schema.prisma",
 		"start": "bun src/main.ts",
 		"test": "bun test",
+		"test:api": "bun test test/api.test.ts",
 		"test:cli": "bun test test/cli.test.ts",
 		"test:e2e": "bun test test/e2e.test.ts"
 	},

@@ -1,9 +1,21 @@
 stages:
+  - test
   - build
 
 variables:
   DOCKER_DRIVER: overlay2
   DOCKER_TLS_CERTDIR: "/certs"
+
+test:
+  stage: test
+  image: oven/bun:1
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+  script:
+    - bun install --frozen-lockfile
+    - bun run test:api
+    - bun run test:e2e
 
 docker-build:
   stage: build
@@ -11,6 +23,8 @@ docker-build:
   services:
     - name: docker:28-dind
       alias: docker
+  needs:
+    - test
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH
