@@ -99,7 +99,10 @@ export const server = (options: ServerOptions = {}) => {
 };
 
 if (import.meta.main) {
+	const version = process.env.APP_VERSION ?? "dev";
 	const dbPath = process.env.DB_PATH ?? "pupler.db";
 	const instance = server({ dbPath });
-	console.log(`Pupler API listening on ${instance.url} using ${dbPath}`);
+	console.log(
+		`Pupler ${version} listening on ${instance.url} using ${dbPath}`,
+	);
 }

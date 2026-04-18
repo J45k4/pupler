@@ -1,5 +1,7 @@
 FROM oven/bun:1
 
+ARG version=dev
+
 WORKDIR /app
 
 COPY package.json bun.lock tsconfig.json prisma.config.ts ./
@@ -12,6 +14,7 @@ COPY src ./src
 RUN bun run prisma:generate
 
 ENV NODE_ENV=production
+ENV APP_VERSION=$version
 ENV PORT=5995
 ENV DB_PATH=/data/pupler.db
 
