@@ -37,8 +37,11 @@ type ServerOptions = {
 	port?: number;
 };
 
+const resolveDatabasePath = (override?: string) =>
+	override ?? process.env.DB_PATH ?? process.env.DATABASE_URL ?? "pupler.db";
+
 export const server = (options: ServerOptions = {}) => {
-	const dbPath = options.dbPath ?? process.env.DB_PATH ?? "pupler.db";
+	const dbPath = resolveDatabasePath(options.dbPath);
 	const envPort = process.env.PORT
 		? Number.parseInt(process.env.PORT, 10)
 		: undefined;
@@ -100,7 +103,7 @@ export const server = (options: ServerOptions = {}) => {
 
 if (import.meta.main) {
 	const version = process.env.APP_VERSION ?? "dev";
-	const dbPath = process.env.DB_PATH ?? "pupler.db";
+	const dbPath = resolveDatabasePath();
 	const instance = server({ dbPath });
 	console.log(
 		`Pupler ${version} listening on ${instance.url} using ${dbPath}`,

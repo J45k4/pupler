@@ -16,7 +16,7 @@ RUN bun run prisma:generate
 ENV NODE_ENV=production
 ENV APP_VERSION=$version
 ENV PORT=5995
-ENV DB_PATH=/data/pupler.db
+ENV DATABASE_URL=file:/data/pupler.db
 
 RUN mkdir -p /data
 
