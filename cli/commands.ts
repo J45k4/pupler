@@ -1,6 +1,14 @@
 import { existsSync, readFileSync } from "node:fs";
 
-import { CliError, requestBinary, requestBody, requestJson } from "./http";
+import { clearCliConfig, readCliConfig, resolveConfigPath, writeCliConfig } from "./config";
+import { CliError } from "./error";
+import {
+	normalizeBaseUrl,
+	requestBinary,
+	requestBody,
+	requestJson,
+	resolveBaseUrl,
+} from "./http";
 
 type FieldType =
 	| "string"
@@ -30,7 +38,7 @@ type ParsedArgs = {
 };
 
 export type GlobalOptions = {
-	baseUrl: string;
+	baseUrlOverride?: string;
 	help: boolean;
 	json: boolean;
 };
@@ -275,11 +283,13 @@ const HELP_TEXT = `Pupler CLI
 
 Usage:
   bun ./cli/cli.ts <resource> <command> [args] [flags]
+  bun ./cli/cli.ts config <command> [args]
 
 Resources:
   ${RESOURCE_NAMES}
 
 Examples:
+  bun ./cli/cli.ts config set-url http://localhost:5995
   bun ./cli/cli.ts ingredients create --name Sausage --default-unit pcs
   bun ./cli/cli.ts products list --barcode 6414893400012
   bun ./cli/cli.ts products create --name Milk --category food --is-perishable true --ingredient-id 1
@@ -287,10 +297,12 @@ Examples:
   bun ./cli/cli.ts receipt-items create --receipt-id 1 --product-id 2 --quantity 1 --unit pcs
 
 Global flags:
-  --base-url <url>   Override PUPLER_BASE_URL or the default http://localhost:5995
+  --base-url <url>   Override PUPLER_BASE_URL, the config file, or the default http://localhost:5995
   --json             Print raw JSON output
   --help             Show help
 `;
+
+const CONFIG_COMMANDS = ["show", "path", "get-url", "set-url", "clear-url"];
 
 const toFlagName = (field: string) => field.replace(/_/g, "-");
 const normalizeFlagName = (value: string) => value.replace(/-/g, "_");
@@ -504,6 +516,9 @@ const ensureNoExtraPositionals = (positionals: string[], count: number) => {
 	}
 };
 
+const resolveRequestBaseUrl = (globalOptions: GlobalOptions) =>
+	resolveBaseUrl(globalOptions.baseUrlOverride);
+
 const renderResourceHelp = (resource: ResourceConfig) => {
 	const fields = Object.keys(resource.fields)
 		.map((field) => `  --${toFlagName(field)}`)
@@ -595,6 +610,7 @@ const runPictureCommand = async (
 	const parsed = parseArgs(args.slice(1));
 	const id = requireId(parsed.positionals, `${resource.command} picture`, action);
 	ensureNoExtraPositionals(parsed.positionals, 1);
+	const baseUrl = resolveRequestBaseUrl(globalOptions);
 
 	if (action === "upload") {
 		const filePath = ensureStringFlag(parsed.flags.file, "file");
@@ -605,7 +621,7 @@ const runPictureCommand = async (
 		const formData = new FormData();
 		formData.set("file", Bun.file(filePath));
 		const response = await requestBody({
-			baseUrl: globalOptions.baseUrl,
+			baseUrl,
 			path: `${resource.path}/${id}/picture`,
 			method: "POST",
 			body: formData,
@@ -616,7 +632,7 @@ const runPictureCommand = async (
 	if (action === "get") {
 		const outputPath = ensureStringFlag(parsed.flags.output, "output");
 		const { bytes, contentType } = await requestBinary({
-			baseUrl: globalOptions.baseUrl,
+			baseUrl,
 			path: `${resource.path}/${id}/picture`,
 		});
 		await Bun.write(outputPath, bytes);
@@ -632,7 +648,7 @@ const runPictureCommand = async (
 
 	if (action === "delete") {
 		await requestJson({
-			baseUrl: globalOptions.baseUrl,
+			baseUrl,
 			path: `${resource.path}/${id}/picture`,
 			method: "DELETE",
 		});
@@ -663,10 +679,12 @@ const runResourceCommand = async (
 		return { message: renderCommandHelp(resource, command) };
 	}
 
+	const baseUrl = resolveRequestBaseUrl(globalOptions);
+
 	if (command === "list") {
 		const parsed = parseArgs(args);
 		const payload = await requestJson({
-			baseUrl: globalOptions.baseUrl,
+			baseUrl,
 			path: resource.path,
 			query: buildQuery(resource, parsed.flags),
 		});
@@ -678,7 +696,7 @@ const runResourceCommand = async (
 		const id = requireId(parsed.positionals, resource.command, command);
 		ensureNoExtraPositionals(parsed.positionals, 1);
 		const payload = await requestJson({
-			baseUrl: globalOptions.baseUrl,
+			baseUrl,
 			path: `${resource.path}/${id}`,
 		});
 		return { payload };
@@ -687,7 +705,7 @@ const runResourceCommand = async (
 	if (command === "create") {
 		const parsed = parseArgs(args);
 		const payload = await requestJson({
-			baseUrl: globalOptions.baseUrl,
+			baseUrl,
 			path: resource.path,
 			method: "POST",
 			body: buildPayload(resource, parsed.flags),
@@ -700,7 +718,7 @@ const runResourceCommand = async (
 		const id = requireId(parsed.positionals, resource.command, command);
 		ensureNoExtraPositionals(parsed.positionals, 1);
 		const payload = await requestJson({
-			baseUrl: globalOptions.baseUrl,
+			baseUrl,
 			path: `${resource.path}/${id}`,
 			method: command === "replace" ? "PUT" : "PATCH",
 			body: buildPayload(resource, parsed.flags),
@@ -712,13 +730,105 @@ const runResourceCommand = async (
 	const id = requireId(parsed.positionals, resource.command, command);
 	ensureNoExtraPositionals(parsed.positionals, 1);
 	await requestJson({
-		baseUrl: globalOptions.baseUrl,
+		baseUrl,
 		path: `${resource.path}/${id}`,
 		method: "DELETE",
 	});
 	return {
 		message: `Deleted ${resource.command} ${id}`,
 		payload: { id, ok: true },
+	};
+};
+
+const renderConfigHelp = () => `Pupler CLI: config
+
+Usage:
+  bun ./cli/cli.ts config show
+  bun ./cli/cli.ts config path
+  bun ./cli/cli.ts config get-url
+  bun ./cli/cli.ts config set-url <url>
+  bun ./cli/cli.ts config clear-url
+
+Commands:
+  ${CONFIG_COMMANDS.join(", ")}
+`;
+
+const runConfigCommand = async (
+	args: string[],
+	globalOptions: GlobalOptions,
+): Promise<CommandResult> => {
+	const command = args[0];
+	if (!command || command === "help" || globalOptions.help) {
+		return { message: renderConfigHelp() };
+	}
+
+	if (!CONFIG_COMMANDS.includes(command)) {
+		throw new CliError(`Unknown config command \`${command}\``);
+	}
+
+	if (command === "path") {
+		ensureNoExtraPositionals(args.slice(1), 0);
+		return {
+			payload: {
+				config_path: resolveConfigPath(),
+			},
+		};
+	}
+
+	if (command === "show") {
+		ensureNoExtraPositionals(args.slice(1), 0);
+		const config = readCliConfig();
+		return {
+			payload: {
+				config_path: resolveConfigPath(),
+				base_url: config.baseUrl ?? null,
+			},
+		};
+	}
+
+	if (command === "get-url") {
+		ensureNoExtraPositionals(args.slice(1), 0);
+		const config = readCliConfig();
+		if (!config.baseUrl) {
+			return {
+				message: "No configured base URL",
+				payload: {
+					base_url: null,
+				},
+			};
+		}
+		return {
+			payload: {
+				base_url: config.baseUrl,
+			},
+		};
+	}
+
+	if (command === "set-url") {
+		const url = args[1];
+		if (!url) {
+			throw new CliError("Missing URL for `config set-url`");
+		}
+		ensureNoExtraPositionals(args.slice(1), 1);
+		const normalized = normalizeBaseUrl(url);
+		const path = writeCliConfig({ baseUrl: normalized });
+		return {
+			message: `Saved base URL to ${path}`,
+			payload: {
+				base_url: normalized,
+				config_path: path,
+			},
+		};
+	}
+
+	ensureNoExtraPositionals(args.slice(1), 0);
+	const path = clearCliConfig();
+	return {
+		message: `Cleared configured base URL from ${path}`,
+		payload: {
+			base_url: null,
+			config_path: path,
+		},
 	};
 };
 
@@ -730,6 +840,10 @@ export const runCliCommand = async (
 ): Promise<CommandResult> => {
 	if (!args.length || args[0] === "help") {
 		return { message: renderRootHelp() };
+	}
+
+	if (args[0] === "config") {
+		return runConfigCommand(args.slice(1), globalOptions);
 	}
 
 	const resourceName = args[0];

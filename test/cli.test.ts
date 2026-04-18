@@ -28,13 +28,21 @@ const createTempDir = () => {
 
 const runCli = async (
 	args: string[],
-	options: { baseUrl?: string; includeEnvBaseUrl?: boolean } = {},
+	options: {
+		baseUrl?: string;
+		configPath?: string;
+		includeEnvBaseUrl?: boolean;
+	} = {},
 ): Promise<CliResult> => {
 	const env = { ...process.env };
+	delete env.PUPLER_CONFIG_PATH;
 	if (options.includeEnvBaseUrl === false) {
 		delete env.PUPLER_BASE_URL;
 	} else if (options.baseUrl) {
 		env.PUPLER_BASE_URL = options.baseUrl;
+	}
+	if (options.configPath) {
+		env.PUPLER_CONFIG_PATH = options.configPath;
 	}
 
 	const child = Bun.spawn(["bun", "./cli/cli.ts", ...args], {
@@ -315,5 +323,48 @@ describe("Pupler CLI", () => {
 
 		expect(result.exitCode).toBe(1);
 		expect(result.stderr).toContain("Resource not found");
+	});
+
+	test("stores the base URL in a CLI config file", async () => {
+		const tempDir = createTempDir();
+		const configPath = join(tempDir, "pupler-config.json");
+
+		const setResult = await runCli(
+			["config", "set-url", "http://example.test:7000"],
+			{ configPath, includeEnvBaseUrl: false },
+		);
+
+		expect(setResult.exitCode).toBe(0);
+		expect(setResult.stdout).toContain("base_url:");
+		expect(setResult.stdout).toContain("http://example.test:7000/");
+
+		const showResult = await runCli(["config", "show", "--json"], {
+			configPath,
+			includeEnvBaseUrl: false,
+		});
+		expect(showResult.exitCode).toBe(0);
+		expect(JSON.parse(showResult.stdout)).toEqual({
+			base_url: "http://example.test:7000/",
+			config_path: configPath,
+		});
+	});
+
+	test("uses the configured base URL when no flag or env override is set", async () => {
+		const server = await startServer();
+		const tempDir = createTempDir();
+		const configPath = join(tempDir, "pupler-config.json");
+
+		const configured = await runCli(
+			["config", "set-url", server.baseUrl],
+			{ configPath, includeEnvBaseUrl: false },
+		);
+		expect(configured.exitCode).toBe(0);
+
+		const listed = await runCli(["ingredients", "list", "--json"], {
+			configPath,
+			includeEnvBaseUrl: false,
+		});
+		expect(listed.exitCode).toBe(0);
+		expect(JSON.parse(listed.stdout)).toEqual([]);
 	});
 });

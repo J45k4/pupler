@@ -1,13 +1,7 @@
+import { readCliConfig } from "./config";
+import { CliError } from "./error";
+
 type QueryValue = string | number | boolean | null | undefined;
-
-export class CliError extends Error {
-	readonly exitCode: number;
-
-	constructor(message: string, exitCode = 1) {
-		super(message);
-		this.exitCode = exitCode;
-	}
-}
 
 type JsonRequestOptions = {
 	baseUrl: string;
@@ -76,7 +70,10 @@ export const normalizeBaseUrl = (value: string) => {
 
 export const resolveBaseUrl = (override?: string) =>
 	normalizeBaseUrl(
-		override ?? process.env.PUPLER_BASE_URL ?? "http://localhost:5995",
+		override ??
+			process.env.PUPLER_BASE_URL ??
+			readCliConfig().baseUrl ??
+			"http://localhost:5995",
 	);
 
 export const requestJson = async ({

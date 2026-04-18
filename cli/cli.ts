@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { printHuman, printJson } from "./format";
-import { CliError, resolveBaseUrl } from "./http";
+import { CliError } from "./error";
 import { renderRootHelp, runCliCommand } from "./commands";
 
 const extractGlobalOptions = (argv: string[]) => {
@@ -47,7 +47,7 @@ const extractGlobalOptions = (argv: string[]) => {
 	return {
 		args: remaining,
 		options: {
-			baseUrl: resolveBaseUrl(baseUrl),
+			baseUrlOverride: baseUrl,
 			help,
 			json,
 		},
