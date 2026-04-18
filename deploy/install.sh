@@ -34,6 +34,7 @@ PUPLER_PORT="${PUPLER_PORT:-5995}"
 PUPLER_BIND_ADDRESS="${PUPLER_BIND_ADDRESS:-127.0.0.1}"
 
 mkdir -p "$INSTALL_DIR"
+install -m 0755 "$(dirname "$0")/update.sh" "$INSTALL_DIR/update.sh"
 
 cat >"$INSTALL_DIR/compose.yaml" <<'EOF'
 services:
@@ -87,3 +88,4 @@ echo "Install dir: $INSTALL_DIR"
 echo "Service: $SERVICE_NAME"
 echo "Image: $PUPLER_IMAGE"
 echo "URL: http://${PUPLER_BIND_ADDRESS}:${PUPLER_PORT}"
+echo "Updater: $INSTALL_DIR/update.sh"

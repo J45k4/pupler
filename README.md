@@ -40,6 +40,7 @@ curl -fsSL https://raw.githubusercontent.com/J45k4/pupler/main/deploy/install.sh
 By default the installer:
 
 - writes the deployment bundle to `/opt/pupler`
+- installs `/opt/pupler/update.sh` for future updates
 - installs a `pupler` systemd service
 - uses the image `jaska/pupler:latest`
 - binds the service to `127.0.0.1:5995`
@@ -55,6 +56,12 @@ curl -fsSL https://raw.githubusercontent.com/J45k4/pupler/main/deploy/install.sh
 ```
 
 To update an existing install:
+
+```bash
+sudo /opt/pupler/update.sh
+```
+
+You can still run the updater directly from GitHub if needed:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/J45k4/pupler/main/deploy/update.sh | sudo bash
