@@ -2,9 +2,15 @@ name: Release CLI
 
 on:
   push:
+    branches:
+      - "**"
     tags:
       - "v*"
+  pull_request:
   workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 permissions:
   contents: write
