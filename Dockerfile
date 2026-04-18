@@ -24,4 +24,4 @@ VOLUME ["/data"]
 
 EXPOSE 5995
 
-CMD ["bun", "src/main.ts"]
+CMD ["sh", "-c", "bun run prisma:migrate:deploy && exec bun src/main.ts"]
