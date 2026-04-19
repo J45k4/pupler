@@ -127,6 +127,14 @@ type RecipeImage = {
 	created_at: string;
 };
 
+type DraftRecipeIngredient = {
+	name: string;
+	quantity: number;
+	unit: string;
+	is_optional: boolean;
+	notes: string | null;
+};
+
 let receiptDetailAbortController: AbortController | null = null;
 let productPageAbortController: AbortController | null = null;
 let productDetailAbortController: AbortController | null = null;
@@ -550,7 +558,7 @@ const renderRecipeCreatePage = () => {
 					<span class="eyebrow">Recipes</span>
 					<h1 class="page-title">Add recipe</h1>
 					<p class="page-copy">
-						Create the recipe shell first. Ingredients can be added on the detail page after this.
+						Add the recipe basics, ingredients, and cooking steps in one place.
 					</p>
 				</div>
 				<a class="secondary action-link" href="/recipes" data-link>Back To Recipes</a>
@@ -604,6 +612,49 @@ const renderRecipeCreatePage = () => {
 								placeholder="A quick weeknight pasta with pantry ingredients."
 							></textarea>
 						</label>
+
+						<section class="recipe-create-ingredients">
+							<div class="recipe-create-ingredient-form">
+								<label for="recipe-ingredient-draft-name">
+									Ingredient
+									<input
+										id="recipe-ingredient-draft-name"
+										placeholder="Salt"
+										autocomplete="off"
+									/>
+								</label>
+
+								<label for="recipe-ingredient-draft-quantity">
+									Quantity
+									<input
+										id="recipe-ingredient-draft-quantity"
+										type="number"
+										inputmode="decimal"
+										min="0.001"
+										step="0.001"
+										placeholder="2"
+									/>
+								</label>
+
+								${renderUnitSelect({
+									id: "recipe-ingredient-draft-unit",
+									name: "ingredient_unit",
+									label: "Unit",
+									selectedValue: "tsp",
+									placeholderLabel: "Choose unit",
+								})}
+
+								<button
+									id="add-recipe-ingredient-draft-button"
+									class="secondary"
+									type="button"
+								>Add</button>
+							</div>
+							<div
+								id="recipe-ingredient-preview"
+								class="recipe-create-ingredient-preview empty"
+							>No ingredients added yet.</div>
+						</section>
 
 						<label for="recipe-instructions">
 							Instructions
@@ -2927,6 +2978,120 @@ const attachShoppingListPageEvents = () => {
 };
 
 const attachRecipeCreatePageEvents = () => {
+	const draftIngredients: DraftRecipeIngredient[] = [];
+
+	const updateIngredientPreview = () => {
+		const preview = document.getElementById("recipe-ingredient-preview");
+		if (!preview) {
+			return;
+		}
+
+		if (!draftIngredients.length) {
+			preview.className = "recipe-create-ingredient-preview empty";
+			preview.textContent = "No ingredients added yet.";
+			return;
+		}
+
+		preview.className = "recipe-create-ingredient-preview";
+		preview.innerHTML = draftIngredients
+			.map(
+				(ingredient, index) => `
+					<div class="recipe-create-ingredient-preview__item">
+						<span>${escapeHtml(ingredient.name)}</span>
+						<div class="recipe-create-ingredient-preview__meta">
+							<strong>${escapeHtml(`${ingredient.quantity} ${ingredient.unit}`)}</strong>
+							<button
+								class="secondary"
+								type="button"
+								data-remove-recipe-ingredient-draft="${index}"
+							>Remove</button>
+						</div>
+					</div>
+				`,
+			)
+			.join("");
+	};
+
+	document
+		.getElementById("add-recipe-ingredient-draft-button")
+		?.addEventListener("click", () => {
+			const nameInput = document.getElementById("recipe-ingredient-draft-name");
+			const quantityInput = document.getElementById(
+				"recipe-ingredient-draft-quantity",
+			);
+			const unitInput = document.getElementById("recipe-ingredient-draft-unit");
+
+			if (
+				!(nameInput instanceof HTMLInputElement) ||
+				!(quantityInput instanceof HTMLInputElement) ||
+				!(unitInput instanceof HTMLSelectElement)
+			) {
+				return;
+			}
+
+			const name = nameInput.value.trim();
+			const quantity = Number.parseFloat(quantityInput.value);
+			const unit = unitInput.value.trim();
+			if (!name) {
+				setStatus("recipe-create-status", "Ingredient name is required", true);
+				return;
+			}
+			if (!Number.isFinite(quantity) || quantity <= 0) {
+				setStatus(
+					"recipe-create-status",
+					"Ingredient quantity must be greater than zero",
+					true,
+				);
+				return;
+			}
+			if (!unit) {
+				setStatus("recipe-create-status", "Ingredient unit is required", true);
+				return;
+			}
+
+			draftIngredients.push({
+				name,
+				quantity,
+				unit,
+				is_optional: false,
+				notes: null,
+			});
+			nameInput.value = "";
+			quantityInput.value = "";
+			setStatus("recipe-create-status", "");
+			updateIngredientPreview();
+			nameInput.focus();
+		});
+
+	document
+		.getElementById("recipe-ingredient-preview")
+		?.addEventListener("click", (event) => {
+			const target = event.target;
+			if (!(target instanceof HTMLElement)) {
+				return;
+			}
+
+			const removeButton = target.closest<HTMLButtonElement>(
+				"[data-remove-recipe-ingredient-draft]",
+			);
+			if (!removeButton) {
+				return;
+			}
+
+			const index = Number.parseInt(
+				removeButton.dataset.removeRecipeIngredientDraft ?? "",
+				10,
+			);
+			if (!Number.isInteger(index)) {
+				return;
+			}
+
+			draftIngredients.splice(index, 1);
+			updateIngredientPreview();
+		});
+
+	updateIngredientPreview();
+
 	document
 		.getElementById("recipe-create-form")
 		?.addEventListener("submit", async (event) => {
@@ -2978,11 +3143,25 @@ const attachRecipeCreatePageEvents = () => {
 					servings: parsedServings,
 					is_active: isActiveInput.checked,
 				});
+
+				for (const ingredient of draftIngredients) {
+					await createRecipeIngredient({
+						recipe_id: recipe.id,
+						ingredient_id: null,
+						product_id: null,
+						name: ingredient.name,
+						quantity: ingredient.quantity,
+						unit: ingredient.unit,
+						is_optional: ingredient.is_optional,
+						notes: ingredient.notes,
+					});
+				}
+
 				setStatus(
 					"recipe-create-status",
 					`Created recipe #${recipe.id}: ${recipe.name}`,
 				);
-				navigate("/recipes");
+				navigate(`/recipes/${recipe.id}`);
 			} catch (error) {
 				setStatus(
 					"recipe-create-status",
