@@ -10,7 +10,4 @@ services:
       PORT: "5995"
       DATA_PATH: ${DATA_PATH:-/data}
     volumes:
-      - pupler-data:/data
-
-volumes:
-  pupler-data:
+      - ${PUPLER_DATA_DIR:-./data}:/data

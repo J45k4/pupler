@@ -44,6 +44,7 @@ By default the installer:
 - installs a `pupler` systemd service
 - uses the image `jaska/pupler:latest`
 - binds the service to `0.0.0.0:5995`
+- stores persistent data in a host bind mount at `/opt/pupler/data`
 
 You can override those defaults:
 
@@ -51,6 +52,7 @@ You can override those defaults:
 curl -fsSL https://raw.githubusercontent.com/J45k4/pupler/main/deploy/install.sh | \
   sudo PUPLER_IMAGE=jaska/pupler:latest \
   PUPLER_PORT=5995 \
+  PUPLER_DATA_DIR=/opt/pupler/data \
   bash
 ```
 

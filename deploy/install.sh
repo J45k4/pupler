@@ -33,8 +33,10 @@ PUPLER_IMAGE="${PUPLER_IMAGE:-${IMAGE_REPO}:${IMAGE_TAG}}"
 PUPLER_VERSION="${PUPLER_VERSION:-${IMAGE_TAG}}"
 PUPLER_PORT="${PUPLER_PORT:-5995}"
 PUPLER_BIND_ADDRESS="${PUPLER_BIND_ADDRESS:-0.0.0.0}"
+PUPLER_DATA_DIR="${PUPLER_DATA_DIR:-${INSTALL_DIR}/data}"
 
 mkdir -p "$INSTALL_DIR"
+mkdir -p "$PUPLER_DATA_DIR"
 install -m 0755 "$(dirname "$0")/update.sh" "$INSTALL_DIR/update.sh"
 
 cat >"$INSTALL_DIR/compose.yaml" <<'EOF'
@@ -50,10 +52,7 @@ services:
       PORT: "5995"
       DATA_PATH: ${DATA_PATH:-/data}
     volumes:
-      - pupler-data:/data
-
-volumes:
-  pupler-data:
+      - ${PUPLER_DATA_DIR:-./data}:/data
 EOF
 
 cat >"$INSTALL_DIR/.env" <<EOF
@@ -61,6 +60,7 @@ PUPLER_IMAGE=${PUPLER_IMAGE}
 PUPLER_VERSION=${PUPLER_VERSION}
 PUPLER_PORT=${PUPLER_PORT}
 PUPLER_BIND_ADDRESS=${PUPLER_BIND_ADDRESS}
+PUPLER_DATA_DIR=${PUPLER_DATA_DIR}
 DATA_PATH=/data
 EOF
 
@@ -91,5 +91,6 @@ echo "Install dir: $INSTALL_DIR"
 echo "Service: $SERVICE_NAME"
 echo "Image: $PUPLER_IMAGE"
 echo "Version: $PUPLER_VERSION"
+echo "Data dir: $PUPLER_DATA_DIR"
 echo "URL: http://${PUPLER_BIND_ADDRESS}:${PUPLER_PORT}"
 echo "Updater: $INSTALL_DIR/update.sh"
