@@ -21,6 +21,8 @@ export const productDetailSelect = {
 	barcode: true,
 	default_unit: true,
 	is_perishable: true,
+	picture_filename: true,
+	picture_uploaded_at: true,
 	created_at: true,
 	updated_at: true,
 	ingredient: {

@@ -1298,6 +1298,10 @@ body.modal-open {
 	grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
 }
 
+.product-picture__form {
+	margin-top: 1rem;
+}
+
 .empty {
 	padding: 1.25rem;
 	border: 1px dashed var(--line);

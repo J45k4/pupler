@@ -21,6 +21,8 @@ type Product = {
 	barcode: string | null;
 	default_unit: string | null;
 	is_perishable: boolean;
+	picture_filename?: string | null;
+	picture_uploaded_at?: string | null;
 	created_at: string;
 	updated_at: string;
 	ingredient?: IngredientSummary | null;
@@ -244,6 +246,49 @@ const UNIT_GROUPS = [
 const KNOWN_UNIT_VALUES = new Set(
 	UNIT_GROUPS.flatMap((group) => group.options.map(([value]) => value)),
 );
+
+const PRODUCT_CATEGORY_OPTIONS = [
+	["food", "Food"],
+	["drink", "Drink"],
+	["household", "Household"],
+	["cleaning", "Cleaning"],
+	["personal care", "Personal Care"],
+	["health", "Health"],
+	["pet", "Pet"],
+	["other", "Other"],
+] as const;
+
+const renderProductCategoryInput = (options: {
+	id: string;
+	name?: string;
+	label: string;
+	value?: string | null;
+	placeholder?: string;
+	required?: boolean;
+}) => {
+	const listId = `${options.id}-options`;
+
+	return `
+		<label for="${options.id}">
+			${options.label}
+			<input
+				id="${options.id}"
+				${options.name ? `name="${options.name}"` : ""}
+				list="${listId}"
+				value="${escapeHtml(options.value ?? "")}"
+				placeholder="${escapeHtml(options.placeholder ?? "food")}"
+				${options.required ? "required" : ""}
+			/>
+			<datalist id="${listId}">
+				${PRODUCT_CATEGORY_OPTIONS.map(
+					([value, label]) => `
+						<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>
+					`,
+				).join("")}
+			</datalist>
+		</label>
+	`;
+};
 
 const renderUnitSelectOptions = (
 	selectedValue: string | null,
@@ -1124,6 +1169,10 @@ const renderProductDetail = (product: Product) => {
 		return;
 	}
 
+	const pictureUrl = product.picture_uploaded_at
+		? `/api/products/${product.id}/picture?updated=${encodeURIComponent(product.picture_uploaded_at)}`
+		: `/api/products/${product.id}/picture`;
+
 	page.innerHTML = `
 		<section class="page-heading page-heading--compact">
 			<div>
@@ -1139,12 +1188,30 @@ const renderProductDetail = (product: Product) => {
 				<div class="receipt-picture">
 					<img
 						class="receipt-picture__image"
-						src="/api/products/${product.id}/picture"
+						src="${pictureUrl}"
 						alt="${escapeHtml(product.name)}"
 						loading="lazy"
 						onerror="this.closest('.receipt-picture').innerHTML='<div class=&quot;empty&quot;>No product picture uploaded.</div>'"
 					/>
 				</div>
+				<form id="product-picture-form" class="product-picture__form">
+					${renderUploadDropzone({
+						inputId: "product-picture-input",
+						label: "Picture",
+						name: "picture",
+						submitOnDrop: true,
+						emptyText: "Choose a product image or drop one here.",
+					})}
+					<div class="actions">
+						<button class="secondary" type="submit">Upload Picture</button>
+						${
+							product.picture_uploaded_at
+								? '<button class="secondary" type="button" id="product-picture-delete">Remove Picture</button>'
+								: ""
+						}
+					</div>
+				</form>
+				<div id="product-picture-status" class="status"></div>
 			</div>
 
 			<div class="card panel">
@@ -1163,10 +1230,12 @@ const renderProductDetail = (product: Product) => {
 					</label>
 
 					<div class="row">
-						<label>
-							Category
-							<input id="product-detail-category" value="${escapeHtml(product.category)}" required />
-						</label>
+						${renderProductCategoryInput({
+							id: "product-detail-category",
+							label: "Category",
+							value: product.category,
+							required: true,
+						})}
 
 						${renderUnitSelect({
 							id: "product-detail-default-unit",
@@ -1221,6 +1290,8 @@ const renderProductDetail = (product: Product) => {
 			</div>
 		</section>
 	`;
+
+	attachUploadDropzones(page);
 };
 
 const renderShoppingListItems = (items: ShoppingListItem[]) => {
@@ -2460,6 +2531,16 @@ const uploadProductPicture = async (productId: number, file: File) => {
 	}
 };
 
+const deleteProductPicture = async (productId: number) => {
+	const response = await fetch(`/api/products/${productId}/picture`, {
+		method: "DELETE",
+	});
+	if (!response.ok) {
+		const body = (await response.json()) as { error?: string };
+		throw new Error(body.error ?? "Failed to remove product picture");
+	}
+};
+
 const uploadReceiptPicture = async (receiptId: number, file: File) => {
 	const formData = new FormData();
 	formData.set("file", file);
@@ -2800,6 +2881,76 @@ const attachProductPageEvents = () => {
 const attachProductDetailEvents = (productId: number) => {
 	productDetailAbortController?.abort();
 	productDetailAbortController = new AbortController();
+
+	const refreshProductDetail = async () => {
+		const updated = await fetchProduct(productId);
+		renderProductDetail(updated);
+		attachProductDetailEvents(updated.id);
+		return updated;
+	};
+
+	const pictureForm = document.getElementById("product-picture-form");
+	if (pictureForm instanceof HTMLFormElement) {
+		pictureForm.addEventListener(
+			"submit",
+			async (event) => {
+				event.preventDefault();
+
+				const pictureInput = document.getElementById("product-picture-input");
+				if (!(pictureInput instanceof HTMLInputElement)) {
+					return;
+				}
+
+				const picture = pictureInput.files?.[0];
+				if (!picture) {
+					setStatus(
+						"product-picture-status",
+						"Choose an image before uploading.",
+						true,
+					);
+					return;
+				}
+
+				try {
+					await uploadProductPicture(productId, picture);
+					const updated = await refreshProductDetail();
+					setStatus(
+						"product-picture-status",
+						`Uploaded picture for ${updated.name}.`,
+					);
+				} catch (error) {
+					setStatus(
+						"product-picture-status",
+						error instanceof Error
+							? error.message
+							: "Failed to upload product picture",
+						true,
+					);
+				}
+			},
+			{ signal: productDetailAbortController.signal },
+		);
+	}
+
+	document.getElementById("product-picture-delete")?.addEventListener(
+		"click",
+		async () => {
+			try {
+				await deleteProductPicture(productId);
+				const updated = await refreshProductDetail();
+				setStatus("product-picture-status", `Removed picture for ${updated.name}.`);
+			} catch (error) {
+				setStatus(
+					"product-picture-status",
+					error instanceof Error
+						? error.message
+						: "Failed to remove product picture",
+					true,
+				);
+			}
+		},
+		{ signal: productDetailAbortController.signal },
+	);
 
 	const form = document.getElementById("product-detail-form");
 	if (!(form instanceof HTMLFormElement)) {
@@ -3731,10 +3882,12 @@ const renderProductsPage = () => {
 						</label>
 
 						<div class="row">
-							<label>
-								Category
-								<input id="category" name="category" placeholder="food" required />
-							</label>
+							${renderProductCategoryInput({
+								id: "category",
+								name: "category",
+								label: "Category",
+								required: true,
+							})}
 
 							${renderUnitSelect({
 								id: "default_unit",
