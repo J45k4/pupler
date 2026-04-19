@@ -4,7 +4,7 @@ services:
     container_name: pupler
     restart: unless-stopped
     ports:
-      - "${PUPLER_BIND_ADDRESS:-127.0.0.1}:${PUPLER_PORT:-5995}:5995"
+      - "${PUPLER_BIND_ADDRESS:-0.0.0.0}:${PUPLER_PORT:-5995}:5995"
     environment:
       PUPLER_VERSION: ${PUPLER_VERSION:-latest}
       PORT: "5995"

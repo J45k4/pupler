@@ -32,7 +32,7 @@ IMAGE_TAG="${PUPLER_IMAGE_TAG:-latest}"
 PUPLER_IMAGE="${PUPLER_IMAGE:-${IMAGE_REPO}:${IMAGE_TAG}}"
 PUPLER_VERSION="${PUPLER_VERSION:-${IMAGE_TAG}}"
 PUPLER_PORT="${PUPLER_PORT:-5995}"
-PUPLER_BIND_ADDRESS="${PUPLER_BIND_ADDRESS:-127.0.0.1}"
+PUPLER_BIND_ADDRESS="${PUPLER_BIND_ADDRESS:-0.0.0.0}"
 
 mkdir -p "$INSTALL_DIR"
 install -m 0755 "$(dirname "$0")/update.sh" "$INSTALL_DIR/update.sh"
@@ -44,7 +44,7 @@ services:
     container_name: pupler
     restart: unless-stopped
     ports:
-      - "${PUPLER_BIND_ADDRESS:-127.0.0.1}:${PUPLER_PORT:-5995}:5995"
+      - "${PUPLER_BIND_ADDRESS:-0.0.0.0}:${PUPLER_PORT:-5995}:5995"
     environment:
       PUPLER_VERSION: ${PUPLER_VERSION:-latest}
       PORT: "5995"

@@ -43,14 +43,13 @@ By default the installer:
 - installs `/opt/pupler/update.sh` for future updates
 - installs a `pupler` systemd service
 - uses the image `jaska/pupler:latest`
-- binds the service to `127.0.0.1:5995`
+- binds the service to `0.0.0.0:5995`
 
 You can override those defaults:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/J45k4/pupler/main/deploy/install.sh | \
   sudo PUPLER_IMAGE=jaska/pupler:latest \
-  PUPLER_BIND_ADDRESS=0.0.0.0 \
   PUPLER_PORT=5995 \
   bash
 ```
