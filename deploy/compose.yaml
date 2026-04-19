@@ -6,7 +6,7 @@ services:
     ports:
       - "${PUPLER_BIND_ADDRESS:-127.0.0.1}:${PUPLER_PORT:-5995}:5995"
     environment:
-      APP_VERSION: ${PUPLER_IMAGE:-ghcr.io/j45k4/pupler:latest}
+      PUPLER_VERSION: ${PUPLER_VERSION:-latest}
       PORT: "5995"
       DATA_PATH: ${DATA_PATH:-/data}
     volumes:

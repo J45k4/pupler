@@ -41,12 +41,11 @@ type ServerOptions = {
 
 type Environment = Record<string, string | undefined>;
 
-export const resolveAppVersion = (env: Environment = process.env) =>
-	env.APP_VERSION ?? "dev";
+export const resolvePuplerVersion = (env: Environment = process.env) =>
+	env.PUPLER_VERSION ?? "dev";
 
 export const versionPayload = (env: Environment = process.env) => ({
-	version: resolveAppVersion(env),
-	app_version: resolveAppVersion(env),
+	version: resolvePuplerVersion(env),
 });
 
 export const resolveDatabasePath = (
@@ -124,7 +123,7 @@ export const server = (options: ServerOptions = {}) => {
 };
 
 if (import.meta.main) {
-	const version = resolveAppVersion();
+	const version = resolvePuplerVersion();
 	const dbPath = resolveDatabasePath();
 	const filesPath = resolveFilesPath(dbPath);
 	const instance = server({ dbPath, filesPath });

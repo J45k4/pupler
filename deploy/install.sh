@@ -30,6 +30,7 @@ SERVICE_NAME="${PUPLER_SERVICE_NAME:-pupler}"
 IMAGE_REPO="${PUPLER_IMAGE_REPO:-jaska/pupler}"
 IMAGE_TAG="${PUPLER_IMAGE_TAG:-latest}"
 PUPLER_IMAGE="${PUPLER_IMAGE:-${IMAGE_REPO}:${IMAGE_TAG}}"
+PUPLER_VERSION="${PUPLER_VERSION:-${IMAGE_TAG}}"
 PUPLER_PORT="${PUPLER_PORT:-5995}"
 PUPLER_BIND_ADDRESS="${PUPLER_BIND_ADDRESS:-127.0.0.1}"
 
@@ -45,7 +46,7 @@ services:
     ports:
       - "${PUPLER_BIND_ADDRESS:-127.0.0.1}:${PUPLER_PORT:-5995}:5995"
     environment:
-      APP_VERSION: ${PUPLER_IMAGE:-jaska/pupler:latest}
+      PUPLER_VERSION: ${PUPLER_VERSION:-latest}
       PORT: "5995"
       DATA_PATH: ${DATA_PATH:-/data}
     volumes:
@@ -57,6 +58,7 @@ EOF
 
 cat >"$INSTALL_DIR/.env" <<EOF
 PUPLER_IMAGE=${PUPLER_IMAGE}
+PUPLER_VERSION=${PUPLER_VERSION}
 PUPLER_PORT=${PUPLER_PORT}
 PUPLER_BIND_ADDRESS=${PUPLER_BIND_ADDRESS}
 DATA_PATH=/data
@@ -88,5 +90,6 @@ echo "Pupler installed."
 echo "Install dir: $INSTALL_DIR"
 echo "Service: $SERVICE_NAME"
 echo "Image: $PUPLER_IMAGE"
+echo "Version: $PUPLER_VERSION"
 echo "URL: http://${PUPLER_BIND_ADDRESS}:${PUPLER_PORT}"
 echo "Updater: $INSTALL_DIR/update.sh"

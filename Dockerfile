@@ -16,7 +16,7 @@ RUN bun run prisma:generate
 RUN chmod +x ./run.sh
 
 ENV NODE_ENV=production
-ENV APP_VERSION=$version
+ENV PUPLER_VERSION=$version
 ENV PORT=5995
 ENV DATA_PATH=/data
 

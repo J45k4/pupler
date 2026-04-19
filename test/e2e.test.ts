@@ -25,11 +25,10 @@ describe("Pupler API e2e", () => {
 	test("serves the app version endpoint", async () => {
 		const server = await startServer();
 
-		const version = await server.call<{ version: string; app_version: string }>("/version");
+		const version = await server.call<{ version: string }>("/version");
 		expect(version.response.status).toBe(200);
 		expect(version.body).toEqual({
 			version: "dev",
-			app_version: "dev",
 		});
 	});
 

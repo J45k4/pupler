@@ -136,7 +136,6 @@ describe("Pupler API", () => {
 		expect(response.status).toBe(200);
 		expect(await response.json()).toEqual({
 			version: "dev",
-			app_version: "dev",
 		});
 	});
 
