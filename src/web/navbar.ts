@@ -1,11 +1,11 @@
 export const renderNavbar = (currentPath: string) => {
 	const items = [
-		{ href: "/", label: "Overview" },
-		{ href: "/products", label: "Products" },
-		{ href: "/inventory", label: "Inventory" },
-		{ href: "/receipts", label: "Receipts" },
-		{ href: "/shopping-lists", label: "Shoppinglist" },
-		{ href: "/recipes", label: "Recipes" },
+		{ href: "/", label: "Overview", mobileLabel: "Home" },
+		{ href: "/products", label: "Products", mobileLabel: "Products" },
+		{ href: "/inventory", label: "Inventory", mobileLabel: "Inventory" },
+		{ href: "/receipts", label: "Receipts", mobileLabel: "Receipts" },
+		{ href: "/shopping-lists", label: "Shoppinglist", mobileLabel: "Shopping" },
+		{ href: "/recipes", label: "Recipes", mobileLabel: "Recipes" },
 	];
 
 	return `
@@ -16,14 +16,14 @@ export const renderNavbar = (currentPath: string) => {
 				</a>
 				<nav class="navbar" aria-label="Primary">
 					${items
-						.map(({ href, label }) => {
+						.map(({ href, label, mobileLabel }) => {
 							const isActive =
 								href === "/"
 									? currentPath === href
 									: currentPath === href ||
 										currentPath.startsWith(`${href}/`);
 							const active = isActive ? " navbar__link--active" : "";
-							return `<a class="navbar__link${active}" href="${href}" data-link>${label}</a>`;
+							return `<a class="navbar__link${active}" href="${href}" data-link aria-label="${label}"><span class="navbar__label navbar__label--desktop">${label}</span><span class="navbar__label navbar__label--mobile">${mobileLabel}</span></a>`;
 						})
 						.join("")}
 				</nav>
