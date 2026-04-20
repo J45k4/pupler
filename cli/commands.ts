@@ -31,7 +31,7 @@ type ResourceConfig = {
 	hasPicture?: boolean;
 };
 
-type FlagValue = string | boolean;
+type FlagValue = string | true;
 type ParsedArgs = {
 	flags: Record<string, FlagValue>;
 	positionals: string[];
@@ -307,6 +307,60 @@ const CONFIG_COMMANDS = ["show", "path", "get-url", "set-url", "clear-url"];
 const toFlagName = (field: string) => field.replace(/_/g, "-");
 const normalizeFlagName = (value: string) => value.replace(/-/g, "_");
 
+const describeFieldValue = (spec: FieldSpec) => {
+	const base =
+		spec.type === "boolean"
+			? "true|false"
+			: spec.type === "date"
+				? "YYYY-MM-DD"
+				: spec.type === "timestamp"
+					? "ISO timestamp"
+					: spec.type;
+	return `<${spec.nullable ? `${base}|null` : base}>`;
+};
+
+const renderFieldFlags = (fields: Record<string, FieldSpec>) =>
+	Object.entries(fields)
+		.map(
+			([field, spec]) =>
+				`  --${toFlagName(field)} ${describeFieldValue(spec)}`,
+		)
+		.join("\n");
+
+const renderResourceExamples = (resource: ResourceConfig) => {
+	if (resource.command !== "inventory-items") {
+		return "";
+	}
+
+	return `
+Common inventory item workflows:
+  # Find IDs before linking
+  bun ./cli/cli.ts products list --name Milk
+  bun ./cli/cli.ts receipt-items list --receipt-id 1
+  bun ./cli/cli.ts inventory-items list --name Milk
+
+  # Link an inventory item to a product or receipt line
+  bun ./cli/cli.ts inventory-items update 7 --product-id 42
+  bun ./cli/cli.ts inventory-items update 7 --receipt-item-id 17
+
+  # Link both at once
+  bun ./cli/cli.ts inventory-items update 7 --product-id 42 --receipt-item-id 17
+
+  # Clear links or optional timestamps with null
+  bun ./cli/cli.ts inventory-items update 7 --product-id null
+  bun ./cli/cli.ts inventory-items update 7 --receipt-item-id null
+
+  # Set or clear an expiration date
+  bun ./cli/cli.ts inventory-items update 7 --expires-at 2026-05-01T00:00:00.000Z
+  bun ./cli/cli.ts inventory-items update 7 --expires-at null
+
+Notes:
+  --product-id links to a products row.
+  --receipt-item-id links to a receipt-items row.
+  Timestamp flags expect ISO timestamp strings.
+`;
+};
+
 const parseBoolean = (raw: string) => {
 	const normalized = raw.trim().toLowerCase();
 	if (["true", "1", "yes"].includes(normalized)) {
@@ -520,9 +574,7 @@ const resolveRequestBaseUrl = (globalOptions: GlobalOptions) =>
 	resolveBaseUrl(globalOptions.baseUrlOverride);
 
 const renderResourceHelp = (resource: ResourceConfig) => {
-	const fields = Object.keys(resource.fields)
-		.map((field) => `  --${toFlagName(field)}`)
-		.join("\n");
+	const fields = renderFieldFlags(resource.fields);
 	const commands = [...CRUD_COMMANDS];
 	if (resource.hasPicture) {
 		commands.push("picture");
@@ -537,16 +589,14 @@ Commands:
 
 Writable flags:
 ${fields}
+${renderResourceExamples(resource)}
 `;
 };
 
 const renderCommandHelp = (resource: ResourceConfig, command: string) => {
-	const writableFlags = Object.keys(resource.fields)
-		.map((field) => `  --${toFlagName(field)}`)
-		.join("\n");
-	const filterFlags = Object.keys(resource.queryFields)
-		.map((field) => `  --${toFlagName(field)}`)
-		.join("\n");
+	const writableFlags = renderFieldFlags(resource.fields);
+	const filterFlags = renderFieldFlags(resource.queryFields);
+	const examples = renderResourceExamples(resource);
 
 	switch (command) {
 		case "list":
@@ -556,6 +606,7 @@ Filters:
 ${filterFlags}
   --sort
   --order
+${examples}
 `;
 		case "get":
 			return `Usage: bun ./cli/cli.ts ${resource.command} get <id>`;
@@ -565,6 +616,7 @@ ${filterFlags}
 Writable flags:
 ${writableFlags}
   --data @payload.json
+${examples}
 `;
 		case "replace":
 			return `Usage: bun ./cli/cli.ts ${resource.command} replace <id> [flags]
@@ -572,6 +624,7 @@ ${writableFlags}
 Writable flags:
 ${writableFlags}
   --data @payload.json
+${examples}
 `;
 		case "update":
 			return `Usage: bun ./cli/cli.ts ${resource.command} update <id> [flags]
@@ -579,6 +632,7 @@ ${writableFlags}
 Writable flags:
 ${writableFlags}
   --data @payload.json
+${examples}
 `;
 		case "delete":
 			return `Usage: bun ./cli/cli.ts ${resource.command} delete <id>`;

@@ -78,6 +78,21 @@ afterEach(async () => {
 });
 
 describe("Pupler CLI", () => {
+	test("documents inventory item linking in help output", async () => {
+		const help = await runCli(["inventory-items", "update", "--help"]);
+
+		expect(help.exitCode).toBe(0);
+		expect(help.stdout).toContain("--product-id <integer|null>");
+		expect(help.stdout).toContain("--receipt-item-id <integer|null>");
+		expect(help.stdout).toContain(
+			"bun ./cli/cli.ts inventory-items update 7 --product-id 42",
+		);
+		expect(help.stdout).toContain(
+			"bun ./cli/cli.ts inventory-items update 7 --receipt-item-id null",
+		);
+		expect(help.stdout).toContain("--expires-at 2026-05-01T00:00:00.000Z");
+	});
+
 	test("creates and lists ingredients as JSON", async () => {
 		const server = await startServer();
 
