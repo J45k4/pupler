@@ -104,6 +104,7 @@ export const server = (options: ServerOptions = {}) => {
 				{ status: 404 },
 			),
 			"/": index,
+			"/expirations": index,
 			"/inventory": index,
 			"/inventory/containers/:id": index,
 			"/products": index,

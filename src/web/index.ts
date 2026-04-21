@@ -141,6 +141,7 @@ let receiptDetailAbortController: AbortController | null = null;
 let productPageAbortController: AbortController | null = null;
 let productDetailAbortController: AbortController | null = null;
 let productInfiniteScroll: InfiniteScroll<Product> | null = null;
+let expirationInfiniteScroll: InfiniteScroll<InventoryItem> | null = null;
 let inventoryTreeState: {
 	containers: InventoryContainer[];
 	items: InventoryItem[];
@@ -150,6 +151,8 @@ let collapsedInventoryContainerIds = new Set<number>();
 const render = (html: string) => {
 	productInfiniteScroll?.destroy();
 	productInfiniteScroll = null;
+	expirationInfiniteScroll?.destroy();
+	expirationInfiniteScroll = null;
 	document.body.classList.remove("modal-open");
 	document.body.innerHTML = html;
 };
@@ -540,7 +543,56 @@ const getShoppingListMode = () => {
 };
 
 const renderOverviewPage = () => {
-	renderPage("");
+	renderPage(
+		`
+			<section class="dashboard-grid">
+				<div class="card panel dashboard-spending-panel">
+					<div class="section-header">
+						<h2>Spending Last 30 Days</h2>
+						<a class="secondary action-link" href="/receipts" data-link>Receipts</a>
+					</div>
+					<div id="dashboard-spending-summary"></div>
+					<div id="dashboard-spending-status" class="status"></div>
+				</div>
+
+				<div class="card panel inventory-expiration-panel">
+					<div class="section-header">
+						<h2>Expiration Dates</h2>
+						<a class="secondary action-link" href="/expirations" data-link>View All</a>
+					</div>
+					<div id="dashboard-expiration-list"></div>
+					<div id="dashboard-expiration-status" class="status"></div>
+				</div>
+			</section>
+		`,
+	);
+
+	void loadDashboardSpendingSummary();
+	void loadDashboardExpirationPreview();
+};
+
+const renderExpirationsPage = () => {
+	renderPage(
+		`
+			<section class="page-heading page-heading--compact">
+				<div>
+					<h1 class="page-title">Expirations</h1>
+				</div>
+				<a class="secondary action-link" href="/" data-link>Back To Overview</a>
+			</section>
+
+			<section class="workspace workspace--single">
+				<div class="card panel inventory-expiration-panel">
+					<div class="section-header section-header--end">
+						<div id="expiration-status" class="status"></div>
+					</div>
+					<div id="expiration-results"></div>
+				</div>
+			</section>
+		`,
+	);
+
+	void loadExpirationPageData();
 };
 
 const renderRecipesPage = () => {
@@ -1401,6 +1453,235 @@ const getInventoryItemMeta = (item: InventoryItem) => {
 	}
 
 	return parts.join(" • ");
+};
+
+const compareInventoryItemsByExpiration = (
+	left: InventoryItem,
+	right: InventoryItem,
+) => {
+	if (left.expires_at && right.expires_at) {
+		const dateComparison =
+			Date.parse(left.expires_at) - Date.parse(right.expires_at);
+		if (dateComparison !== 0) {
+			return dateComparison;
+		}
+	}
+	if (left.expires_at) return -1;
+	if (right.expires_at) return 1;
+	return left.name.localeCompare(right.name);
+};
+
+const getExpirationTag = (item: InventoryItem) => {
+	if (!item.expires_at) {
+		return {
+			className: "tag tag--neutral",
+			label: "No date",
+		};
+	}
+
+	const now = new Date();
+	const today = new Date(
+		now.getFullYear(),
+		now.getMonth(),
+		now.getDate(),
+	).getTime();
+	const expires = new Date(item.expires_at);
+	const expiresDay = new Date(
+		expires.getFullYear(),
+		expires.getMonth(),
+		expires.getDate(),
+	).getTime();
+	const daysUntilExpiration = Math.round(
+		(expiresDay - today) / 86_400_000,
+	);
+
+	if (daysUntilExpiration < 0) {
+		return {
+			className: "tag tag--danger",
+			label: "Expired",
+		};
+	}
+	if (daysUntilExpiration === 0) {
+		return {
+			className: "tag tag--warning",
+			label: "Today",
+		};
+	}
+	if (daysUntilExpiration <= 3) {
+		return {
+			className: "tag tag--warning",
+			label: `${daysUntilExpiration}d`,
+		};
+	}
+	return {
+		className: "tag",
+		label: `${daysUntilExpiration}d`,
+	};
+};
+
+const getInventoryItemLocation = (
+	item: InventoryItem,
+	containersById: Map<number, string>,
+) =>
+	item.container_id === null
+		? "Top level"
+		: (containersById.get(item.container_id) ?? "Unknown container");
+
+const renderExpirationItem = (
+	item: InventoryItem,
+	containersById: Map<number, string>,
+) => {
+	const tag = getExpirationTag(item);
+	const location = getInventoryItemLocation(item, containersById);
+
+	return `
+		<div class="inventory-expiration-item">
+			<div class="inventory-expiration-item__main">
+				<strong>${escapeHtml(item.name)}</strong>
+				<div class="inventory-node__meta">
+					<span>${item.quantity} ${escapeHtml(item.unit)}</span>
+					<span>${escapeHtml(location)}</span>
+					<span>${
+						item.expires_at
+							? `Expires ${formatReceiptDateTime(item.expires_at)}`
+							: "No expiration date"
+					}</span>
+				</div>
+			</div>
+			<span class="${tag.className}">${escapeHtml(tag.label)}</span>
+		</div>
+	`;
+};
+
+const createContainerNameMap = (containers: InventoryContainer[]) =>
+	new Map(containers.map((container) => [container.id, container.name]));
+
+const sortInventoryItemsByExpiration = (items: InventoryItem[]) =>
+	[...items].sort(compareInventoryItemsByExpiration);
+
+const renderExpirationPreview = (
+	containers: InventoryContainer[],
+	items: InventoryItem[],
+) => {
+	const root = document.getElementById("dashboard-expiration-list");
+	if (!root) {
+		return;
+	}
+
+	if (!items.length) {
+		root.innerHTML = '<div class="empty">No active inventory items.</div>';
+		return;
+	}
+
+	const containersById = createContainerNameMap(containers);
+	const sortedItems = sortInventoryItemsByExpiration(items).slice(0, 5);
+
+	root.innerHTML = `
+		<div class="inventory-expiration-list">
+			${sortedItems
+				.map((item) => renderExpirationItem(item, containersById))
+				.join("")}
+		</div>
+	`;
+};
+
+const renderExpirationResults = (
+	containers: InventoryContainer[],
+	items: InventoryItem[],
+) => {
+	const root = document.getElementById("expiration-results");
+	if (!root) {
+		return;
+	}
+
+	const containersById = createContainerNameMap(containers);
+	expirationInfiniteScroll?.destroy();
+	expirationInfiniteScroll = new InfiniteScroll(
+		{
+			batchSize: 20,
+			emptyHtml: '<div class="empty">No active inventory items.</div>',
+			renderItem: (item) => renderExpirationItem(item, containersById),
+			root,
+		},
+		sortInventoryItemsByExpiration(items),
+	);
+	expirationInfiniteScroll.render();
+};
+
+const getLast30DaysReceipts = (receipts: PurchaseReceipt[]) => {
+	const cutoff = new Date();
+	cutoff.setDate(cutoff.getDate() - 30);
+
+	return receipts.filter(
+		(receipt) => new Date(receipt.purchased_at).getTime() >= cutoff.getTime(),
+	);
+};
+
+const getSpendingTotalsByCurrency = (receipts: PurchaseReceipt[]) => {
+	const totals = new Map<string, number>();
+
+	for (const receipt of receipts) {
+		if (receipt.total_amount === null) {
+			continue;
+		}
+		totals.set(
+			receipt.currency,
+			(totals.get(receipt.currency) ?? 0) + receipt.total_amount,
+		);
+	}
+
+	return [...totals.entries()].sort(([leftCurrency], [rightCurrency]) =>
+		leftCurrency.localeCompare(rightCurrency),
+	);
+};
+
+const renderSpendingSummary = (receipts: PurchaseReceipt[]) => {
+	const root = document.getElementById("dashboard-spending-summary");
+	if (!root) {
+		return;
+	}
+
+	const recentReceipts = getLast30DaysReceipts(receipts);
+	const totals = getSpendingTotalsByCurrency(recentReceipts);
+	const missingTotalCount = recentReceipts.filter(
+		(receipt) => receipt.total_amount === null,
+	).length;
+
+	if (!recentReceipts.length) {
+		root.innerHTML =
+			'<div class="empty">No receipts in the last 30 days.</div>';
+		return;
+	}
+
+	root.innerHTML = `
+		<div class="dashboard-spending-summary">
+			<div class="dashboard-spending-summary__metric">
+				<span>Receipts</span>
+				<strong>${recentReceipts.length}</strong>
+			</div>
+			<div class="dashboard-spending-summary__totals">
+				${
+					totals.length
+						? totals
+								.map(
+									([currency, total]) => `
+										<div class="dashboard-spending-total">
+											<span>${escapeHtml(currency)}</span>
+											<strong>${formatMoney(total, currency)}</strong>
+										</div>
+									`,
+								)
+								.join("")
+						: '<div class="empty">No receipt totals recorded.</div>'
+				}
+			</div>
+			${
+				missingTotalCount
+					? `<div class="section-copy">${missingTotalCount} receipt(s) have no total amount.</div>`
+					: ""
+			}
+		</div>
+	`;
 };
 
 const renderInventoryTree = (
@@ -2399,6 +2680,77 @@ const loadInventoryPageData = async (statusMessage?: string) => {
 			error instanceof Error
 				? error.message
 				: "Failed to load inventory.",
+			true,
+		);
+	}
+};
+
+const loadDashboardSpendingSummary = async () => {
+	try {
+		const receipts = await fetchReceipts();
+		const recentReceipts = getLast30DaysReceipts(receipts);
+		renderSpendingSummary(receipts);
+		setStatus(
+			"dashboard-spending-status",
+			recentReceipts.length
+				? `${recentReceipts.length} receipt(s) in the last 30 days.`
+				: "No receipts in the last 30 days.",
+		);
+	} catch (error) {
+		renderSpendingSummary([]);
+		setStatus(
+			"dashboard-spending-status",
+			error instanceof Error ? error.message : "Failed to load spending.",
+			true,
+		);
+	}
+};
+
+const loadDashboardExpirationPreview = async () => {
+	try {
+		const [items, containers] = await Promise.all([
+			fetchInventoryItems(),
+			fetchInventoryContainers(),
+		]);
+		renderExpirationPreview(containers, items);
+		setStatus(
+			"dashboard-expiration-status",
+			items.length
+				? `${Math.min(items.length, 5)} of ${items.length} active item(s).`
+				: "No active inventory items.",
+		);
+	} catch (error) {
+		renderExpirationPreview([], []);
+		setStatus(
+			"dashboard-expiration-status",
+			error instanceof Error
+				? error.message
+				: "Failed to load expiration dates.",
+			true,
+		);
+	}
+};
+
+const loadExpirationPageData = async () => {
+	try {
+		const [items, containers] = await Promise.all([
+			fetchInventoryItems(),
+			fetchInventoryContainers(),
+		]);
+		renderExpirationResults(containers, items);
+		setStatus(
+			"expiration-status",
+			items.length
+				? `Loaded ${items.length} active item(s).`
+				: "No active inventory items.",
+		);
+	} catch (error) {
+		renderExpirationResults([], []);
+		setStatus(
+			"expiration-status",
+			error instanceof Error
+				? error.message
+				: "Failed to load expiration dates.",
 			true,
 		);
 	}
@@ -4805,6 +5157,7 @@ window.onload = () => {
 
 	routes({
 		"/": renderOverviewPage,
+		"/expirations": renderExpirationsPage,
 		"/inventory": renderInventoryPage,
 		"/inventory/containers/:id": renderInventoryContainerDetailPage,
 		"/products": renderProductsPage,

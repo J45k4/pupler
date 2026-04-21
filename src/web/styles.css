@@ -228,6 +228,13 @@ h1 {
 	grid-template-columns: 1fr;
 }
 
+.dashboard-grid {
+	display: grid;
+	align-items: start;
+	gap: 1.5rem;
+	grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr));
+}
+
 .panel {
 	padding: 1.5rem;
 }
@@ -1013,6 +1020,72 @@ body.modal-open {
 	padding-top: 1.1rem;
 }
 
+.inventory-expiration-panel {
+	padding-top: 1.1rem;
+}
+
+.inventory-expiration-list {
+	display: grid;
+	gap: 0.75rem;
+}
+
+.inventory-expiration-item {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 0.9rem;
+	padding: 0.95rem 1rem;
+	border: 1px solid var(--line);
+	border-radius: 18px;
+	background: rgba(255, 255, 255, 0.78);
+}
+
+.inventory-expiration-item__main {
+	display: grid;
+	gap: 0.28rem;
+	min-width: 0;
+}
+
+.inventory-expiration-item__main strong {
+	font-size: 0.98rem;
+}
+
+.dashboard-spending-summary {
+	display: grid;
+	gap: 0.9rem;
+}
+
+.dashboard-spending-summary__metric,
+.dashboard-spending-total {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+	padding: 0.95rem 1rem;
+	border: 1px solid var(--line);
+	border-radius: 18px;
+	background: rgba(255, 255, 255, 0.78);
+}
+
+.dashboard-spending-summary__metric span,
+.dashboard-spending-total span {
+	color: var(--muted);
+	font-size: 0.8rem;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+}
+
+.dashboard-spending-summary__metric strong,
+.dashboard-spending-total strong {
+	font-size: 1.3rem;
+}
+
+.dashboard-spending-summary__totals {
+	display: grid;
+	gap: 0.75rem;
+}
+
 .inventory-root {
 	display: grid;
 	gap: 1rem;
@@ -1275,6 +1348,16 @@ body.modal-open {
 	color: var(--muted);
 }
 
+.tag--warning {
+	background: rgba(186, 90, 49, 0.12);
+	color: var(--accent);
+}
+
+.tag--danger {
+	background: rgba(174, 48, 48, 0.12);
+	color: #9b2f2f;
+}
+
 .product dl {
 	margin: 0;
 	display: grid;
@@ -1312,6 +1395,7 @@ body.modal-open {
 
 @media (max-width: 860px) {
 	.site-header__inner,
+	.dashboard-grid,
 	.hero,
 	.workspace,
 	.page-heading,
@@ -1390,6 +1474,11 @@ body.modal-open {
 	}
 
 	.inventory-node {
+		flex-direction: column;
+		align-items: stretch;
+	}
+
+	.inventory-expiration-item {
 		flex-direction: column;
 		align-items: stretch;
 	}
