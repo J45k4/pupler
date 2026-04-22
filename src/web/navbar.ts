@@ -4,7 +4,7 @@ export const renderNavbar = (currentPath: string) => {
 		{ href: "/products", label: "Products", mobileLabel: "Products" },
 		{ href: "/inventory", label: "Inventory", mobileLabel: "Inventory" },
 		{ href: "/receipts", label: "Receipts", mobileLabel: "Receipts" },
-		{ href: "/shopping-lists", label: "Shoppinglist", mobileLabel: "Shopping" },
+		{ href: "/shoppinglist", label: "Shoppinglist", mobileLabel: "Shopping" },
 		{ href: "/recipes", label: "Recipes", mobileLabel: "Recipes" },
 	];
 

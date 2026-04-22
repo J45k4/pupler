@@ -5164,7 +5164,7 @@ window.onload = () => {
 		"/products/:id": renderProductDetailPage,
 		"/receipts": renderReceiptsPage,
 		"/receipts/:id": renderReceiptDetailPage,
-		"/shopping-lists": renderShoppingListsPage,
+		"/shoppinglist": renderShoppingListsPage,
 		"/recipes/new": renderRecipeCreatePage,
 		"/recipes/:id": renderRecipeDetailPage,
 		"/recipes": renderRecipesPage,

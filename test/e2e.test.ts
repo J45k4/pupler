@@ -108,7 +108,7 @@ describe("Pupler API e2e", () => {
 	test("serves the app shell for shopping list pages", async () => {
 		const server = await startServer();
 
-		const page = await server.call<string>("/shopping-lists");
+		const page = await server.call<string>("/shoppinglist");
 		expect(page.response.status).toBe(200);
 		expect(page.response.headers.get("content-type")).toContain(
 			"text/html",
