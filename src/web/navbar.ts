@@ -1,13 +1,13 @@
-export const renderNavbar = (currentPath: string) => {
-	const items = [
-		{ href: "/", label: "Overview", mobileLabel: "Home" },
-		{ href: "/products", label: "Products", mobileLabel: "Products" },
-		{ href: "/inventory", label: "Inventory", mobileLabel: "Inventory" },
-		{ href: "/receipts", label: "Receipts", mobileLabel: "Receipts" },
-		{ href: "/shoppinglist", label: "Shoppinglist", mobileLabel: "Shopping" },
-		{ href: "/recipes", label: "Recipes", mobileLabel: "Recipes" },
-	];
+export const primaryNavItems = [
+	{ href: "/", label: "Overview", mobileLabel: "Home" },
+	{ href: "/products", label: "Products", mobileLabel: "Products" },
+	{ href: "/inventory", label: "Inventory", mobileLabel: "Inventory" },
+	{ href: "/receipts", label: "Receipts", mobileLabel: "Receipts" },
+	{ href: "/shoppinglist", label: "Shoppinglist", mobileLabel: "Shopping" },
+	{ href: "/recipes", label: "Recipes", mobileLabel: "Recipes" },
+];
 
+export const renderNavbar = (currentPath: string) => {
 	return `
 		<header class="site-header">
 			<div class="site-header__inner">
@@ -15,7 +15,7 @@ export const renderNavbar = (currentPath: string) => {
 					<span class="brand__badge">Pupler</span>
 				</a>
 				<nav class="navbar" aria-label="Primary">
-					${items
+					${primaryNavItems
 						.map(({ href, label, mobileLabel }) => {
 							const isActive =
 								href === "/"

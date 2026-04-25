@@ -1,11 +1,21 @@
 type HandlerResult = void | Promise<void>;
 type Handler = (params: Record<string, string>) => HandlerResult;
 
+const SWIPE_NAV_MIN_DISTANCE = 72;
+const SWIPE_NAV_MAX_VERTICAL_DISTANCE = 80;
+const SWIPE_NAV_DIRECTION_RATIO = 1.35;
+const SWIPE_NAV_EDGE_GUTTER = 18;
+
 type MatchResult = {
 	pattern: string;
 	handler: Handler;
 	params: Record<string, string>;
 } | null;
+
+type SwipeNavigationOptions = {
+	paths: string[];
+	root?: HTMLElement | Document;
+};
 
 let matcher: ReturnType<typeof patternMatcher> | null = null;
 
@@ -126,6 +136,107 @@ export const installLinkInterceptor = (root: ParentNode = document) => {
 		}
 		event.preventDefault();
 		navigate(href);
+	});
+};
+
+const shouldIgnoreSwipeTarget = (target: EventTarget | null) =>
+	target instanceof Element &&
+	target.closest(
+		'a, button, input, textarea, select, label, [contenteditable="true"], [data-swipe-nav-ignore], .navbar',
+	);
+
+const getCurrentSwipePathIndex = (paths: string[]) =>
+	paths.findIndex((path) =>
+		path === "/"
+			? window.location.pathname === path
+			: window.location.pathname === path ||
+				window.location.pathname.startsWith(`${path}/`),
+	);
+
+const getSwipeNavigationPath = (paths: string[], deltaX: number) => {
+	const currentIndex = getCurrentSwipePathIndex(paths);
+	if (currentIndex === -1) {
+		return null;
+	}
+
+	const nextIndex = deltaX < 0 ? currentIndex + 1 : currentIndex - 1;
+	return paths[nextIndex] ?? null;
+};
+
+const isTouchNavigationAvailable = () =>
+	window.matchMedia("(hover: none) and (pointer: coarse)").matches ||
+	navigator.maxTouchPoints > 0;
+
+export const installSwipeNavigation = ({
+	paths,
+	root = document,
+}: SwipeNavigationOptions) => {
+	let trackingPointerId: number | null = null;
+	let startX = 0;
+	let startY = 0;
+
+	root.addEventListener("pointerdown", (event) => {
+		if (!(event instanceof PointerEvent)) {
+			return;
+		}
+		if (
+			!isTouchNavigationAvailable() ||
+			event.pointerType !== "touch" ||
+			!event.isPrimary ||
+			shouldIgnoreSwipeTarget(event.target)
+		) {
+			return;
+		}
+		if (
+			event.clientX <= SWIPE_NAV_EDGE_GUTTER ||
+			event.clientX >= window.innerWidth - SWIPE_NAV_EDGE_GUTTER
+		) {
+			return;
+		}
+
+		trackingPointerId = event.pointerId;
+		startX = event.clientX;
+		startY = event.clientY;
+	});
+
+	root.addEventListener("pointerup", (event) => {
+		if (
+			!(event instanceof PointerEvent) ||
+			trackingPointerId !== event.pointerId
+		) {
+			return;
+		}
+
+		trackingPointerId = null;
+
+		const deltaX = event.clientX - startX;
+		const deltaY = event.clientY - startY;
+		const absX = Math.abs(deltaX);
+		const absY = Math.abs(deltaY);
+
+		if (
+			absX < SWIPE_NAV_MIN_DISTANCE ||
+			absY > SWIPE_NAV_MAX_VERTICAL_DISTANCE ||
+			absX < absY * SWIPE_NAV_DIRECTION_RATIO
+		) {
+			return;
+		}
+
+		const nextPath = getSwipeNavigationPath(paths, deltaX);
+		if (!nextPath) {
+			return;
+		}
+
+		navigate(nextPath);
+	});
+
+	root.addEventListener("pointercancel", (event) => {
+		if (
+			event instanceof PointerEvent &&
+			trackingPointerId === event.pointerId
+		) {
+			trackingPointerId = null;
+		}
 	});
 };
 

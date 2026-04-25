@@ -1,6 +1,11 @@
 import { InfiniteScroll } from "./infinite-scroll";
-import { renderNavbar } from "./navbar";
-import { installLinkInterceptor, navigate, routes } from "./router";
+import { primaryNavItems, renderNavbar } from "./navbar";
+import {
+	installLinkInterceptor,
+	installSwipeNavigation,
+	navigate,
+	routes,
+} from "./router";
 
 type IngredientSummary = {
 	id: number;
@@ -164,6 +169,11 @@ const renderPage = (content: string) => {
 			${content}
 		</main>
 	`);
+	requestAnimationFrame(() => {
+		document
+			.querySelector(".navbar__link--active")
+			?.scrollIntoView({ block: "nearest", inline: "center" });
+	});
 };
 
 const setStatus = (elementId: string, message: string, isError = false) => {
@@ -5154,6 +5164,9 @@ const renderNotFoundPage = () => {
 
 window.onload = () => {
 	installLinkInterceptor(document.body);
+	installSwipeNavigation({
+		paths: primaryNavItems.map(({ href }) => href),
+	});
 
 	routes({
 		"/": renderOverviewPage,
