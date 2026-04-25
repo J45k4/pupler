@@ -107,6 +107,7 @@ export const server = (options: ServerOptions = {}) => {
 			"/expirations": index,
 			"/inventory": index,
 			"/inventory/containers/:id": index,
+			"/inventory/items/:id": index,
 			"/products": index,
 			"/products/:id": index,
 			"/receipts": index,

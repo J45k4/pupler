@@ -1465,6 +1465,38 @@ const getInventoryItemMeta = (item: InventoryItem) => {
 	return parts.join(" • ");
 };
 
+const renderInventoryItemNodeLink = (
+	item: InventoryItem,
+	options: { draggable?: boolean } = {},
+) => {
+	const meta = getInventoryItemMeta(item);
+	const draggableAttributes = options.draggable
+		? `
+			draggable="true"
+			data-drag-kind="item"
+			data-drag-id="${item.id}"
+			data-source-container-id="${item.container_id ?? ""}"
+		`
+		: "";
+
+	return `
+		<a
+			class="inventory-node inventory-node--item"
+			href="/inventory/items/${item.id}"
+			data-link
+			${draggableAttributes}
+		>
+			<div class="inventory-node__main">
+				<strong>${escapeHtml(item.name)}</strong>
+				<div class="inventory-node__meta">
+					<span>${item.quantity} ${escapeHtml(item.unit)}</span>
+					${meta ? `<span>${escapeHtml(meta)}</span>` : ""}
+				</div>
+			</div>
+		</a>
+	`;
+};
+
 const compareInventoryItemsByExpiration = (
 	left: InventoryItem,
 	right: InventoryItem,
@@ -1545,7 +1577,11 @@ const renderExpirationItem = (
 	const location = getInventoryItemLocation(item, containersById);
 
 	return `
-		<div class="inventory-expiration-item">
+		<a
+			class="inventory-expiration-item"
+			href="/inventory/items/${item.id}"
+			data-link
+		>
 			<div class="inventory-expiration-item__main">
 				<strong>${escapeHtml(item.name)}</strong>
 				<div class="inventory-node__meta">
@@ -1559,7 +1595,7 @@ const renderExpirationItem = (
 				</div>
 			</div>
 			<span class="${tag.className}">${escapeHtml(tag.label)}</span>
-		</div>
+		</a>
 	`;
 };
 
@@ -1725,25 +1761,9 @@ const renderInventoryTree = (
 	};
 
 	const renderInventoryItemNode = (item: InventoryItem) => {
-		const meta = getInventoryItemMeta(item);
-
 		return `
 			<li class="inventory-tree__leaf">
-				<div
-					class="inventory-node inventory-node--item"
-					draggable="true"
-					data-drag-kind="item"
-					data-drag-id="${item.id}"
-					data-source-container-id="${item.container_id ?? ""}"
-				>
-					<div class="inventory-node__main">
-						<strong>${escapeHtml(item.name)}</strong>
-						<div class="inventory-node__meta">
-							<span>${item.quantity} ${item.unit}</span>
-							${meta ? `<span>${escapeHtml(meta)}</span>` : ""}
-						</div>
-					</div>
-				</div>
+				${renderInventoryItemNodeLink(item, { draggable: true })}
 			</li>
 		`;
 	};
@@ -2485,6 +2505,23 @@ const fetchReceiptItems = async (receiptId: number) => {
 	return body as PurchaseReceiptItem[];
 };
 
+const fetchAllReceiptItems = async () => {
+	const response = await fetch("/api/receipt-items?sort=created_at&order=desc");
+	const body = (await response.json()) as
+		| PurchaseReceiptItem[]
+		| { error?: string };
+
+	if (!response.ok) {
+		throw new Error(
+			"error" in body
+				? (body.error ?? "Failed to load receipt rows")
+				: "Failed to load receipt rows",
+		);
+	}
+
+	return body as PurchaseReceiptItem[];
+};
+
 const fetchInventoryItems = async () => {
 	const response = await fetch(
 		"/api/inventory-items?consumed_at=null&sort=expires_at&order=asc",
@@ -2502,6 +2539,21 @@ const fetchInventoryItems = async () => {
 	}
 
 	return body as InventoryItem[];
+};
+
+const fetchInventoryItem = async (itemId: number) => {
+	const response = await fetch(`/api/inventory-items/${itemId}`);
+	const body = (await response.json()) as InventoryItem | { error?: string };
+
+	if (!response.ok) {
+		throw new Error(
+			"error" in body
+				? (body.error ?? "Failed to load inventory item")
+				: "Failed to load inventory item",
+		);
+	}
+
+	return body as InventoryItem;
 };
 
 const fetchInventoryContainers = async () => {
@@ -2626,6 +2678,32 @@ const deleteInventoryContainer = async (containerId: number) => {
 		const body = (await response.json()) as { error?: string };
 		throw new Error(body.error ?? "Failed to delete inventory container");
 	}
+};
+
+const updateInventoryItem = async (
+	itemId: number,
+	payload: {
+		ingredient_id?: number | null;
+		product_id?: number | null;
+		receipt_item_id?: number | null;
+	},
+) => {
+	const response = await fetch(`/api/inventory-items/${itemId}`, {
+		method: "PATCH",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(payload),
+	});
+	const body = (await response.json()) as InventoryItem | { error?: string };
+
+	if (!response.ok) {
+		throw new Error(
+			"error" in body
+				? (body.error ?? "Failed to update inventory item")
+				: "Failed to update inventory item",
+		);
+	}
+
+	return body as InventoryItem;
 };
 
 const updateInventoryItemContainer = async (
@@ -4678,6 +4756,327 @@ const attachInventoryPageEvents = () => {
 	});
 };
 
+const renderInventoryDetailRow = (label: string, value: string) => `
+	<div>
+		<dt>${escapeHtml(label)}</dt>
+		<dd>${value}</dd>
+	</div>
+`;
+
+const renderNullableInventoryDate = (value: string | null) =>
+	value ? escapeHtml(formatReceiptDateTime(value)) : "-";
+
+const renderInventoryLinkValue = (href: string, label: string) => `
+	<a class="metadata-link" href="${href}" data-link>${escapeHtml(label)}</a>
+`;
+
+const renderSelectOption = (
+	value: string,
+	label: string,
+	selectedValue: string,
+) => `
+	<option value="${escapeHtml(value)}" ${selectedValue === value ? "selected" : ""}>
+		${escapeHtml(label)}
+	</option>
+`;
+
+const getReceiptRowLabel = (
+	receiptItem: PurchaseReceiptItem,
+	receiptsById: Map<number, PurchaseReceipt>,
+	productsById: Map<number, Product>,
+) => {
+	const receipt = receiptsById.get(receiptItem.receipt_id);
+	const product = productsById.get(receiptItem.product_id);
+	const receiptLabel = receipt
+		? `${receipt.store_name}, ${formatReceiptDateTime(receipt.purchased_at)}`
+		: `Receipt #${receiptItem.receipt_id}`;
+	const productLabel = product?.name ?? `Product #${receiptItem.product_id}`;
+	const totalLabel =
+		receipt && receiptItem.line_total !== null
+			? `, ${formatMoney(receiptItem.line_total, receipt.currency)}`
+			: "";
+
+	return `#${receiptItem.id} - ${receiptLabel} - ${productLabel} - ${receiptItem.quantity} ${receiptItem.unit}${totalLabel}`;
+};
+
+const renderInventoryProductOptions = (
+	item: InventoryItem,
+	products: Product[],
+) => {
+	const selectedValue = item.product_id === null ? "" : String(item.product_id);
+	if (!products.length && item.product_id === null) {
+		return renderSelectOption("", "No products in Pupler yet", selectedValue);
+	}
+
+	const hasSelectedProduct =
+		item.product_id === null ||
+		products.some((product) => product.id === item.product_id);
+	const fallbackSelectedProduct =
+		!hasSelectedProduct && item.product_id !== null
+			? renderSelectOption(
+					String(item.product_id),
+					item.product?.name ?? `Product #${item.product_id}`,
+					selectedValue,
+				)
+			: "";
+
+	return `
+		${renderSelectOption("", "No product link", selectedValue)}
+		${fallbackSelectedProduct}
+		${products
+			.map((product) => {
+				const label = product.barcode
+					? `${product.name} (${product.barcode})`
+					: product.name;
+				return renderSelectOption(String(product.id), label, selectedValue);
+			})
+			.join("")}
+	`;
+};
+
+const renderInventoryReceiptRowOptions = (
+	item: InventoryItem,
+	receiptItems: PurchaseReceiptItem[],
+	receipts: PurchaseReceipt[],
+	products: Product[],
+) => {
+	const selectedValue =
+		item.receipt_item_id === null ? "" : String(item.receipt_item_id);
+	if (!receiptItems.length && item.receipt_item_id === null) {
+		return renderSelectOption(
+			"",
+			"No receipt rows in Pupler yet",
+			selectedValue,
+		);
+	}
+
+	const receiptsById = new Map(receipts.map((receipt) => [receipt.id, receipt]));
+	const productsById = new Map(products.map((product) => [product.id, product]));
+	const hasSelectedReceiptRow =
+		item.receipt_item_id === null ||
+		receiptItems.some((receiptItem) => receiptItem.id === item.receipt_item_id);
+	const fallbackSelectedReceiptRow =
+		!hasSelectedReceiptRow && item.receipt_item_id !== null
+			? renderSelectOption(
+					String(item.receipt_item_id),
+					`Receipt row #${item.receipt_item_id}`,
+					selectedValue,
+				)
+			: "";
+
+	return `
+		${renderSelectOption("", "No receipt row link", selectedValue)}
+		${fallbackSelectedReceiptRow}
+		${receiptItems
+			.map((receiptItem) =>
+				renderSelectOption(
+					String(receiptItem.id),
+					getReceiptRowLabel(receiptItem, receiptsById, productsById),
+					selectedValue,
+				),
+			)
+			.join("")}
+	`;
+};
+
+const renderInventoryItemDetail = (
+	item: InventoryItem,
+	container: InventoryContainer | null,
+	products: Product[],
+	receiptItems: PurchaseReceiptItem[],
+	receipts: PurchaseReceipt[],
+) => {
+	const page = document.getElementById("inventory-item-detail-page");
+	if (!page) {
+		return;
+	}
+
+	const expirationTag = getExpirationTag(item);
+	const statusTag = item.consumed_at
+		? '<span class="tag tag--neutral">Consumed</span>'
+		: '<span class="tag">Active</span>';
+	const containerValue =
+		item.container_id === null
+			? "Top level"
+			: container
+				? renderInventoryLinkValue(
+						`/inventory/containers/${container.id}`,
+						container.name,
+					)
+				: `Container #${item.container_id}`;
+	const productValue =
+		item.product_id === null
+			? "-"
+			: item.product
+				? renderInventoryLinkValue(
+						`/products/${item.product.id}`,
+						item.product.name,
+					)
+				: `Product #${item.product_id}`;
+	const ingredientValue =
+		item.ingredient_id === null
+			? "-"
+			: item.ingredient
+				? escapeHtml(item.ingredient.name)
+				: `Ingredient #${item.ingredient_id}`;
+
+	page.innerHTML = `
+		<section class="page-heading page-heading--compact">
+			<div>
+				<span class="eyebrow">Inventory Item</span>
+				<h1 class="page-title">${escapeHtml(item.name)}</h1>
+			</div>
+			<a class="secondary action-link" href="/inventory" data-link>Back To Inventory</a>
+		</section>
+
+		<section class="workspace inventory-item-detail-grid">
+			<div class="card panel">
+				<div class="section-header">
+					<h2>Properties</h2>
+					${statusTag}
+				</div>
+				<dl class="receipt-metadata">
+					${renderInventoryDetailRow("Name", escapeHtml(item.name))}
+					${renderInventoryDetailRow("Quantity", `${item.quantity}`)}
+					${renderInventoryDetailRow("Unit", escapeHtml(item.unit))}
+					${renderInventoryDetailRow("Purchased", renderNullableInventoryDate(item.purchased_at))}
+					${renderInventoryDetailRow("Expires", renderNullableInventoryDate(item.expires_at))}
+					${renderInventoryDetailRow("Consumed", renderNullableInventoryDate(item.consumed_at))}
+					${renderInventoryDetailRow("Notes", item.notes ? escapeHtml(item.notes) : "-")}
+					${renderInventoryDetailRow("Created", escapeHtml(formatReceiptDateTime(item.created_at)))}
+					${renderInventoryDetailRow("Updated", escapeHtml(formatReceiptDateTime(item.updated_at)))}
+				</dl>
+			</div>
+
+			<div class="card panel">
+				<div class="section-header">
+					<h2>Links & IDs</h2>
+					<span class="${expirationTag.className}">${escapeHtml(expirationTag.label)}</span>
+				</div>
+				<form id="inventory-item-links-form" class="inventory-link-form">
+					<label>
+						Product
+						<select id="inventory-item-product-id" name="product_id">
+							${renderInventoryProductOptions(item, products)}
+						</select>
+					</label>
+					<label>
+						Receipt Row
+						<select id="inventory-item-receipt-item-id" name="receipt_item_id">
+							${renderInventoryReceiptRowOptions(item, receiptItems, receipts, products)}
+						</select>
+					</label>
+					<div class="actions">
+						<button class="primary" type="submit">Save Links</button>
+					</div>
+				</form>
+				<div id="inventory-item-links-status" class="status"></div>
+				<dl class="receipt-metadata">
+					${renderInventoryDetailRow("Inventory Item ID", `${item.id}`)}
+					${renderInventoryDetailRow("Location", containerValue)}
+					${renderInventoryDetailRow("Container ID", item.container_id === null ? "-" : `${item.container_id}`)}
+					${renderInventoryDetailRow("Product", productValue)}
+					${renderInventoryDetailRow("Product ID", item.product_id === null ? "-" : `${item.product_id}`)}
+					${renderInventoryDetailRow("Ingredient", ingredientValue)}
+					${renderInventoryDetailRow("Ingredient ID", item.ingredient_id === null ? "-" : `${item.ingredient_id}`)}
+					${renderInventoryDetailRow("Receipt Row ID", item.receipt_item_id === null ? "-" : `${item.receipt_item_id}`)}
+				</dl>
+			</div>
+		</section>
+	`;
+};
+
+const attachInventoryItemDetailEvents = (
+	item: InventoryItem,
+	container: InventoryContainer | null,
+	products: Product[],
+	receiptItems: PurchaseReceiptItem[],
+	receipts: PurchaseReceipt[],
+) => {
+	const form = document.getElementById("inventory-item-links-form");
+	if (!(form instanceof HTMLFormElement)) {
+		return;
+	}
+
+	form.addEventListener("submit", async (event) => {
+		event.preventDefault();
+
+		const productInput = document.getElementById("inventory-item-product-id");
+		const receiptItemInput = document.getElementById(
+			"inventory-item-receipt-item-id",
+		);
+		if (
+			!(productInput instanceof HTMLSelectElement) ||
+			!(receiptItemInput instanceof HTMLSelectElement)
+		) {
+			return;
+		}
+
+		const productId = productInput.value
+			? Number.parseInt(productInput.value, 10)
+			: null;
+		const receiptItemId = receiptItemInput.value
+			? Number.parseInt(receiptItemInput.value, 10)
+			: null;
+
+		if (
+			(productInput.value && !Number.isInteger(productId)) ||
+			(receiptItemInput.value && !Number.isInteger(receiptItemId))
+		) {
+			setStatus("inventory-item-links-status", "Selected link is invalid.", true);
+			return;
+		}
+
+		const selectedProduct =
+			productId === null
+				? null
+				: products.find((product) => product.id === productId) ??
+					(item.product?.id === productId ? item.product : null);
+		const payload: {
+			ingredient_id?: number | null;
+			product_id: number | null;
+			receipt_item_id: number | null;
+		} = {
+			product_id: productId,
+			receipt_item_id: receiptItemId,
+		};
+
+		if (
+			selectedProduct?.ingredient_id !== null &&
+			selectedProduct?.ingredient_id !== undefined
+		) {
+			payload.ingredient_id = selectedProduct.ingredient_id;
+		}
+
+		try {
+			const updated = await updateInventoryItem(item.id, payload);
+			renderInventoryItemDetail(
+				updated,
+				container,
+				products,
+				receiptItems,
+				receipts,
+			);
+			attachInventoryItemDetailEvents(
+				updated,
+				container,
+				products,
+				receiptItems,
+				receipts,
+			);
+			setStatus("inventory-item-links-status", `Saved links for ${updated.name}.`);
+		} catch (error) {
+			setStatus(
+				"inventory-item-links-status",
+				error instanceof Error
+					? error.message
+					: "Failed to update inventory item links.",
+				true,
+			);
+		}
+	});
+};
+
 const renderInventoryPage = () => {
 	renderPage(
 		`
@@ -4743,6 +5142,56 @@ const renderInventoryPage = () => {
 
 	attachInventoryPageEvents();
 	void loadInventoryPageData();
+};
+
+const renderInventoryItemDetailPage = (params: Record<string, string>) => {
+	renderPage('<div id="inventory-item-detail-page"></div>');
+
+	void (async () => {
+		const rawId = params.id ?? "";
+		const itemId = Number.parseInt(rawId, 10);
+		const page = document.getElementById("inventory-item-detail-page");
+		if (!page) {
+			return;
+		}
+
+		if (!Number.isInteger(itemId)) {
+			page.innerHTML =
+				'<div class="card panel page-panel"><p class="page-copy">Inventory item id is invalid.</p></div>';
+			return;
+		}
+
+		try {
+			const [item, products, receiptItems, receipts] = await Promise.all([
+				fetchInventoryItem(itemId),
+				fetchAllProducts(),
+				fetchAllReceiptItems(),
+				fetchReceipts(),
+			]);
+			let container: InventoryContainer | null = null;
+			if (item.container_id !== null) {
+				try {
+					container = await fetchInventoryContainer(item.container_id);
+				} catch {
+					container = null;
+				}
+			}
+			renderInventoryItemDetail(item, container, products, receiptItems, receipts);
+			attachInventoryItemDetailEvents(
+				item,
+				container,
+				products,
+				receiptItems,
+				receipts,
+			);
+		} catch (error) {
+			page.innerHTML = `
+				<div class="card panel page-panel">
+					<p class="page-copy">${error instanceof Error ? error.message : "Failed to load inventory item."}</p>
+				</div>
+			`;
+		}
+	})();
 };
 
 const renderInventoryContainerDetailPage = (params: Record<string, string>) => {
@@ -4876,15 +5325,7 @@ const renderInventoryContainerDetailPage = (params: Record<string, string>) => {
 										? `<div class="inventory-detail-list">${items
 												.map((item) => {
 													return `
-														<div class="inventory-node inventory-node--item">
-															<div class="inventory-node__main">
-																<strong>${escapeHtml(item.name)}</strong>
-																<div class="inventory-node__meta">
-																	<span>${item.quantity} ${item.unit}</span>
-																	${getInventoryItemMeta(item) ? `<span>${escapeHtml(getInventoryItemMeta(item))}</span>` : ""}
-																</div>
-															</div>
-														</div>
+														${renderInventoryItemNodeLink(item)}
 													`;
 												})
 												.join("")}</div>`
@@ -5173,6 +5614,7 @@ window.onload = () => {
 		"/expirations": renderExpirationsPage,
 		"/inventory": renderInventoryPage,
 		"/inventory/containers/:id": renderInventoryContainerDetailPage,
+		"/inventory/items/:id": renderInventoryItemDetailPage,
 		"/products": renderProductsPage,
 		"/products/:id": renderProductDetailPage,
 		"/receipts": renderReceiptsPage,

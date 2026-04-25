@@ -79,6 +79,15 @@ describe("Pupler API e2e", () => {
 		).toContain("text/html");
 		expect(inventoryContainerPage.body).toContain("<title>Pupler</title>");
 
+		const inventoryItemPage = await server.call<string>(
+			"/inventory/items/1",
+		);
+		expect(inventoryItemPage.response.status).toBe(200);
+		expect(
+			inventoryItemPage.response.headers.get("content-type"),
+		).toContain("text/html");
+		expect(inventoryItemPage.body).toContain("<title>Pupler</title>");
+
 		const expirationsPage = await server.call<string>("/expirations");
 		expect(expirationsPage.response.status).toBe(200);
 		expect(expirationsPage.response.headers.get("content-type")).toContain(
