@@ -25,11 +25,12 @@ docker run --rm -p 5995:5995 -v pupler-data:/data pupler:local
 
 The repo includes a Linux bootstrap installer at
 [`deploy/install.sh`](./deploy/install.sh) and an updater at
-[`deploy/update.sh`](./deploy/update.sh). They expect:
+[`deploy/update.sh`](./deploy/update.sh). Both install modes expect `systemd`
+and root access.
 
-- Docker with the Compose v2 plugin
-- `systemd`
-- root access
+### Docker mode (default)
+
+Docker mode expects Docker with the Compose v2 plugin.
 
 Recommended command:
 
@@ -37,7 +38,7 @@ Recommended command:
 curl -fsSL https://raw.githubusercontent.com/J45k4/pupler/main/deploy/install.sh | sudo bash
 ```
 
-By default the installer:
+By default the Docker installer:
 
 - writes the deployment bundle to `/opt/pupler`
 - installs `/opt/pupler/update.sh` for future updates
@@ -56,22 +57,66 @@ curl -fsSL https://raw.githubusercontent.com/J45k4/pupler/main/deploy/install.sh
   bash
 ```
 
-To update an existing install:
+### Bun live mode
+
+Bun live mode runs Pupler directly from the current checkout via systemd, so a
+`git pull` in that repo affects what the service runs after restart/update.
+
+Requirements:
+
+- a local Pupler git checkout
+- Bun installed for the run user
+- `git`
+- `systemd`
+- root access
+
+Recommended command from inside the cloned repo:
+
+```bash
+sudo PUPLER_MODE=bun-live ./deploy/install.sh
+```
+
+The installer will:
+
+- detect the repo root and write it into the service `WorkingDirectory`
+- run `bun install` in that checkout
+- install `/opt/pupler/update.sh`
+- install a systemd service that runs `bun src/main.ts`
+
+Useful overrides:
+
+```bash
+sudo PUPLER_MODE=bun-live \
+  PUPLER_RUN_USER=$USER \
+  PUPLER_DATA_DIR=/var/lib/pupler \
+  PUPLER_PORT=5995 \
+  ./deploy/install.sh
+```
+
+If Bun is not on the default login shell path, set it explicitly:
+
+```bash
+sudo PUPLER_MODE=bun-live \
+  PUPLER_BUN_BIN=/home/you/.bun/bin/bun \
+  ./deploy/install.sh
+```
+
+### Updating an existing install
+
+For either mode:
 
 ```bash
 sudo /opt/pupler/update.sh
 ```
 
-You can still run the updater directly from GitHub if needed:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/J45k4/pupler/main/deploy/update.sh | sudo bash
-```
+The updater uses the installed `.env` file to decide whether to pull a Docker
+image or update the live checkout and restart the service.
 
 Static deployment assets are also included in:
 
 - [`deploy/compose.yaml`](./deploy/compose.yaml)
 - [`deploy/pupler.service`](./deploy/pupler.service)
+- [`deploy/pupler-bun.service`](./deploy/pupler-bun.service)
 
 ## Data paths
 

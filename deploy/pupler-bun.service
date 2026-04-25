@@ -1,0 +1,19 @@
+[Unit]
+Description=Pupler Bun service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=@PUPLER_REPO_DIR@
+Environment=PORT=@PUPLER_PORT@
+Environment=PUPLER_BIND_ADDRESS=@PUPLER_BIND_ADDRESS@
+Environment=DATA_PATH=@PUPLER_DATA_DIR@
+ExecStart=@PUPLER_BUN_BIN@ src/main.ts
+Restart=always
+RestartSec=2
+User=@PUPLER_RUN_USER@
+Group=@PUPLER_RUN_GROUP@
+
+[Install]
+WantedBy=multi-user.target
