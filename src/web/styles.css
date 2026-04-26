@@ -1117,7 +1117,14 @@ body.modal-open {
 
 .inventory-tree__toolbar {
 	display: flex;
+	align-items: end;
+	gap: 0.75rem;
 	justify-content: end;
+}
+
+.inventory-tree__filter {
+	max-width: 16rem;
+	margin: 0;
 }
 
 .inventory-tree__root-content {
@@ -1191,13 +1198,22 @@ body.modal-open {
 	cursor: grab;
 }
 
+.inventory-node--consumed {
+	opacity: 0.72;
+}
+
 .inventory-node--container {
 	cursor: grab;
 }
 
-a.inventory-node:hover {
+.inventory-node--item:hover {
 	transform: translateY(-1px);
 	border-color: rgba(186, 90, 49, 0.28);
+}
+
+.inventory-node__link {
+	color: inherit;
+	text-decoration: none;
 }
 
 .inventory-node--dragging {
@@ -1294,6 +1310,14 @@ a.inventory-node:hover {
 	display: grid;
 	gap: 1rem;
 	margin-bottom: 1rem;
+}
+
+.inventory-consume-target {
+	padding: 0.85rem 1rem;
+	border: 1px solid var(--line);
+	border-radius: 18px;
+	background: rgba(255, 255, 255, 0.55);
+	font-weight: 700;
 }
 
 .inventory-container-modal[hidden] {

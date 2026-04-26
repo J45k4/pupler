@@ -142,6 +142,8 @@ type DraftRecipeIngredient = {
 	notes: string | null;
 };
 
+type InventoryItemMode = "active" | "consumed" | "all";
+
 let receiptDetailAbortController: AbortController | null = null;
 let productPageAbortController: AbortController | null = null;
 let productDetailAbortController: AbortController | null = null;
@@ -152,6 +154,7 @@ let inventoryTreeState: {
 	items: InventoryItem[];
 } | null = null;
 let collapsedInventoryContainerIds = new Set<number>();
+let inventoryItemMode: InventoryItemMode = "active";
 
 const render = (html: string) => {
 	productInfiniteScroll?.destroy();
@@ -527,6 +530,11 @@ const formatReceiptDateTime = (value: string) =>
 		hour: "2-digit",
 		minute: "2-digit",
 	}).format(new Date(value));
+
+const formatDateTimeLocalInput = (date = new Date()) =>
+	new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+		.toISOString()
+		.slice(0, 16);
 
 const formatMoney = (value: number | null, currency: string) => {
 	if (value === null) {
@@ -1458,6 +1466,9 @@ const getInventoryItemMeta = (item: InventoryItem) => {
 	if (item.expires_at) {
 		parts.push(`Expires ${formatReceiptDateTime(item.expires_at)}`);
 	}
+	if (item.consumed_at) {
+		parts.push(`Consumed ${formatReceiptDateTime(item.consumed_at)}`);
+	}
 	if (item.notes) {
 		parts.push(item.notes);
 	}
@@ -1467,9 +1478,10 @@ const getInventoryItemMeta = (item: InventoryItem) => {
 
 const renderInventoryItemNodeLink = (
 	item: InventoryItem,
-	options: { draggable?: boolean } = {},
+	options: { draggable?: boolean; showConsumeAction?: boolean } = {},
 ) => {
 	const meta = getInventoryItemMeta(item);
+	const isConsumed = item.consumed_at !== null;
 	const draggableAttributes = options.draggable
 		? `
 			draggable="true"
@@ -1480,20 +1492,37 @@ const renderInventoryItemNodeLink = (
 		: "";
 
 	return `
-		<a
-			class="inventory-node inventory-node--item"
-			href="/inventory/items/${item.id}"
-			data-link
+		<div
+			class="inventory-node inventory-node--item${isConsumed ? " inventory-node--consumed" : ""}"
 			${draggableAttributes}
 		>
-			<div class="inventory-node__main">
+			<a
+				class="inventory-node__main inventory-node__link"
+				href="/inventory/items/${item.id}"
+				data-link
+			>
 				<strong>${escapeHtml(item.name)}</strong>
 				<div class="inventory-node__meta">
 					<span>${item.quantity} ${escapeHtml(item.unit)}</span>
 					${meta ? `<span>${escapeHtml(meta)}</span>` : ""}
 				</div>
-			</div>
-		</a>
+			</a>
+			${
+				options.showConsumeAction
+					? `
+						<div class="inventory-node__actions">
+							<button
+								class="secondary inventory-node__button"
+								type="button"
+								data-consume-inventory-item-id="${item.id}"
+							>
+								Consume
+							</button>
+						</div>
+					`
+					: ""
+			}
+		</div>
 	`;
 };
 
@@ -1604,6 +1633,30 @@ const createContainerNameMap = (containers: InventoryContainer[]) =>
 
 const sortInventoryItemsByExpiration = (items: InventoryItem[]) =>
 	[...items].sort(compareInventoryItemsByExpiration);
+
+const getInventoryModeLabel = (mode: InventoryItemMode) => {
+	switch (mode) {
+		case "consumed":
+			return "consumed";
+		case "all":
+			return "total";
+		case "active":
+		default:
+			return "active";
+	}
+};
+
+const getInventoryEmptyMessage = (mode: InventoryItemMode) => {
+	switch (mode) {
+		case "consumed":
+			return "No consumed inventory items.";
+		case "all":
+			return "No inventory items.";
+		case "active":
+		default:
+			return "No active inventory items.";
+	}
+};
 
 const renderExpirationPreview = (
 	containers: InventoryContainer[],
@@ -1761,9 +1814,14 @@ const renderInventoryTree = (
 	};
 
 	const renderInventoryItemNode = (item: InventoryItem) => {
+		const isConsumed = item.consumed_at !== null;
+
 		return `
 			<li class="inventory-tree__leaf">
-				${renderInventoryItemNodeLink(item, { draggable: true })}
+				${renderInventoryItemNodeLink(item, {
+					draggable: !isConsumed,
+					showConsumeAction: !isConsumed,
+				})}
 			</li>
 		`;
 	};
@@ -1885,6 +1943,14 @@ const renderInventoryTree = (
 			data-drop-id=""
 		>
 			<div class="inventory-tree__toolbar">
+				<label class="inventory-tree__filter">
+					View
+					<select id="inventory-item-mode">
+						<option value="active" ${inventoryItemMode === "active" ? "selected" : ""}>Active</option>
+						<option value="consumed" ${inventoryItemMode === "consumed" ? "selected" : ""}>Consumed</option>
+						<option value="all" ${inventoryItemMode === "all" ? "selected" : ""}>All</option>
+					</select>
+				</label>
 				<button
 					class="primary inventory-node__button"
 					type="button"
@@ -1894,6 +1960,11 @@ const renderInventoryTree = (
 				</button>
 			</div>
 			<div class="inventory-tree__root-content">
+				${
+					items.length
+						? ""
+						: `<div class="inventory-tree__empty">${getInventoryEmptyMessage(inventoryItemMode)}</div>`
+				}
 				${unplacedItems.length ? renderInventoryItemsList(null) : ""}
 				${
 					topLevelContainers.length
@@ -1905,9 +1976,9 @@ const renderInventoryTree = (
 						: ""
 				}
 				${
-					hasRootContent
+					hasRootContent || !items.length
 						? ""
-						: '<div class="inventory-tree__empty">Add a room, closet, shelf, or box. Drag into the open area to keep things at the top level.</div>'
+						: `<div class="inventory-tree__empty">${getInventoryEmptyMessage(inventoryItemMode)}</div>`
 				}
 			</div>
 		</div>
@@ -2522,9 +2593,11 @@ const fetchAllReceiptItems = async () => {
 	return body as PurchaseReceiptItem[];
 };
 
-const fetchInventoryItems = async () => {
+const fetchInventoryItems = async (mode: InventoryItemMode = "active") => {
 	const response = await fetch(
-		"/api/inventory-items?consumed_at=null&sort=expires_at&order=asc",
+		mode === "active"
+			? "/api/inventory-items?consumed_at=null&sort=expires_at&order=asc"
+			: "/api/inventory-items?sort=expires_at&order=asc",
 	);
 	const body = (await response.json()) as
 		| InventoryItem[]
@@ -2538,7 +2611,11 @@ const fetchInventoryItems = async () => {
 		);
 	}
 
-	return body as InventoryItem[];
+	const items = body as InventoryItem[];
+	if (mode === "consumed") {
+		return items.filter((item) => item.consumed_at !== null);
+	}
+	return items;
 };
 
 const fetchInventoryItem = async (itemId: number) => {
@@ -2686,6 +2763,7 @@ const updateInventoryItem = async (
 		ingredient_id?: number | null;
 		product_id?: number | null;
 		receipt_item_id?: number | null;
+		consumed_at?: string | null;
 	},
 ) => {
 	const response = await fetch(`/api/inventory-items/${itemId}`, {
@@ -2749,8 +2827,9 @@ const fetchInventoryItemsByContainer = async (containerId: number) => {
 
 const loadInventoryPageData = async (statusMessage?: string) => {
 	try {
+		const mode = inventoryItemMode;
 		const [items, containers] = await Promise.all([
-			fetchInventoryItems(),
+			fetchInventoryItems(mode),
 			fetchInventoryContainers(),
 		]);
 		inventoryTreeState = { containers, items };
@@ -2758,7 +2837,7 @@ const loadInventoryPageData = async (statusMessage?: string) => {
 		setStatus(
 			"inventory-status",
 			statusMessage ??
-				`Loaded ${items.length} active item(s) across ${containers.length} container(s).`,
+				`Loaded ${items.length} ${getInventoryModeLabel(mode)} item(s) across ${containers.length} container(s).`,
 		);
 	} catch (error) {
 		inventoryTreeState = { containers: [], items: [] };
@@ -4413,11 +4492,24 @@ const attachInventoryPageEvents = () => {
 	const treeRoot = document.getElementById("inventory-tree-root");
 	const modal = document.getElementById("inventory-container-modal");
 	const modalForm = document.getElementById("inventory-container-modal-form");
-	if (!treeRoot || !modal || !(modalForm instanceof HTMLFormElement)) {
+	const consumeModal = document.getElementById("inventory-consume-modal");
+	const consumeForm = document.getElementById("inventory-consume-form");
+	const consumeItemName = document.getElementById("inventory-consume-item-name");
+	const consumeDateInput = document.getElementById("inventory-consume-date");
+	if (
+		!treeRoot ||
+		!modal ||
+		!(modalForm instanceof HTMLFormElement) ||
+		!consumeModal ||
+		!(consumeForm instanceof HTMLFormElement) ||
+		!consumeItemName ||
+		!(consumeDateInput instanceof HTMLInputElement)
+	) {
 		return;
 	}
 
 	let activeDropTarget: HTMLElement | null = null;
+	let pendingConsumeItem: InventoryItem | null = null;
 
 	const clearDropTarget = () => {
 		activeDropTarget?.classList.remove("inventory-drop-target--active");
@@ -4437,6 +4529,35 @@ const attachInventoryPageEvents = () => {
 		if (nameInput instanceof HTMLInputElement) {
 			nameInput.focus();
 		}
+	};
+
+	const closeConsumeModal = () => {
+		consumeModal.hidden = true;
+		document.body.classList.remove("modal-open");
+		pendingConsumeItem = null;
+		consumeForm.reset();
+		const submitButton = consumeForm.querySelector<HTMLButtonElement>(
+			'button[type="submit"]',
+		);
+		if (submitButton) {
+			submitButton.disabled = false;
+		}
+		setStatus("inventory-consume-status", "");
+	};
+
+	const openConsumeModal = (item: InventoryItem) => {
+		pendingConsumeItem = item;
+		consumeItemName.textContent = item.name;
+		consumeDateInput.value = formatDateTimeLocalInput();
+		const submitButton = consumeForm.querySelector<HTMLButtonElement>(
+			'button[type="submit"]',
+		);
+		if (submitButton) {
+			submitButton.disabled = false;
+		}
+		consumeModal.hidden = false;
+		document.body.classList.add("modal-open");
+		consumeDateInput.focus();
 	};
 
 	const rerenderTreeFromState = () => {
@@ -4511,6 +4632,29 @@ const attachInventoryPageEvents = () => {
 			return;
 		}
 
+		const consumeButton = target.closest<HTMLElement>(
+			"[data-consume-inventory-item-id]",
+		);
+		if (consumeButton) {
+			const itemId = Number(
+				consumeButton.dataset.consumeInventoryItemId,
+			);
+			if (!Number.isInteger(itemId)) {
+				return;
+			}
+
+			const item = inventoryTreeState?.items.find(
+				(candidate) => candidate.id === itemId,
+			);
+			if (!item) {
+				setStatus("inventory-status", "Inventory item was not found.", true);
+				return;
+			}
+
+			openConsumeModal(item);
+			return;
+		}
+
 		if (target.closest("[data-close-inventory-container-modal]")) {
 			closeModal();
 			return;
@@ -4554,6 +4698,24 @@ const attachInventoryPageEvents = () => {
 				true,
 			);
 		}
+	});
+
+	treeRoot.addEventListener("change", (event) => {
+		const target = event.target;
+		if (!(target instanceof HTMLSelectElement) || target.id !== "inventory-item-mode") {
+			return;
+		}
+
+		if (
+			target.value !== "active" &&
+			target.value !== "consumed" &&
+			target.value !== "all"
+		) {
+			return;
+		}
+
+		inventoryItemMode = target.value;
+		void loadInventoryPageData();
 	});
 
 	modalForm.addEventListener("submit", async (event) => {
@@ -4603,9 +4765,68 @@ const attachInventoryPageEvents = () => {
 		}
 	});
 
+	consumeForm.addEventListener("submit", async (event) => {
+		event.preventDefault();
+
+		if (!pendingConsumeItem) {
+			setStatus("inventory-consume-status", "Inventory item was not found.", true);
+			return;
+		}
+
+		const rawConsumedAt = consumeDateInput.value.trim();
+		const consumedAtDate = rawConsumedAt
+			? new Date(rawConsumedAt)
+			: new Date();
+		if (Number.isNaN(consumedAtDate.getTime())) {
+			setStatus("inventory-consume-status", "Consumed date is invalid.", true);
+			return;
+		}
+		const consumedAt = consumedAtDate.toISOString();
+
+		const submitButton = consumeForm.querySelector<HTMLButtonElement>(
+			'button[type="submit"]',
+		);
+		if (submitButton) {
+			submitButton.disabled = true;
+		}
+
+		const itemName = pendingConsumeItem.name;
+		try {
+			await updateInventoryItem(pendingConsumeItem.id, {
+				consumed_at: consumedAt,
+			});
+			closeConsumeModal();
+			await loadInventoryPageData(`Consumed ${itemName}.`);
+		} catch (error) {
+			setStatus(
+				"inventory-consume-status",
+				error instanceof Error
+					? error.message
+					: "Failed to consume inventory item",
+				true,
+			);
+			if (submitButton) {
+				submitButton.disabled = false;
+			}
+		}
+	});
+
+	consumeModal.addEventListener("click", (event) => {
+		const target = event.target;
+		if (!(target instanceof HTMLElement)) {
+			return;
+		}
+		if (target.dataset.closeInventoryConsumeModal !== undefined) {
+			closeConsumeModal();
+		}
+	});
+
 	window.addEventListener("keydown", (event) => {
 		if (event.key === "Escape" && !modal.hidden) {
 			closeModal();
+		}
+		if (event.key === "Escape" && !consumeModal.hidden) {
+			closeConsumeModal();
 		}
 	});
 
@@ -5135,6 +5356,53 @@ const renderInventoryPage = () => {
 							<button class="primary" type="submit">Add Container</button>
 						</div>
 					</form>
+				</div>
+			</div>
+
+			<div class="inventory-container-modal" id="inventory-consume-modal" hidden>
+				<div
+					class="inventory-container-modal__backdrop"
+					data-close-inventory-consume-modal
+				></div>
+				<div
+					class="inventory-container-modal__dialog card panel"
+					role="dialog"
+					aria-modal="true"
+					aria-label="Consume inventory item"
+				>
+					<div class="section-header section-header--end">
+						<h2>Consume Item</h2>
+						<button
+							class="secondary"
+							type="button"
+							aria-label="Close consume inventory item modal"
+							data-close-inventory-consume-modal
+						>
+							Close
+						</button>
+					</div>
+					<form id="inventory-consume-form">
+						<div class="inventory-consume-target" id="inventory-consume-item-name"></div>
+						<label>
+							Consumed At
+							<input
+								id="inventory-consume-date"
+								name="consumed_at"
+								type="datetime-local"
+							/>
+						</label>
+						<div class="actions">
+							<button class="primary" type="submit">Consume</button>
+							<button
+								class="secondary"
+								type="button"
+								data-close-inventory-consume-modal
+							>
+								Cancel
+							</button>
+						</div>
+					</form>
+					<div id="inventory-consume-status" class="status"></div>
 				</div>
 			</div>
 		`,
