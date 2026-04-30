@@ -58,8 +58,19 @@ model ProductLink {
 	@@map("product_links")
 }
 
+model Group {
+	id         Int       @id @default(autoincrement())
+	name       String    @unique
+	created_at String    @map("created_at")
+	updated_at String    @map("updated_at")
+	receipts   Receipt[]
+
+	@@map("groups")
+}
+
 model Receipt {
 	id                   Int           @id @default(autoincrement())
+	group_id             Int?          @map("group_id")
 	store_name           String        @map("store_name")
 	purchased_at         String        @map("purchased_at")
 	currency             String
@@ -70,8 +81,10 @@ model Receipt {
 	picture_uploaded_at  String?       @map("picture_uploaded_at")
 	created_at           String        @map("created_at")
 	updated_at           String        @map("updated_at")
+	group                Group?        @relation(fields: [group_id], references: [id], onDelete: SetNull)
 	receipt_items        ReceiptItem[]
 
+	@@index([group_id], map: "idx_receipts_group_id")
 	@@map("receipts")
 }
 

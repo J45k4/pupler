@@ -13,6 +13,25 @@ export const productSummarySelect = {
 	ingredient_id: true,
 } as const;
 
+export const groupSummarySelect = {
+	id: true,
+	name: true,
+} as const;
+
+export const receiptDetailSelect = {
+	id: true,
+	group_id: true,
+	store_name: true,
+	purchased_at: true,
+	currency: true,
+	total_amount: true,
+	created_at: true,
+	updated_at: true,
+	group: {
+		select: groupSummarySelect,
+	},
+} as const;
+
 export const productDetailSelect = {
 	id: true,
 	ingredient_id: true,
@@ -104,6 +123,14 @@ const fetchProduct = (db: Database, id: number) =>
 		},
 	});
 
+const fetchGroup = (db: Database, id: number) =>
+	db.client.group.findUnique({
+		where: { id },
+		select: {
+			id: true,
+		},
+	});
+
 const fetchReceipt = (db: Database, id: number) =>
 	db.client.receipt.findUnique({
 		where: { id },
@@ -150,6 +177,26 @@ export const ensureProductExists = async (
 	}
 
 	return product;
+};
+
+export const ensureGroupExists = async (
+	db: Database,
+	groupId: number | null | undefined,
+	field = "group_id",
+) => {
+	if (groupId === undefined || groupId === null) {
+		return null;
+	}
+
+	const group = await fetchGroup(db, groupId);
+	if (!group) {
+		throw new HttpError(
+			400,
+			`Field \`${field}\` references a missing group`,
+		);
+	}
+
+	return group;
 };
 
 export const ensureReceiptExists = async (

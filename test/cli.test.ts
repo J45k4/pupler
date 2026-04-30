@@ -128,6 +128,30 @@ describe("Pupler CLI", () => {
 		expect(listedBody[0]?.id).toBe(createdBody.id);
 	});
 
+	test("creates and lists groups as JSON", async () => {
+		const server = await startServer();
+
+		const created = await runCli(
+			["groups", "create", "--json", "--name", "Grocery"],
+			{ baseUrl: server.baseUrl },
+		);
+		expect(created.exitCode).toBe(0);
+		const createdBody = JSON.parse(created.stdout) as {
+			id: number;
+			name: string;
+		};
+		expect(createdBody.name).toBe("Grocery");
+
+		const listed = await runCli(
+			["groups", "list", "--json", "--name", "grocery"],
+			{ baseUrl: server.baseUrl },
+		);
+		expect(listed.exitCode).toBe(0);
+		const listedBody = JSON.parse(listed.stdout) as Array<{ id: number }>;
+		expect(listedBody).toHaveLength(1);
+		expect(listedBody[0]?.id).toBe(createdBody.id);
+	});
+
 	test("creates and lists products as JSON", async () => {
 		const server = await startServer();
 		const ingredient = await server.call<{ id: number }>("/api/ingredients", {
@@ -192,12 +216,20 @@ describe("Pupler CLI", () => {
 				is_perishable: true,
 			},
 		});
+		const group = await runCli(
+			["groups", "create", "--json", "--name", "Grocery"],
+			{ baseUrl: server.baseUrl },
+		);
+		expect(group.exitCode).toBe(0);
+		const groupBody = JSON.parse(group.stdout) as { id: number };
 
 		const receipt = await runCli(
 			[
 				"receipts",
 				"create",
 				"--json",
+				"--group-id",
+				String(groupBody.id),
 				"--store-name",
 				"Prisma",
 				"--purchased-at",
@@ -210,7 +242,24 @@ describe("Pupler CLI", () => {
 			{ baseUrl: server.baseUrl },
 		);
 		expect(receipt.exitCode).toBe(0);
-		const receiptBody = JSON.parse(receipt.stdout) as { id: number };
+		const receiptBody = JSON.parse(receipt.stdout) as {
+			group: { id: number; name: string } | null;
+			group_id: number | null;
+			id: number;
+		};
+		expect(receiptBody.group_id).toBe(groupBody.id);
+		expect(receiptBody.group?.name).toBe("Grocery");
+
+		const listedReceipts = await runCli(
+			["receipts", "list", "--json", "--group-id", String(groupBody.id)],
+			{ baseUrl: server.baseUrl },
+		);
+		expect(listedReceipts.exitCode).toBe(0);
+		const listedReceiptBody = JSON.parse(listedReceipts.stdout) as Array<{
+			id: number;
+		}>;
+		expect(listedReceiptBody).toHaveLength(1);
+		expect(listedReceiptBody[0]?.id).toBe(receiptBody.id);
 
 		const item = await runCli(
 			[

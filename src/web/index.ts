@@ -33,14 +33,26 @@ type Product = {
 	ingredient?: IngredientSummary | null;
 };
 
+type GroupSummary = {
+	id: number;
+	name: string;
+};
+
+type Group = GroupSummary & {
+	created_at: string;
+	updated_at: string;
+};
+
 type PurchaseReceipt = {
 	id: number;
+	group_id: number | null;
 	store_name: string;
 	purchased_at: string;
 	currency: string;
 	total_amount: number | null;
 	created_at: string;
 	updated_at: string;
+	group?: GroupSummary | null;
 };
 
 type PurchaseReceiptItem = {
@@ -550,6 +562,8 @@ const formatMoney = (value: number | null, currency: string) => {
 		return `${value} ${currency}`;
 	}
 };
+
+const normalizeGroupName = (name: string) => name.trim().toLowerCase();
 
 const getShoppingListMode = () => {
 	const toggle = document.getElementById("shoppinglist-show-done");
@@ -2001,8 +2015,15 @@ const renderReceipts = (receipts: PurchaseReceipt[]) => {
 			(receipt) => `
 				<a class="receipt-card" href="/receipts/${receipt.id}" data-link>
 					<div class="receipt-card__header">
-						<h3>${receipt.store_name}</h3>
-						<span class="tag tag--neutral">${receipt.currency}</span>
+						<h3>${escapeHtml(receipt.store_name)}</h3>
+						<div class="receipt-card__tags">
+							${
+								receipt.group
+									? `<span class="tag">${escapeHtml(receipt.group.name)}</span>`
+									: '<span class="tag tag--neutral">Ungrouped</span>'
+							}
+							<span class="tag tag--neutral">${escapeHtml(receipt.currency)}</span>
+						</div>
 					</div>
 					<dl class="receipt-card__meta">
 						<div>
@@ -2020,10 +2041,48 @@ const renderReceipts = (receipts: PurchaseReceipt[]) => {
 		.join("");
 };
 
+const renderReceiptGroupControls = (groups: Group[], selectedFilter: string) => {
+	const groupOptions = document.getElementById("receipt-group-options");
+	if (groupOptions instanceof HTMLDataListElement) {
+		groupOptions.innerHTML = groups
+			.map((group) => `<option value="${escapeHtml(group.name)}"></option>`)
+			.join("");
+	}
+
+	const groupFilter = document.getElementById("receipt-group-filter");
+	if (!(groupFilter instanceof HTMLSelectElement)) {
+		return;
+	}
+
+	groupFilter.innerHTML = `
+		<option value="all">All groups</option>
+		<option value="ungrouped">Ungrouped</option>
+		${groups
+			.map(
+				(group) =>
+					`<option value="${group.id}">${escapeHtml(group.name)}</option>`,
+			)
+			.join("")}
+	`;
+	groupFilter.value = selectedFilter;
+	if (groupFilter.value !== selectedFilter) {
+		groupFilter.value = "all";
+	}
+};
+
+const getReceiptGroupFilter = () => {
+	const groupFilter = document.getElementById("receipt-group-filter");
+	if (!(groupFilter instanceof HTMLSelectElement)) {
+		return "all";
+	}
+	return groupFilter.value || "all";
+};
+
 const renderReceiptDetail = (
 	receipt: PurchaseReceipt,
 	items: PurchaseReceiptItem[],
 	products: Product[],
+	groups: Group[],
 ) => {
 	const page = document.getElementById("receipt-detail-page");
 	if (!page) {
@@ -2038,7 +2097,7 @@ const renderReceiptDetail = (
 		<section class="page-heading page-heading--compact">
 			<div>
 				<span class="eyebrow">Receipt</span>
-				<h1 class="page-title">${receipt.store_name}</h1>
+				<h1 class="page-title">${escapeHtml(receipt.store_name)}</h1>
 			</div>
 			<a class="secondary action-link" href="/receipts" data-link>Back To Receipts</a>
 		</section>
@@ -2055,7 +2114,7 @@ const renderReceiptDetail = (
 						<img
 							class="receipt-picture__image"
 							src="/api/receipts/${receipt.id}/picture"
-							alt="${receipt.store_name}"
+							alt="${escapeHtml(receipt.store_name)}"
 							loading="lazy"
 							onerror="this.closest('.receipt-picture').innerHTML='<div class=&quot;empty&quot;>No receipt picture uploaded.</div>'"
 						/>
@@ -2068,7 +2127,15 @@ const renderReceiptDetail = (
 				<dl class="receipt-metadata">
 					<div>
 						<dt>Store</dt>
-						<dd>${receipt.store_name}</dd>
+						<dd>${escapeHtml(receipt.store_name)}</dd>
+					</div>
+					<div>
+						<dt>Group</dt>
+						<dd>${
+							receipt.group
+								? `<span class="tag">${escapeHtml(receipt.group.name)}</span>`
+								: "-"
+						}</dd>
 					</div>
 					<div>
 						<dt>Purchased</dt>
@@ -2091,6 +2158,38 @@ const renderReceiptDetail = (
 						<dd>${formatReceiptDateTime(receipt.updated_at)}</dd>
 					</div>
 				</dl>
+
+				<h2>Group</h2>
+				<form id="receipt-detail-group-form" class="receipt-group-form">
+					<label>
+						Group
+						<input
+							id="receipt-detail-group-name"
+							list="receipt-detail-group-options"
+							value="${escapeHtml(receipt.group?.name ?? "")}"
+							placeholder="grocery"
+						/>
+						<datalist id="receipt-detail-group-options">
+							${groups
+								.map(
+									(group) =>
+										`<option value="${escapeHtml(group.name)}"></option>`,
+								)
+								.join("")}
+						</datalist>
+					</label>
+					<div class="actions">
+						<button class="primary" type="submit">Save Group</button>
+						<button
+							class="secondary"
+							type="button"
+							id="receipt-detail-clear-group"
+						>
+							Clear Group
+						</button>
+					</div>
+				</form>
+				<div id="receipt-detail-group-status" class="status"></div>
 
 				<h2>Extracted Items</h2>
 				${
@@ -2150,7 +2249,7 @@ const renderReceiptDetail = (
 					<img
 						class="receipt-modal__image"
 						src="/api/receipts/${receipt.id}/picture"
-						alt="${receipt.store_name}"
+						alt="${escapeHtml(receipt.store_name)}"
 						draggable="false"
 					/>
 				</div>
@@ -2159,9 +2258,97 @@ const renderReceiptDetail = (
 	`;
 };
 
-const attachReceiptDetailEvents = () => {
+const attachReceiptDetailEvents = (
+	receipt: PurchaseReceipt,
+	items: PurchaseReceiptItem[],
+	products: Product[],
+	groups: Group[],
+) => {
 	receiptDetailAbortController?.abort();
 	receiptDetailAbortController = new AbortController();
+
+	const rerenderReceiptDetail = (
+		nextReceipt: PurchaseReceipt,
+		nextGroups: Group[],
+		statusMessage: string,
+	) => {
+		renderReceiptDetail(nextReceipt, items, products, nextGroups);
+		attachReceiptDetailEvents(nextReceipt, items, products, nextGroups);
+		setStatus("receipt-detail-group-status", statusMessage);
+	};
+
+	const groupForm = document.getElementById("receipt-detail-group-form");
+	const groupNameInput = document.getElementById("receipt-detail-group-name");
+	const clearGroupButton = document.getElementById("receipt-detail-clear-group");
+
+	if (
+		groupForm instanceof HTMLFormElement &&
+		groupNameInput instanceof HTMLInputElement
+	) {
+		groupForm.addEventListener(
+			"submit",
+			async (event) => {
+				event.preventDefault();
+
+				const groupName = groupNameInput.value.trim();
+				try {
+					const group = groupName
+						? await findOrCreateGroup(groupName, groups)
+						: null;
+					const updatedReceipt = await updateReceiptGroup(
+						receipt.id,
+						group?.id ?? null,
+					);
+					const nextGroups =
+						group && !groups.some((existing) => existing.id === group.id)
+							? [...groups, group].sort((left, right) =>
+									left.name.localeCompare(right.name),
+								)
+							: groups;
+
+					rerenderReceiptDetail(
+						updatedReceipt,
+						nextGroups,
+						group ? `Saved group ${group.name}.` : "Cleared receipt group.",
+					);
+				} catch (error) {
+					setStatus(
+						"receipt-detail-group-status",
+						error instanceof Error
+							? error.message
+							: "Failed to save receipt group",
+						true,
+					);
+				}
+			},
+			{ signal: receiptDetailAbortController.signal },
+		);
+	}
+
+	if (clearGroupButton instanceof HTMLButtonElement) {
+		clearGroupButton.addEventListener(
+			"click",
+			async () => {
+				try {
+					const updatedReceipt = await updateReceiptGroup(receipt.id, null);
+					rerenderReceiptDetail(
+						updatedReceipt,
+						groups,
+						"Cleared receipt group.",
+					);
+				} catch (error) {
+					setStatus(
+						"receipt-detail-group-status",
+						error instanceof Error
+							? error.message
+							: "Failed to clear receipt group",
+						true,
+					);
+				}
+			},
+			{ signal: receiptDetailAbortController.signal },
+		);
+	}
 
 	const trigger = document.querySelector<HTMLButtonElement>(
 		".receipt-picture__trigger",
@@ -2523,8 +2710,74 @@ const createRecipe = async (payload: {
 	return body as Recipe;
 };
 
-const fetchReceipts = async () => {
-	const response = await fetch("/api/receipts?sort=purchased_at&order=desc");
+const fetchGroups = async () => {
+	const response = await fetch("/api/groups?sort=name&order=asc");
+	const body = (await response.json()) as Group[] | { error?: string };
+
+	if (!response.ok) {
+		throw new Error(
+			"error" in body
+				? (body.error ?? "Failed to load groups")
+				: "Failed to load groups",
+		);
+	}
+
+	return body as Group[];
+};
+
+const createGroup = async (name: string) => {
+	const response = await fetch("/api/groups", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ name }),
+	});
+	const body = (await response.json()) as Group | { error?: string };
+
+	if (!response.ok) {
+		throw new Error(
+			"error" in body
+				? (body.error ?? "Failed to create group")
+				: "Failed to create group",
+		);
+	}
+
+	return body as Group;
+};
+
+const findOrCreateGroup = async (name: string, groups: Group[]) => {
+	const normalizedName = normalizeGroupName(name);
+	const existingGroup = groups.find(
+		(group) => normalizeGroupName(group.name) === normalizedName,
+	);
+	if (existingGroup) {
+		return existingGroup;
+	}
+
+	try {
+		return await createGroup(name);
+	} catch (error) {
+		const refreshedGroups = await fetchGroups();
+		const refreshedGroup = refreshedGroups.find(
+			(group) => normalizeGroupName(group.name) === normalizedName,
+		);
+		if (refreshedGroup) {
+			return refreshedGroup;
+		}
+		throw error;
+	}
+};
+
+const fetchReceipts = async (groupFilter = "all") => {
+	const params = new URLSearchParams({
+		sort: "purchased_at",
+		order: "desc",
+	});
+	if (groupFilter === "ungrouped") {
+		params.set("group_id", "null");
+	} else if (groupFilter !== "all") {
+		params.set("group_id", groupFilter);
+	}
+	const response = await fetch(`/api/receipts?${params.toString()}`);
 	const body = (await response.json()) as
 		| PurchaseReceipt[]
 		| { error?: string };
@@ -2551,6 +2804,30 @@ const fetchReceipt = async (receiptId: number) => {
 			"error" in body
 				? (body.error ?? "Failed to load receipt")
 				: "Failed to load receipt",
+		);
+	}
+
+	return body as PurchaseReceipt;
+};
+
+const updateReceiptGroup = async (
+	receiptId: number,
+	groupId: number | null,
+) => {
+	const response = await fetch(`/api/receipts/${receiptId}`, {
+		method: "PATCH",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ group_id: groupId }),
+	});
+	const body = (await response.json()) as
+		| PurchaseReceipt
+		| { error?: string };
+
+	if (!response.ok) {
+		throw new Error(
+			"error" in body
+				? (body.error ?? "Failed to update receipt group")
+				: "Failed to update receipt group",
 		);
 	}
 
@@ -4247,10 +4524,19 @@ const attachRecipeDetailEvents = (recipeId: number) => {
 
 const loadReceipts = async () => {
 	try {
-		const receipts = await fetchReceipts();
+		const groupFilter = getReceiptGroupFilter();
+		const [groups, receipts] = await Promise.all([
+			fetchGroups(),
+			fetchReceipts(groupFilter),
+		]);
+		renderReceiptGroupControls(groups, groupFilter);
 		renderReceipts(receipts);
-		setStatus("receipt-status", `Loaded ${receipts.length} receipt(s).`);
+		setStatus(
+			"receipt-status",
+			`Loaded ${receipts.length} receipt(s) and ${groups.length} group(s).`,
+		);
 	} catch (error) {
+		renderReceiptGroupControls([], "all");
 		renderReceipts([]);
 		setStatus(
 			"receipt-status",
@@ -4263,6 +4549,7 @@ const loadReceipts = async () => {
 const attachReceiptsPageEvents = () => {
 	const form = document.getElementById("receipt-form");
 	const refreshButton = document.getElementById("receipt-refresh-button");
+	const groupFilter = document.getElementById("receipt-group-filter");
 
 	form?.addEventListener("submit", async (event) => {
 		event.preventDefault();
@@ -4275,6 +4562,7 @@ const attachReceiptsPageEvents = () => {
 		const totalAmountInput = document.getElementById(
 			"receipt-total-amount",
 		);
+		const groupNameInput = document.getElementById("receipt-group-name");
 		const pictureInput = document.getElementById("receipt-picture");
 
 		if (
@@ -4282,12 +4570,16 @@ const attachReceiptsPageEvents = () => {
 			!(purchasedAtInput instanceof HTMLInputElement) ||
 			!(currencyInput instanceof HTMLInputElement) ||
 			!(totalAmountInput instanceof HTMLInputElement) ||
+			!(groupNameInput instanceof HTMLInputElement) ||
 			!(pictureInput instanceof HTMLInputElement)
 		) {
 			return;
 		}
 
+		const groupName = groupNameInput.value.trim();
+
 		const payload = {
+			group_id: null as number | null,
 			store_name: storeNameInput.value.trim(),
 			purchased_at: new Date(purchasedAtInput.value).toISOString(),
 			currency: currencyInput.value.trim().toUpperCase(),
@@ -4297,6 +4589,11 @@ const attachReceiptsPageEvents = () => {
 		};
 
 		try {
+			if (groupName) {
+				const group = await findOrCreateGroup(groupName, await fetchGroups());
+				payload.group_id = group.id;
+			}
+
 			const response = await fetch("/api/receipts", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
@@ -4345,6 +4642,10 @@ const attachReceiptsPageEvents = () => {
 	});
 
 	refreshButton?.addEventListener("click", () => {
+		void loadReceipts();
+	});
+
+	groupFilter?.addEventListener("change", () => {
 		void loadReceipts();
 	});
 };
@@ -5735,6 +6036,12 @@ const renderReceiptsPage = () => {
 							</label>
 						</div>
 
+						<label>
+							Group
+							<input id="receipt-group-name" list="receipt-group-options" placeholder="grocery" />
+							<datalist id="receipt-group-options"></datalist>
+						</label>
+
 						${renderUploadDropzone({
 							inputId: "receipt-picture",
 							label: "Receipt Picture",
@@ -5751,6 +6058,16 @@ const renderReceiptsPage = () => {
 
 				<div class="card panel">
 					<h2>Receipts</h2>
+					<div class="toolbar">
+						<select
+							id="receipt-group-filter"
+							class="toolbar__select"
+							aria-label="Receipt group filter"
+						>
+							<option value="all">All groups</option>
+							<option value="ungrouped">Ungrouped</option>
+						</select>
+					</div>
 					<div id="receipt-results" class="results"></div>
 				</div>
 			</section>
@@ -5833,13 +6150,14 @@ const renderReceiptDetailPage = (params: Record<string, string>) => {
 		}
 
 		try {
-			const [receipt, items, products] = await Promise.all([
+			const [receipt, items, products, groups] = await Promise.all([
 				fetchReceipt(receiptId),
 				fetchReceiptItems(receiptId),
 				fetchAllProducts(),
+				fetchGroups(),
 			]);
-			renderReceiptDetail(receipt, items, products);
-			attachReceiptDetailEvents();
+			renderReceiptDetail(receipt, items, products, groups);
+			attachReceiptDetailEvents(receipt, items, products, groups);
 		} catch (error) {
 			const page = document.getElementById("receipt-detail-page");
 			if (page) {

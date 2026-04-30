@@ -4,6 +4,7 @@ import {
 	assertKnownFields,
 	empty,
 	expectNullableDecimal,
+	expectNullableInteger,
 	expectString,
 	expectTimestamp,
 	HttpError,
@@ -26,10 +27,15 @@ import {
 	readStoredFile,
 	writeUploadedFile,
 } from "./file-storage";
+import {
+	ensureGroupExists,
+	receiptDetailSelect,
+} from "./reference-details";
 
 const MAX_PURCHASE_RECEIPT_PICTURE_BYTES = 10 * 1024 * 1024;
 const SORT_FIELDS = new Set([
 	"id",
+	"group_id",
 	"store_name",
 	"purchased_at",
 	"currency",
@@ -38,6 +44,7 @@ const SORT_FIELDS = new Set([
 	"updated_at",
 ]);
 const WRITABLE_FIELDS = [
+	"group_id",
 	"store_name",
 	"purchased_at",
 	"currency",
@@ -46,6 +53,12 @@ const WRITABLE_FIELDS = [
 
 const fetchReceipt = (db: Database, id: number) =>
 	db.client.receipt.findUnique({ where: { id } });
+
+const fetchReceiptDetail = (db: Database, id: number) =>
+	db.client.receipt.findUnique({
+		where: { id },
+		select: receiptDetailSelect,
+	});
 
 const fetchReceiptPicture = (db: Database, receiptId: number) =>
 	db.client.receipt.findUnique({
@@ -77,6 +90,10 @@ const parseFilters = (url: URL) => {
 			case "id":
 				where.id = parseIntegerQuery(key, value);
 				break;
+			case "group_id":
+				where.group_id =
+					value === "null" ? null : parseIntegerQuery(key, value);
+				break;
 			case "store_name":
 			case "currency":
 			case "created_at":
@@ -102,6 +119,8 @@ const parseCreateValues = (body: JsonObject) => {
 	assertKnownFields(body, WRITABLE_FIELDS);
 	const now = utcNow();
 	return {
+		group_id:
+			readOptionalBodyField(body, "group_id", expectNullableInteger) ?? null,
 		store_name: requireBodyField(body, "store_name", expectString),
 		purchased_at: requireBodyField(body, "purchased_at", expectTimestamp),
 		currency: requireBodyField(body, "currency", expectString),
@@ -118,6 +137,8 @@ const parseReplaceValues = (
 ) => {
 	assertKnownFields(body, WRITABLE_FIELDS);
 	return {
+		group_id:
+			readOptionalBodyField(body, "group_id", expectNullableInteger) ?? null,
 		store_name: requireBodyField(body, "store_name", expectString),
 		purchased_at: requireBodyField(body, "purchased_at", expectTimestamp),
 		currency: requireBodyField(body, "currency", expectString),
@@ -133,6 +154,11 @@ const parsePatchValues = (body: JsonObject) => {
 	const values: Record<string, unknown> = {};
 
 	const storeName = readOptionalBodyField(body, "store_name", expectString);
+	const groupId = readOptionalBodyField(
+		body,
+		"group_id",
+		expectNullableInteger,
+	);
 	const purchasedAt = readOptionalBodyField(body, "purchased_at", expectTimestamp);
 	const currency = readOptionalBodyField(body, "currency", expectString);
 	const totalAmount = readOptionalBodyField(
@@ -141,6 +167,7 @@ const parsePatchValues = (body: JsonObject) => {
 		expectNullableDecimal,
 	);
 
+	if (groupId !== undefined) values.group_id = groupId;
 	if (storeName !== undefined) values.store_name = storeName;
 	if (purchasedAt !== undefined) values.purchased_at = purchasedAt;
 	if (currency !== undefined) values.currency = currency;
@@ -163,16 +190,20 @@ export const receiptsCollectionRoute = (db: Database) =>
 				await db.client.receipt.findMany({
 					where: parseFilters(url),
 					orderBy: parseSort(url),
+					select: receiptDetailSelect,
 				}),
 			);
 		}
 
 		if (req.method === "POST") {
+			const values = parseCreateValues(await readJsonObject(req));
+			await ensureGroupExists(db, values.group_id);
+			const created = await db.client.receipt.create({
+				data: values,
+			});
 			return json(
 				201,
-				await db.client.receipt.create({
-					data: parseCreateValues(await readJsonObject(req)),
-				}),
+				await fetchReceiptDetail(db, created.id),
 			);
 		}
 
@@ -187,23 +218,31 @@ export const receiptDetailRoute = (db: Database) =>
 			throw new HttpError(404, "Resource not found");
 		}
 
-		if (req.method === "GET") return json(200, existingRow);
+		if (req.method === "GET") return json(200, await fetchReceiptDetail(db, id));
 		if (req.method === "PUT") {
+			const values = parseReplaceValues(await readJsonObject(req), existingRow);
+			await ensureGroupExists(db, values.group_id);
+			await db.client.receipt.update({
+				where: { id },
+				data: values,
+			});
 			return json(
 				200,
-				await db.client.receipt.update({
-					where: { id },
-					data: parseReplaceValues(await readJsonObject(req), existingRow),
-				}),
+				await fetchReceiptDetail(db, id),
 			);
 		}
 		if (req.method === "PATCH") {
+			const values = parsePatchValues(await readJsonObject(req));
+			if ("group_id" in values) {
+				await ensureGroupExists(db, values.group_id as number | null);
+			}
+			await db.client.receipt.update({
+				where: { id },
+				data: values,
+			});
 			return json(
 				200,
-				await db.client.receipt.update({
-					where: { id },
-					data: parsePatchValues(await readJsonObject(req)),
-				}),
+				await fetchReceiptDetail(db, id),
 			);
 		}
 		if (req.method === "DELETE") {

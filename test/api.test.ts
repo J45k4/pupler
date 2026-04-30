@@ -5,6 +5,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import {
 	closeDatabase,
+	groupDetailRoute,
+	groupsCollectionRoute,
 	ingredientDetailRoute,
 	ingredientsCollectionRoute,
 	inventoryContainerDetailRoute,
@@ -67,6 +69,8 @@ const createRoutes = () => {
 		db,
 		filesPath: db.filesPath,
 		handlers: {
+			"/api/groups": groupsCollectionRoute(db),
+			"/api/groups/:id": groupDetailRoute(db),
 			"/api/ingredients": ingredientsCollectionRoute(db),
 			"/api/ingredients/:id": ingredientDetailRoute(db),
 			"/api/products": productsCollectionRoute(db),
@@ -137,6 +141,172 @@ describe("Pupler API", () => {
 		expect(await response.json()).toEqual({
 			version: "dev",
 		});
+	});
+
+	test("creates, updates, lists, and deletes groups", async () => {
+		const routes = createRoutes();
+
+		const createResponse = await request(routes, "/api/groups", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: " Grocery ",
+			}),
+		});
+		expect(createResponse.status).toBe(201);
+		const created = await createResponse.json();
+		expect(created.name).toBe("Grocery");
+
+		const duplicateResponse = await request(routes, "/api/groups", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: "grocery",
+			}),
+		});
+		expect(duplicateResponse.status).toBe(409);
+
+		const listResponse = await request(routes, "/api/groups?name=GROCERY");
+		expect(listResponse.status).toBe(200);
+		const listed = await listResponse.json();
+		expect(listed).toHaveLength(1);
+		expect(listed[0].id).toBe(created.id);
+
+		const updateResponse = await request(
+			routes,
+			`/api/groups/${created.id}`,
+			{
+				method: "PATCH",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					name: "My Business",
+				}),
+			},
+			{ id: String(created.id) },
+		);
+		expect(updateResponse.status).toBe(200);
+		const updated = await updateResponse.json();
+		expect(updated.name).toBe("My Business");
+
+		const deleteResponse = await request(
+			routes,
+			`/api/groups/${created.id}`,
+			{ method: "DELETE" },
+			{ id: String(created.id) },
+		);
+		expect(deleteResponse.status).toBe(204);
+
+		const missingResponse = await request(
+			routes,
+			`/api/groups/${created.id}`,
+			{},
+			{ id: String(created.id) },
+		);
+		expect(missingResponse.status).toBe(404);
+	});
+
+	test("groups receipts and clears receipt links when a group is deleted", async () => {
+		const routes = createRoutes();
+
+		const groupResponse = await request(routes, "/api/groups", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: "Grocery",
+			}),
+		});
+		const group = await groupResponse.json();
+
+		const receiptResponse = await request(routes, "/api/receipts", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				group_id: group.id,
+				store_name: "Prisma",
+				purchased_at: "2026-04-13T12:00:00.000Z",
+				currency: "EUR",
+				total_amount: 5.4,
+			}),
+		});
+		expect(receiptResponse.status).toBe(201);
+		const receipt = await receiptResponse.json();
+		expect(receipt.group_id).toBe(group.id);
+		expect(receipt.group).toEqual({
+			id: group.id,
+			name: "Grocery",
+		});
+
+		const filteredResponse = await request(
+			routes,
+			`/api/receipts?group_id=${group.id}`,
+		);
+		expect(filteredResponse.status).toBe(200);
+		const filtered = await filteredResponse.json();
+		expect(filtered).toHaveLength(1);
+		expect(filtered[0].id).toBe(receipt.id);
+
+		const ungroupedResponse = await request(routes, "/api/receipts?group_id=null");
+		expect(ungroupedResponse.status).toBe(200);
+		expect(await ungroupedResponse.json()).toHaveLength(0);
+
+		const missingGroupResponse = await request(routes, "/api/receipts", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				group_id: 9999,
+				store_name: "Missing",
+				purchased_at: "2026-04-13T12:00:00.000Z",
+				currency: "EUR",
+				total_amount: null,
+			}),
+		});
+		expect(missingGroupResponse.status).toBe(400);
+
+		const clearResponse = await request(
+			routes,
+			`/api/receipts/${receipt.id}`,
+			{
+				method: "PATCH",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ group_id: null }),
+			},
+			{ id: String(receipt.id) },
+		);
+		expect(clearResponse.status).toBe(200);
+		const cleared = await clearResponse.json();
+		expect(cleared.group_id).toBeNull();
+		expect(cleared.group).toBeNull();
+
+		const relinkResponse = await request(
+			routes,
+			`/api/receipts/${receipt.id}`,
+			{
+				method: "PATCH",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ group_id: group.id }),
+			},
+			{ id: String(receipt.id) },
+		);
+		expect(relinkResponse.status).toBe(200);
+
+		const deleteGroupResponse = await request(
+			routes,
+			`/api/groups/${group.id}`,
+			{ method: "DELETE" },
+			{ id: String(group.id) },
+		);
+		expect(deleteGroupResponse.status).toBe(204);
+
+		const refreshedResponse = await request(
+			routes,
+			`/api/receipts/${receipt.id}`,
+			{},
+			{ id: String(receipt.id) },
+		);
+		expect(refreshedResponse.status).toBe(200);
+		const refreshed = await refreshedResponse.json();
+		expect(refreshed.group_id).toBeNull();
+		expect(refreshed.group).toBeNull();
 	});
 
 	test("creates and looks up a product by barcode", async () => {

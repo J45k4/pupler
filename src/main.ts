@@ -1,6 +1,8 @@
 import {
 	ingredientDetailRoute,
 	ingredientsCollectionRoute,
+	groupDetailRoute,
+	groupsCollectionRoute,
 	inventoryContainerDetailRoute,
 	inventoryContainersCollectionRoute,
 	inventoryItemDetailRoute,
@@ -71,6 +73,8 @@ export const server = (options: ServerOptions = {}) => {
 	return Bun.serve({
 		port,
 		routes: {
+			"/api/groups": groupsCollectionRoute(db),
+			"/api/groups/:id": groupDetailRoute(db),
 			"/api/ingredients": ingredientsCollectionRoute(db),
 			"/api/ingredients/:id": ingredientDetailRoute(db),
 			"/api/products": productsCollectionRoute(db),

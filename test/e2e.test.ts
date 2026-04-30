@@ -410,6 +410,50 @@ describe("Pupler API e2e", () => {
 		expect(Array.from(bytes)).toEqual([4, 3, 2, 1]);
 	});
 
+	test("creates a group and grouped receipt over HTTP", async () => {
+		const server = await startServer();
+
+		const group = await server.call<{
+			id: number;
+			name: string;
+		}>("/api/groups", {
+			method: "POST",
+			body: {
+				name: "Grocery",
+			},
+		});
+		expect(group.response.status).toBe(201);
+		expect(group.body.name).toBe("Grocery");
+
+		const receipt = await server.call<{
+			group: { id: number; name: string } | null;
+			group_id: number | null;
+			id: number;
+		}>("/api/receipts", {
+			method: "POST",
+			body: {
+				group_id: group.body.id,
+				store_name: "Prisma",
+				purchased_at: "2026-04-13T12:00:00.000Z",
+				currency: "EUR",
+				total_amount: 18.5,
+			},
+		});
+		expect(receipt.response.status).toBe(201);
+		expect(receipt.body.group_id).toBe(group.body.id);
+		expect(receipt.body.group).toEqual({
+			id: group.body.id,
+			name: "Grocery",
+		});
+
+		const listed = await server.call<Array<{ id: number }>>(
+			`/api/receipts?group_id=${group.body.id}`,
+		);
+		expect(listed.response.status).toBe(200);
+		expect(listed.body).toHaveLength(1);
+		expect(listed.body[0].id).toBe(receipt.body.id);
+	});
+
 	test("uploads and fetches multiple recipe images over HTTP", async () => {
 		const server = await startServer();
 

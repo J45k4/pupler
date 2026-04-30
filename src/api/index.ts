@@ -5,6 +5,10 @@ export {
 	openDatabase,
 } from "./core";
 export {
+	groupDetailRoute,
+	groupsCollectionRoute,
+} from "./groups";
+export {
 	ingredientDetailRoute,
 	ingredientsCollectionRoute,
 } from "./ingredients";

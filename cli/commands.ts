@@ -50,6 +50,19 @@ export type CommandResult = {
 
 const RESOURCES: ResourceConfig[] = [
 	{
+		command: "groups",
+		path: "/api/groups",
+		fields: {
+			name: { type: "string" },
+		},
+		queryFields: {
+			id: { type: "integer" },
+			name: { type: "string" },
+			created_at: { type: "timestamp" },
+			updated_at: { type: "timestamp" },
+		},
+	},
+	{
 		command: "ingredients",
 		path: "/api/ingredients",
 		fields: {
@@ -108,6 +121,7 @@ const RESOURCES: ResourceConfig[] = [
 		command: "receipts",
 		path: "/api/receipts",
 		fields: {
+			group_id: { type: "integer", nullable: true },
 			store_name: { type: "string" },
 			purchased_at: { type: "timestamp" },
 			currency: { type: "string" },
@@ -115,6 +129,7 @@ const RESOURCES: ResourceConfig[] = [
 		},
 		queryFields: {
 			id: { type: "integer" },
+			group_id: { type: "integer", nullable: true },
 			store_name: { type: "string", nullable: true },
 			purchased_at: { type: "timestamp" },
 			currency: { type: "string", nullable: true },
@@ -291,9 +306,10 @@ Resources:
 Examples:
   bun ./cli/cli.ts config set-url http://localhost:5995
   bun ./cli/cli.ts ingredients create --name Sausage --default-unit pcs
+  bun ./cli/cli.ts groups create --name grocery
   bun ./cli/cli.ts products list --barcode 6414893400012
   bun ./cli/cli.ts products create --name Milk --category food --is-perishable true --ingredient-id 1
-  bun ./cli/cli.ts receipts create --store-name Prisma --purchased-at 2026-04-14T08:00:00Z --currency EUR
+  bun ./cli/cli.ts receipts create --store-name Prisma --purchased-at 2026-04-14T08:00:00Z --currency EUR --group-id 1
   bun ./cli/cli.ts receipt-items create --receipt-id 1 --product-id 2 --quantity 1 --unit pcs
 
 Global flags:
