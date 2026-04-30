@@ -161,6 +161,10 @@ let productPageAbortController: AbortController | null = null;
 let productDetailAbortController: AbortController | null = null;
 let productInfiniteScroll: InfiniteScroll<Product> | null = null;
 let expirationInfiniteScroll: InfiniteScroll<InventoryItem> | null = null;
+let receiptBoardState: {
+	groups: Group[];
+	receipts: PurchaseReceipt[];
+} | null = null;
 let inventoryTreeState: {
 	containers: InventoryContainer[];
 	items: InventoryItem[];
@@ -1999,46 +2003,108 @@ const renderInventoryTree = (
 	`;
 };
 
-const renderReceipts = (receipts: PurchaseReceipt[]) => {
+const renderReceiptCard = (
+	receipt: PurchaseReceipt,
+	options: { draggable?: boolean } = {},
+) => `
+	<a
+		class="receipt-card"
+		href="/receipts/${receipt.id}"
+		data-link
+		${options.draggable === false ? "" : `draggable="true" data-receipt-drag-id="${receipt.id}"`}
+	>
+		<div class="receipt-card__header">
+			<h3>${escapeHtml(receipt.store_name)}</h3>
+			<div class="receipt-card__tags">
+				${
+					receipt.group
+						? `<span class="tag">${escapeHtml(receipt.group.name)}</span>`
+						: '<span class="tag tag--neutral">Ungrouped</span>'
+				}
+				<span class="tag tag--neutral">${escapeHtml(receipt.currency)}</span>
+			</div>
+		</div>
+		<dl class="receipt-card__meta">
+			<div>
+				<dt>Purchased</dt>
+				<dd>${formatReceiptDateTime(receipt.purchased_at)}</dd>
+			</div>
+			<div>
+				<dt>Total</dt>
+				<dd>${formatMoney(receipt.total_amount, receipt.currency)}</dd>
+			</div>
+		</dl>
+	</a>
+`;
+
+const renderReceipts = (
+	receipts: PurchaseReceipt[],
+	groups: Group[] = [],
+	selectedFilter = "all",
+) => {
 	const results = document.getElementById("receipt-results");
 	if (!results) {
 		return;
 	}
 
-	if (!receipts.length) {
+	if (!receipts.length && !groups.length) {
 		results.innerHTML = '<div class="empty">No receipts yet.</div>';
 		return;
 	}
 
-	results.innerHTML = receipts
-		.map(
-			(receipt) => `
-				<a class="receipt-card" href="/receipts/${receipt.id}" data-link>
-					<div class="receipt-card__header">
-						<h3>${escapeHtml(receipt.store_name)}</h3>
-						<div class="receipt-card__tags">
-							${
-								receipt.group
-									? `<span class="tag">${escapeHtml(receipt.group.name)}</span>`
-									: '<span class="tag tag--neutral">Ungrouped</span>'
-							}
-							<span class="tag tag--neutral">${escapeHtml(receipt.currency)}</span>
-						</div>
-					</div>
-					<dl class="receipt-card__meta">
-						<div>
-							<dt>Purchased</dt>
-							<dd>${formatReceiptDateTime(receipt.purchased_at)}</dd>
-						</div>
-						<div>
-							<dt>Total</dt>
-							<dd>${formatMoney(receipt.total_amount, receipt.currency)}</dd>
-						</div>
-					</dl>
-				</a>
-			`,
-		)
-		.join("");
+	const visibleGroups =
+		selectedFilter === "all"
+			? groups
+			: selectedFilter === "ungrouped"
+				? []
+				: groups.filter((group) => String(group.id) === selectedFilter);
+	const showUngrouped =
+		selectedFilter === "all" || selectedFilter === "ungrouped";
+	const columns: Array<{ id: number | null; name: string }> = [
+		...(showUngrouped ? [{ id: null, name: "Ungrouped" }] : []),
+		...visibleGroups.map((group) => ({ id: group.id, name: group.name })),
+	];
+
+	results.innerHTML = `
+		<div class="receipt-kanban">
+			${columns
+				.map((column) => {
+					const columnReceipts = receipts.filter((receipt) =>
+						column.id === null
+							? receipt.group_id === null
+							: receipt.group_id === column.id,
+					);
+
+					return `
+						<section
+							class="receipt-kanban__column receipt-drop-target"
+							data-receipt-drop-group-id="${column.id ?? ""}"
+						>
+							<header class="receipt-kanban__header">
+								<h3>
+									${
+										column.id === null
+											? escapeHtml(column.name)
+											: `<a class="receipt-kanban__title-link" href="/groups/${column.id}" data-link>${escapeHtml(column.name)}</a>`
+									}
+								</h3>
+								<span class="tag tag--neutral">${columnReceipts.length}</span>
+							</header>
+							<div class="receipt-kanban__list">
+								${
+									columnReceipts.length
+										? columnReceipts
+												.map((receipt) => renderReceiptCard(receipt))
+												.join("")
+										: '<div class="receipt-kanban__empty">No receipts</div>'
+								}
+							</div>
+						</section>
+					`;
+				})
+				.join("")}
+		</div>
+	`;
 };
 
 const renderReceiptGroupControls = (groups: Group[], selectedFilter: string) => {
@@ -2076,6 +2142,107 @@ const getReceiptGroupFilter = () => {
 		return "all";
 	}
 	return groupFilter.value || "all";
+};
+
+const renderGroupDetail = (group: Group, receipts: PurchaseReceipt[]) => {
+	const page = document.getElementById("group-detail-page");
+	if (!page) {
+		return;
+	}
+
+	page.innerHTML = `
+		<section class="page-heading page-heading--compact">
+			<div>
+				<span class="eyebrow">Group</span>
+				<h1 class="page-title">${escapeHtml(group.name)}</h1>
+			</div>
+			<a class="secondary action-link" href="/receipts" data-link>Back To Receipts</a>
+		</section>
+
+		<section class="workspace">
+			<div class="card panel">
+				<h2>Group Details</h2>
+				<form id="group-detail-form">
+					<label>
+						Name
+						<input
+							id="group-detail-name"
+							name="name"
+							value="${escapeHtml(group.name)}"
+							required
+						/>
+					</label>
+					<div class="actions">
+						<button class="primary" type="submit">Save Group</button>
+					</div>
+				</form>
+				<div id="group-detail-status" class="status"></div>
+				<dl class="receipt-metadata">
+					<div>
+						<dt>Created</dt>
+						<dd>${formatReceiptDateTime(group.created_at)}</dd>
+					</div>
+					<div>
+						<dt>Updated</dt>
+						<dd>${formatReceiptDateTime(group.updated_at)}</dd>
+					</div>
+				</dl>
+			</div>
+
+			<div class="card panel">
+				<div class="section-header">
+					<h2>Receipts</h2>
+					<span class="tag tag--neutral">${receipts.length}</span>
+				</div>
+				<div class="results">
+					${
+						receipts.length
+							? receipts
+									.map((receipt) =>
+										renderReceiptCard(receipt, { draggable: false }),
+									)
+									.join("")
+							: '<div class="empty">No receipts in this group.</div>'
+					}
+				</div>
+			</div>
+		</section>
+	`;
+};
+
+const attachGroupDetailEvents = (group: Group) => {
+	const form = document.getElementById("group-detail-form");
+	const nameInput = document.getElementById("group-detail-name");
+	if (
+		!(form instanceof HTMLFormElement) ||
+		!(nameInput instanceof HTMLInputElement)
+	) {
+		return;
+	}
+
+	form.addEventListener("submit", async (event) => {
+		event.preventDefault();
+
+		const name = nameInput.value.trim();
+		if (!name) {
+			setStatus("group-detail-status", "Group name is required.", true);
+			return;
+		}
+
+		try {
+			const updatedGroup = await updateGroup(group.id, { name });
+			const receipts = await fetchReceipts(String(group.id));
+			renderGroupDetail(updatedGroup, receipts);
+			attachGroupDetailEvents(updatedGroup);
+			setStatus("group-detail-status", `Saved ${updatedGroup.name}.`);
+		} catch (error) {
+			setStatus(
+				"group-detail-status",
+				error instanceof Error ? error.message : "Failed to save group.",
+				true,
+			);
+		}
+	});
 };
 
 const renderReceiptDetail = (
@@ -2725,6 +2892,21 @@ const fetchGroups = async () => {
 	return body as Group[];
 };
 
+const fetchGroup = async (groupId: number) => {
+	const response = await fetch(`/api/groups/${groupId}`);
+	const body = (await response.json()) as Group | { error?: string };
+
+	if (!response.ok) {
+		throw new Error(
+			"error" in body
+				? (body.error ?? "Failed to load group")
+				: "Failed to load group",
+		);
+	}
+
+	return body as Group;
+};
+
 const createGroup = async (name: string) => {
 	const response = await fetch("/api/groups", {
 		method: "POST",
@@ -2738,6 +2920,25 @@ const createGroup = async (name: string) => {
 			"error" in body
 				? (body.error ?? "Failed to create group")
 				: "Failed to create group",
+		);
+	}
+
+	return body as Group;
+};
+
+const updateGroup = async (groupId: number, payload: { name: string }) => {
+	const response = await fetch(`/api/groups/${groupId}`, {
+		method: "PATCH",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(payload),
+	});
+	const body = (await response.json()) as Group | { error?: string };
+
+	if (!response.ok) {
+		throw new Error(
+			"error" in body
+				? (body.error ?? "Failed to update group")
+				: "Failed to update group",
 		);
 	}
 
@@ -4522,7 +4723,7 @@ const attachRecipeDetailEvents = (recipeId: number) => {
 		});
 };
 
-const loadReceipts = async () => {
+const loadReceipts = async (statusMessage?: string) => {
 	try {
 		const groupFilter = getReceiptGroupFilter();
 		const [groups, receipts] = await Promise.all([
@@ -4530,14 +4731,18 @@ const loadReceipts = async () => {
 			fetchReceipts(groupFilter),
 		]);
 		renderReceiptGroupControls(groups, groupFilter);
-		renderReceipts(receipts);
+		const activeGroupFilter = getReceiptGroupFilter();
+		receiptBoardState = { groups, receipts };
+		renderReceipts(receipts, groups, activeGroupFilter);
 		setStatus(
 			"receipt-status",
-			`Loaded ${receipts.length} receipt(s) and ${groups.length} group(s).`,
+			statusMessage ??
+				`Loaded ${receipts.length} receipt(s) and ${groups.length} group(s).`,
 		);
 	} catch (error) {
+		receiptBoardState = { groups: [], receipts: [] };
 		renderReceiptGroupControls([], "all");
-		renderReceipts([]);
+		renderReceipts([], [], "all");
 		setStatus(
 			"receipt-status",
 			error instanceof Error ? error.message : "Failed to load receipts",
@@ -4548,8 +4753,45 @@ const loadReceipts = async () => {
 
 const attachReceiptsPageEvents = () => {
 	const form = document.getElementById("receipt-form");
+	const modal = document.getElementById("receipt-create-modal");
+	const openModalButton = document.getElementById("open-receipt-modal-button");
 	const refreshButton = document.getElementById("receipt-refresh-button");
 	const groupFilter = document.getElementById("receipt-group-filter");
+	const results = document.getElementById("receipt-results");
+
+	let activeDropTarget: HTMLElement | null = null;
+
+	const clearDropTarget = () => {
+		activeDropTarget?.classList.remove("receipt-drop-target--active");
+		activeDropTarget = null;
+	};
+
+	const closeCreateModal = () => {
+		if (!modal) {
+			return;
+		}
+
+		modal.hidden = true;
+		document.body.classList.remove("modal-open");
+		if (form instanceof HTMLFormElement) {
+			form.reset();
+		}
+		setStatus("receipt-create-status", "");
+	};
+
+	const openCreateModal = () => {
+		if (!modal) {
+			return;
+		}
+
+		modal.hidden = false;
+		document.body.classList.add("modal-open");
+		setStatus("receipt-create-status", "");
+		const storeNameInput = document.getElementById("receipt-store-name");
+		if (storeNameInput instanceof HTMLInputElement) {
+			storeNameInput.focus();
+		}
+	};
 
 	form?.addEventListener("submit", async (event) => {
 		event.preventDefault();
@@ -4619,25 +4861,39 @@ const attachReceiptsPageEvents = () => {
 				);
 			}
 
-			if (form instanceof HTMLFormElement) {
-				form.reset();
-			}
-
-			setStatus(
-				"receipt-status",
+			closeCreateModal();
+			await loadReceipts(
 				picture
 					? `Created receipt #${(body as PurchaseReceipt).id} and uploaded picture`
 					: `Created receipt #${(body as PurchaseReceipt).id}`,
 			);
-			await loadReceipts();
 		} catch (error) {
 			setStatus(
-				"receipt-status",
+				"receipt-create-status",
 				error instanceof Error
 					? error.message
 					: "Failed to create receipt",
 				true,
 			);
+		}
+	});
+
+	openModalButton?.addEventListener("click", openCreateModal);
+
+	modal?.addEventListener("click", (event) => {
+		const target = event.target;
+		if (!(target instanceof HTMLElement)) {
+			return;
+		}
+
+		if (target.dataset.receiptCreateModalClose !== undefined) {
+			closeCreateModal();
+		}
+	});
+
+	window.addEventListener("keydown", (event) => {
+		if (event.key === "Escape" && modal && !modal.hidden) {
+			closeCreateModal();
 		}
 	});
 
@@ -4647,6 +4903,136 @@ const attachReceiptsPageEvents = () => {
 
 	groupFilter?.addEventListener("change", () => {
 		void loadReceipts();
+	});
+
+	results?.addEventListener("dragstart", (event) => {
+		const target = event.target;
+		if (!(target instanceof HTMLElement) || !event.dataTransfer) {
+			return;
+		}
+
+		const draggable = target.closest<HTMLElement>("[data-receipt-drag-id]");
+		if (!draggable) {
+			return;
+		}
+
+		const id = Number(draggable.dataset.receiptDragId);
+		if (!Number.isInteger(id)) {
+			return;
+		}
+
+		event.dataTransfer.effectAllowed = "move";
+		event.dataTransfer.setData(
+			"text/plain",
+			JSON.stringify({ kind: "receipt", id }),
+		);
+		draggable.classList.add("receipt-card--dragging");
+	});
+
+	results?.addEventListener("dragend", (event) => {
+		const target = event.target;
+		if (target instanceof HTMLElement) {
+			target
+				.closest("[data-receipt-drag-id]")
+				?.classList.remove("receipt-card--dragging");
+		}
+		clearDropTarget();
+	});
+
+	results?.addEventListener("dragover", (event) => {
+		const target = event.target;
+		if (!(target instanceof HTMLElement) || !event.dataTransfer) {
+			return;
+		}
+
+		const dropTarget = target.closest<HTMLElement>(
+			"[data-receipt-drop-group-id]",
+		);
+		if (!dropTarget) {
+			clearDropTarget();
+			return;
+		}
+
+		event.preventDefault();
+		event.dataTransfer.dropEffect = "move";
+		if (activeDropTarget !== dropTarget) {
+			clearDropTarget();
+			activeDropTarget = dropTarget;
+			activeDropTarget.classList.add("receipt-drop-target--active");
+		}
+	});
+
+	results?.addEventListener("drop", async (event) => {
+		const target = event.target;
+		if (!(target instanceof HTMLElement) || !event.dataTransfer) {
+			return;
+		}
+
+		const dropTarget = target.closest<HTMLElement>(
+			"[data-receipt-drop-group-id]",
+		);
+		clearDropTarget();
+		if (!dropTarget) {
+			return;
+		}
+
+		event.preventDefault();
+
+		const rawPayload = event.dataTransfer.getData("text/plain");
+		if (!rawPayload) {
+			return;
+		}
+
+		let payload: { kind?: string; id?: number };
+		try {
+			payload = JSON.parse(rawPayload) as { kind?: string; id?: number };
+		} catch {
+			return;
+		}
+
+		if (
+			payload.kind !== "receipt" ||
+			typeof payload.id !== "number" ||
+			!Number.isInteger(payload.id)
+		) {
+			return;
+		}
+		const receiptId = payload.id;
+
+		const rawGroupId = dropTarget.dataset.receiptDropGroupId ?? "";
+		const targetGroupId =
+			rawGroupId === "" ? null : Number.parseInt(rawGroupId, 10);
+		if (targetGroupId !== null && !Number.isInteger(targetGroupId)) {
+			return;
+		}
+
+		const receipt = receiptBoardState?.receipts.find(
+			(candidate) => candidate.id === receiptId,
+		);
+		const currentGroupId = receipt?.group_id ?? null;
+		if (currentGroupId === targetGroupId) {
+			return;
+		}
+
+		const targetGroupName =
+			targetGroupId === null
+				? "Ungrouped"
+				: (receiptBoardState?.groups.find(
+						(group) => group.id === targetGroupId,
+					)?.name ?? "selected group");
+
+		try {
+			await updateReceiptGroup(receiptId, targetGroupId);
+			await loadReceipts(`Moved receipt to ${targetGroupName}.`);
+		} catch (error) {
+			setStatus(
+				"receipt-status",
+				error instanceof Error
+					? error.message
+					: "Failed to move receipt",
+				true,
+			);
+		}
 	});
 };
 
@@ -6010,9 +6396,58 @@ const renderReceiptsPage = () => {
 				</p>
 			</section>
 
-			<section class="workspace">
+			<section class="workspace workspace--single">
 				<div class="card panel">
-					<h2>Create Receipt</h2>
+					<div class="section-header">
+						<h2>Receipts</h2>
+						<div class="actions">
+							<button
+								class="primary"
+								type="button"
+								id="open-receipt-modal-button"
+							>
+								Add Receipt
+							</button>
+						</div>
+					</div>
+					<div class="toolbar">
+						<select
+							id="receipt-group-filter"
+							class="toolbar__select"
+							aria-label="Receipt group filter"
+						>
+							<option value="all">All groups</option>
+							<option value="ungrouped">Ungrouped</option>
+						</select>
+						<button class="secondary" type="button" id="receipt-refresh-button">Refresh</button>
+					</div>
+					<div id="receipt-status" class="status"></div>
+					<div id="receipt-results" class="results"></div>
+				</div>
+			</section>
+
+			<div class="receipt-create-modal" id="receipt-create-modal" hidden>
+				<div
+					class="receipt-create-modal__backdrop"
+					data-receipt-create-modal-close
+				></div>
+				<div
+					class="receipt-create-modal__dialog card panel"
+					role="dialog"
+					aria-modal="true"
+					aria-labelledby="receipt-create-modal-title"
+				>
+					<div class="section-header">
+						<h2 id="receipt-create-modal-title">Create Receipt</h2>
+						<button
+							class="secondary"
+							type="button"
+							aria-label="Close create receipt modal"
+							data-receipt-create-modal-close
+						>
+							Close
+						</button>
+					</div>
 					<form id="receipt-form">
 						<label>
 							Store Name
@@ -6050,27 +6485,18 @@ const renderReceiptsPage = () => {
 
 						<div class="actions">
 							<button class="primary" type="submit">Create Receipt</button>
-							<button class="secondary" type="button" id="receipt-refresh-button">Refresh Receipts</button>
+							<button
+								class="secondary"
+								type="button"
+								data-receipt-create-modal-close
+							>
+								Cancel
+							</button>
 						</div>
 					</form>
-					<div id="receipt-status" class="status"></div>
+					<div id="receipt-create-status" class="status"></div>
 				</div>
-
-				<div class="card panel">
-					<h2>Receipts</h2>
-					<div class="toolbar">
-						<select
-							id="receipt-group-filter"
-							class="toolbar__select"
-							aria-label="Receipt group filter"
-						>
-							<option value="all">All groups</option>
-							<option value="ungrouped">Ungrouped</option>
-						</select>
-					</div>
-					<div id="receipt-results" class="results"></div>
-				</div>
-			</section>
+			</div>
 		`,
 	);
 
@@ -6132,6 +6558,40 @@ const renderShoppingListsPage = () => {
 	})();
 
 	attachShoppingListPageEvents();
+};
+
+const renderGroupDetailPage = (params: Record<string, string>) => {
+	renderPage('<div id="group-detail-page"></div>');
+
+	void (async () => {
+		const rawId = params.id ?? "";
+		const groupId = Number.parseInt(rawId, 10);
+		const page = document.getElementById("group-detail-page");
+		if (!page) {
+			return;
+		}
+
+		if (!Number.isInteger(groupId)) {
+			page.innerHTML =
+				'<div class="card panel page-panel"><p class="page-copy">Group id is invalid.</p></div>';
+			return;
+		}
+
+		try {
+			const [group, receipts] = await Promise.all([
+				fetchGroup(groupId),
+				fetchReceipts(String(groupId)),
+			]);
+			renderGroupDetail(group, receipts);
+			attachGroupDetailEvents(group);
+		} catch (error) {
+			page.innerHTML = `
+				<div class="card panel page-panel">
+					<p class="page-copy">${error instanceof Error ? error.message : "Failed to load group."}</p>
+				</div>
+			`;
+		}
+	})();
 };
 
 const renderReceiptDetailPage = (params: Record<string, string>) => {
@@ -6201,6 +6661,7 @@ window.onload = () => {
 		"/inventory": renderInventoryPage,
 		"/inventory/containers/:id": renderInventoryContainerDetailPage,
 		"/inventory/items/:id": renderInventoryItemDetailPage,
+		"/groups/:id": renderGroupDetailPage,
 		"/products": renderProductsPage,
 		"/products/:id": renderProductDetailPage,
 		"/receipts": renderReceiptsPage,
