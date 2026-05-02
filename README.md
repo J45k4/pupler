@@ -115,8 +115,32 @@ image or update the live checkout and restart the service.
 Static deployment assets are also included in:
 
 - [`deploy/compose.yaml`](./deploy/compose.yaml)
+- [`deploy/backup.sh`](./deploy/backup.sh)
 - [`deploy/pupler.service`](./deploy/pupler.service)
 - [`deploy/pupler-bun.service`](./deploy/pupler-bun.service)
+
+### Backups
+
+The installer writes a backup script to `/opt/pupler/backup.sh`.
+
+```bash
+sudo /opt/pupler/backup.sh
+```
+
+The script creates a timestamped `pupler-backup-*.tar.gz` archive containing a
+consistent SQLite backup plus uploaded files. It reads `/opt/pupler/.env` by
+default, stores archives in `/opt/pupler/backups`, and keeps the latest 14
+archives. Configure it with:
+
+- `PUPLER_BACKUP_DIR=/path/to/backups`
+- `PUPLER_BACKUP_KEEP=30`
+- `PUPLER_BACKUP_STOP_SERVICE=1` to stop the systemd service while files are copied
+
+For a local checkout, run:
+
+```bash
+bun run backup
+```
 
 ## Data paths
 

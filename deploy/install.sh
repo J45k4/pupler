@@ -45,6 +45,24 @@ install_update_script() {
 	exit 1
 }
 
+install_backup_script() {
+	local source_path
+	source_path="$(dirname "${BASH_SOURCE[0]}")/backup.sh"
+	if [ -f "$source_path" ]; then
+		install -m 0755 "$source_path" "$INSTALL_DIR/backup.sh"
+		return
+	fi
+
+	if command -v curl >/dev/null 2>&1; then
+		curl -fsSL https://raw.githubusercontent.com/J45k4/pupler/main/deploy/backup.sh -o "$INSTALL_DIR/backup.sh"
+		chmod 0755 "$INSTALL_DIR/backup.sh"
+		return
+	fi
+
+	echo "Could not install backup.sh: local file missing and curl unavailable." >&2
+	exit 1
+}
+
 write_env_file() {
 	cat >"$INSTALL_DIR/.env" <<EOF
 PUPLER_MODE=${MODE}
@@ -60,6 +78,7 @@ mkdir -p "$INSTALL_DIR"
 mkdir -p "$PUPLER_DATA_DIR"
 write_env_file
 install_update_script
+install_backup_script
 
 case "$MODE" in
 	docker)
@@ -128,6 +147,7 @@ EOF
 		echo "Data dir: $PUPLER_DATA_DIR"
 		echo "URL: http://${PUPLER_BIND_ADDRESS}:${PUPLER_PORT}"
 		echo "Updater: $INSTALL_DIR/update.sh"
+		echo "Backup: $INSTALL_DIR/backup.sh"
 		;;
 	bun-live)
 		require_command systemctl
@@ -206,6 +226,7 @@ EOF
 		echo "Data dir: $PUPLER_DATA_DIR"
 		echo "URL: http://${PUPLER_BIND_ADDRESS}:${PUPLER_PORT}"
 		echo "Updater: $INSTALL_DIR/update.sh"
+		echo "Backup: $INSTALL_DIR/backup.sh"
 		;;
 	*)
 		echo "Unknown PUPLER_MODE: $MODE" >&2
