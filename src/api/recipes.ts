@@ -27,6 +27,7 @@ import {
 	writeUploadedFile,
 } from "./file-storage";
 import {
+	fileDetailSelect,
 	ingredientSummarySelect,
 	productSummarySelect,
 } from "./reference-details";
@@ -78,18 +79,22 @@ const fetchRecipeDetail = (db: Database, id: number) =>
 				},
 				orderBy: [{ created_at: "asc" }, { id: "asc" }],
 			},
-			recipe_images: {
-				select: {
-					id: true,
-					recipe_id: true,
-					content_type: true,
-					filename: true,
-					created_at: true,
+				recipe_images: {
+					select: recipeImageSelect,
+					orderBy: [{ created_at: "desc" }, { id: "desc" }],
 				},
-				orderBy: [{ created_at: "desc" }, { id: "desc" }],
 			},
-		},
-	});
+		});
+
+const recipeImageSelect = {
+	id: true,
+	recipe_id: true,
+	file_id: true,
+	created_at: true,
+	file: {
+		select: fileDetailSelect,
+	},
+} as const;
 
 const fetchRecipeImage = (
 	db: Database,
@@ -98,18 +103,13 @@ const fetchRecipeImage = (
 ) =>
 	db.client.recipeImage.findFirst({
 		where: { id: pictureId, recipe_id: recipeId },
+		include: { file: true },
 	});
 
 const fetchRecipeImages = (db: Database, recipeId: number) =>
 	db.client.recipeImage.findMany({
 		where: { recipe_id: recipeId },
-		select: {
-			id: true,
-			recipe_id: true,
-			content_type: true,
-			filename: true,
-			created_at: true,
-		},
+		select: recipeImageSelect,
 		orderBy: [{ created_at: "desc" }, { id: "desc" }],
 	});
 
@@ -176,19 +176,21 @@ const createRecipeImages = async (
 			writtenFiles.map(({ createdAt, file, relativePath }) =>
 				db.client.recipeImage.create({
 					data: {
-						recipe_id: recipeId,
-						path: relativePath,
-						content_type: file.type,
-						filename: file.name || null,
 						created_at: createdAt,
+						recipe: {
+							connect: { id: recipeId },
+						},
+						file: {
+							create: {
+								path: relativePath,
+								content_type: file.type,
+								filename: file.name || null,
+								size_bytes: file.size,
+								created_at: createdAt,
+							},
+						},
 					},
-					select: {
-						id: true,
-						recipe_id: true,
-						content_type: true,
-						filename: true,
-						created_at: true,
-					},
+					select: recipeImageSelect,
 				}),
 			),
 		);
@@ -356,7 +358,26 @@ export const recipeDetailRoute = (db: Database) =>
 			return json(200, await fetchRecipeDetail(db, id));
 		}
 		if (req.method === "DELETE") {
+			const images = await db.client.recipeImage.findMany({
+				where: { recipe_id: id },
+				select: { file: { select: { id: true, path: true } } },
+			});
+			await db.client.recipeImage.deleteMany({
+				where: { recipe_id: id },
+			});
+			await db.client.file.deleteMany({
+				where: {
+					id: {
+						in: images.map((image) => image.file.id),
+					},
+				},
+			});
 			await db.client.recipe.delete({ where: { id } });
+			await Promise.all(
+				images.map((image) =>
+					deleteStoredFileBestEffort(db, image.file.path),
+				),
+			);
 			return empty(204);
 		}
 		throw new HttpError(405, "Method not allowed for this route");
@@ -396,15 +417,15 @@ export const recipeImageDetailRoute = (db: Database) =>
 
 		if (req.method === "GET") {
 			return new Response(
-				await readStoredFile(db, image.path, "Recipe image not found"),
+				await readStoredFile(db, image.file.path, "Recipe image not found"),
 				{
 					status: 200,
 					headers: {
-						"Content-Type": image.content_type,
+						"Content-Type": image.file.content_type,
 						"Cache-Control": "no-store",
-						...(image.filename
+						...(image.file.filename
 							? {
-									"Content-Disposition": `inline; filename="${image.filename}"`,
+									"Content-Disposition": `inline; filename="${image.file.filename}"`,
 								}
 							: {}),
 					},
@@ -416,7 +437,8 @@ export const recipeImageDetailRoute = (db: Database) =>
 			await db.client.recipeImage.delete({
 				where: { id: pictureId },
 			});
-			await deleteStoredFileBestEffort(db, image.path);
+			await db.client.file.delete({ where: { id: image.file.id } });
+			await deleteStoredFileBestEffort(db, image.file.path);
 			return empty(204);
 		}
 

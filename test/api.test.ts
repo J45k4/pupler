@@ -12,6 +12,8 @@ import {
 	inventoryContainerDetailRoute,
 	inventoryContainersCollectionRoute,
 	inventoryItemDetailRoute,
+	inventoryItemImageDetailRoute,
+	inventoryItemImagesCollectionRoute,
 	inventoryItemsCollectionRoute,
 	openDatabase,
 	productDetailRoute,
@@ -92,6 +94,8 @@ const createRoutes = () => {
 			"/api/inventory-containers": inventoryContainersCollectionRoute(db),
 			"/api/inventory-containers/:id": inventoryContainerDetailRoute(db),
 			"/api/inventory-items": inventoryItemsCollectionRoute(db),
+			"/api/inventory-items/:id/pictures": inventoryItemImagesCollectionRoute(db),
+			"/api/inventory-items/:id/pictures/:pictureId": inventoryItemImageDetailRoute(db),
 			"/api/inventory-items/:id": inventoryItemDetailRoute(db),
 			"/api/shopping-list-items": shoppingListItemsCollectionRoute(db),
 			"/api/shopping-list-items/:id": shoppingListItemDetailRoute(db),
@@ -116,9 +120,13 @@ const request = async (
 				? "/api/recipes/:id/pictures"
 				: pathname.match(/^\/api\/recipes\/\d+\/pictures\/\d+$/)
 					? "/api/recipes/:id/pictures/:pictureId"
-			: pathname.split("/").filter(Boolean).length === 3
-				? pathname.replace(/\/[^/]+$/, "/:id")
-				: pathname;
+					: pathname.match(/^\/api\/inventory-items\/\d+\/pictures$/)
+						? "/api/inventory-items/:id/pictures"
+						: pathname.match(/^\/api\/inventory-items\/\d+\/pictures\/\d+$/)
+							? "/api/inventory-items/:id/pictures/:pictureId"
+							: pathname.split("/").filter(Boolean).length === 3
+								? pathname.replace(/\/[^/]+$/, "/:id")
+								: pathname;
 	const handler = routes.handlers[routeKey as keyof typeof routes.handlers];
 	if (handler instanceof Response) {
 		return handler.clone();
@@ -562,12 +570,16 @@ describe("Pupler API", () => {
 		expect(uploadBody.content_type).toBe("image/png");
 		const storedPicture = await routes.db.client.product.findUnique({
 			where: { id: created.id },
-			select: { picture_path: true },
+			select: {
+				picture_file: {
+					select: { id: true, path: true },
+				},
+			},
 		});
-		expect(storedPicture?.picture_path).toBeTruthy();
+		expect(storedPicture?.picture_file?.path).toBeTruthy();
 		const storedPicturePath = join(
 			routes.filesPath,
-			storedPicture?.picture_path ?? "",
+			storedPicture?.picture_file?.path ?? "",
 		);
 		expect(existsSync(storedPicturePath)).toBe(true);
 
@@ -592,6 +604,11 @@ describe("Pupler API", () => {
 		);
 		expect(deleteResponse.status).toBe(204);
 		expect(existsSync(storedPicturePath)).toBe(false);
+		expect(
+			await routes.db.client.file.findUnique({
+				where: { id: storedPicture!.picture_file!.id },
+			}),
+		).toBeNull();
 	});
 
 	test("uploads and fetches a purchase receipt picture", async () => {
@@ -631,12 +648,16 @@ describe("Pupler API", () => {
 		expect(uploadBody.content_type).toBe("image/png");
 		const storedPicture = await routes.db.client.receipt.findUnique({
 			where: { id: created.id },
-			select: { picture_path: true },
+			select: {
+				picture_file: {
+					select: { id: true, path: true },
+				},
+			},
 		});
-		expect(storedPicture?.picture_path).toBeTruthy();
+		expect(storedPicture?.picture_file?.path).toBeTruthy();
 		const storedPicturePath = join(
 			routes.filesPath,
-			storedPicture?.picture_path ?? "",
+			storedPicture?.picture_file?.path ?? "",
 		);
 		expect(existsSync(storedPicturePath)).toBe(true);
 
@@ -661,6 +682,11 @@ describe("Pupler API", () => {
 		);
 		expect(deleteResponse.status).toBe(204);
 		expect(existsSync(storedPicturePath)).toBe(false);
+		expect(
+			await routes.db.client.file.findUnique({
+				where: { id: storedPicture!.picture_file!.id },
+			}),
+		).toBeNull();
 	});
 
 	test("uploads and fetches multiple recipe images", async () => {
@@ -708,19 +734,26 @@ describe("Pupler API", () => {
 		expect(uploadResponse.status).toBe(201);
 		const uploaded = (await uploadResponse.json()) as Array<{
 			id: number;
-			filename: string | null;
+			file_id: number;
+			file: {
+				id: number;
+				filename: string | null;
+			};
 		}>;
 		expect(uploaded).toHaveLength(2);
-		expect(uploaded.map((image) => image.filename)).toEqual([
+		expect(uploaded.map((image) => image.file.filename)).toEqual([
 			"soup.png",
 			"soup-2.png",
 		]);
+		expect(uploaded.map((image) => image.file_id)).toEqual(
+			uploaded.map((image) => image.file.id),
+		);
 		const storedImage = await routes.db.client.recipeImage.findUnique({
 			where: { id: uploaded[0]!.id },
-			select: { path: true },
+			select: { file: { select: { id: true, path: true } } },
 		});
-		expect(storedImage?.path).toBeTruthy();
-		const storedImagePath = join(routes.filesPath, storedImage?.path ?? "");
+		expect(storedImage?.file.path).toBeTruthy();
+		const storedImagePath = join(routes.filesPath, storedImage?.file.path ?? "");
 		expect(existsSync(storedImagePath)).toBe(true);
 
 		const pictureResponse = await request(
@@ -754,6 +787,157 @@ describe("Pupler API", () => {
 		);
 		expect(deleteResponse.status).toBe(204);
 		expect(existsSync(storedImagePath)).toBe(false);
+		expect(
+			await routes.db.client.file.findUnique({
+				where: { id: storedImage!.file.id },
+			}),
+		).toBeNull();
+	});
+
+	test("uploads and fetches multiple inventory item images", async () => {
+		const routes = createRoutes();
+
+		const createResponse = await request(routes, "/api/inventory-items", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: "Milk carton",
+				quantity: 1,
+				unit: "pcs",
+			}),
+		});
+
+		expect(createResponse.status).toBe(201);
+		const created = (await createResponse.json()) as { id: number };
+
+		const formData = new FormData();
+		formData.append(
+			"file",
+			new File([new Uint8Array([10, 11, 12, 13])], "milk-front.png", {
+				type: "image/png",
+			}),
+		);
+		formData.append(
+			"file",
+			new File([new Uint8Array([14, 15, 16, 17])], "milk-back.png", {
+				type: "image/png",
+			}),
+		);
+
+		const uploadResponse = await request(
+			routes,
+			`/api/inventory-items/${created.id}/pictures`,
+			{
+				method: "POST",
+				body: formData,
+			},
+			{ id: String(created.id) },
+		);
+
+		expect(uploadResponse.status).toBe(201);
+		const uploaded = (await uploadResponse.json()) as Array<{
+			id: number;
+			inventory_item_id: number;
+			file_id: number;
+			file: {
+				id: number;
+				filename: string | null;
+				size_bytes: number;
+			};
+		}>;
+		expect(uploaded).toHaveLength(2);
+		expect(uploaded.map((image) => image.file.filename)).toEqual([
+			"milk-front.png",
+			"milk-back.png",
+		]);
+		expect(uploaded.map((image) => image.file_id)).toEqual(
+			uploaded.map((image) => image.file.id),
+		);
+		expect(uploaded.map((image) => image.file.size_bytes)).toEqual([4, 4]);
+		expect(uploaded.map((image) => image.inventory_item_id)).toEqual([
+			created.id,
+			created.id,
+		]);
+
+		const collectionResponse = await request(
+			routes,
+			`/api/inventory-items/${created.id}/pictures`,
+			{},
+			{ id: String(created.id) },
+		);
+		expect(collectionResponse.status).toBe(200);
+		const collection = (await collectionResponse.json()) as Array<{
+			id: number;
+		}>;
+		expect(collection).toHaveLength(2);
+
+		const storedImages = await routes.db.client.inventoryItemImage.findMany({
+			where: { inventory_item_id: created.id },
+			orderBy: { id: "asc" },
+			select: { id: true, file: { select: { id: true, path: true } } },
+		});
+		expect(storedImages).toHaveLength(2);
+		const firstStoredImagePath = join(
+			routes.filesPath,
+			storedImages[0]?.file.path ?? "",
+		);
+		const secondStoredImagePath = join(
+			routes.filesPath,
+			storedImages[1]?.file.path ?? "",
+		);
+		expect(existsSync(firstStoredImagePath)).toBe(true);
+		expect(existsSync(secondStoredImagePath)).toBe(true);
+
+		const pictureResponse = await request(
+			routes,
+			`/api/inventory-items/${created.id}/pictures/${uploaded[0]!.id}`,
+			{},
+			{ id: String(created.id), pictureId: String(uploaded[0]!.id) },
+		);
+
+		expect(pictureResponse.status).toBe(200);
+		expect(pictureResponse.headers.get("content-type")).toBe("image/png");
+		const bytes = new Uint8Array(await pictureResponse.arrayBuffer());
+		expect(Array.from(bytes)).toEqual([10, 11, 12, 13]);
+
+		const detailResponse = await request(
+			routes,
+			`/api/inventory-items/${created.id}`,
+			{},
+			{ id: String(created.id) },
+		);
+		const detail = (await detailResponse.json()) as {
+			inventory_item_images: Array<{ id: number }>;
+		};
+		expect(detail.inventory_item_images).toHaveLength(2);
+
+		const deleteResponse = await request(
+			routes,
+			`/api/inventory-items/${created.id}/pictures/${uploaded[0]!.id}`,
+			{ method: "DELETE" },
+			{ id: String(created.id), pictureId: String(uploaded[0]!.id) },
+		);
+		expect(deleteResponse.status).toBe(204);
+		expect(existsSync(firstStoredImagePath)).toBe(false);
+		expect(
+			await routes.db.client.file.findUnique({
+				where: { id: storedImages[0]!.file.id },
+			}),
+		).toBeNull();
+
+		const deleteItemResponse = await request(
+			routes,
+			`/api/inventory-items/${created.id}`,
+			{ method: "DELETE" },
+			{ id: String(created.id) },
+		);
+		expect(deleteItemResponse.status).toBe(204);
+		expect(existsSync(secondStoredImagePath)).toBe(false);
+		expect(
+			await routes.db.client.file.findUnique({
+				where: { id: storedImages[1]!.file.id },
+			}),
+		).toBeNull();
 	});
 
 	test("returns 404 when a stored product picture file is missing", async () => {
@@ -791,14 +975,18 @@ describe("Pupler API", () => {
 		);
 		expect(uploadResponse.status).toBe(200);
 
-		const storedPicture = await routes.db.client.product.findUnique({
-			where: { id: created.id },
-			select: { picture_path: true },
-		});
-		const storedPicturePath = join(
-			routes.filesPath,
-			storedPicture?.picture_path ?? "",
-		);
+			const storedPicture = await routes.db.client.product.findUnique({
+				where: { id: created.id },
+				select: {
+					picture_file: {
+						select: { path: true },
+					},
+				},
+			});
+			const storedPicturePath = join(
+				routes.filesPath,
+				storedPicture?.picture_file?.path ?? "",
+			);
 		rmSync(storedPicturePath, { force: true });
 
 		const pictureResponse = await request(

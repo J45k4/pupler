@@ -25,10 +25,16 @@ import {
 	type JsonObject,
 } from "./core";
 import {
+	deleteStoredFileBestEffort,
+	readStoredFile,
+	writeUploadedFile,
+} from "./file-storage";
+import {
 	inventoryItemDetailSelect,
 	validateIngredientProductRefs,
 } from "./reference-details";
 
+const MAX_INVENTORY_ITEM_IMAGE_BYTES = 10 * 1024 * 1024;
 const SORT_FIELDS = new Set([
 	"id",
 	"ingredient_id",
@@ -67,6 +73,133 @@ const fetchInventoryItemDetail = (db: Database, id: number) =>
 		where: { id },
 		select: inventoryItemDetailSelect,
 	});
+
+const inventoryItemImageSelect = {
+	id: true,
+	inventory_item_id: true,
+	file_id: true,
+	created_at: true,
+	file: {
+		select: {
+			id: true,
+			content_type: true,
+			filename: true,
+			size_bytes: true,
+			created_at: true,
+		},
+	},
+} as const;
+
+const fetchInventoryItemImage = (
+	db: Database,
+	inventoryItemId: number,
+	pictureId: number,
+) =>
+	db.client.inventoryItemImage.findFirst({
+		where: { id: pictureId, inventory_item_id: inventoryItemId },
+		include: { file: true },
+	});
+
+const fetchInventoryItemImages = (db: Database, inventoryItemId: number) =>
+	db.client.inventoryItemImage.findMany({
+		where: { inventory_item_id: inventoryItemId },
+		select: inventoryItemImageSelect,
+		orderBy: [{ created_at: "desc" }, { id: "desc" }],
+	});
+
+const ensureInventoryItemExists = async (
+	db: Database,
+	inventoryItemId: number,
+) => {
+	const item = await fetchInventoryItem(db, inventoryItemId);
+	if (!item) {
+		throw new HttpError(404, "Resource not found");
+	}
+	return item;
+};
+
+const parseUploadedInventoryItemImages = (files: Array<File | string>) =>
+	files.map((entry) => {
+		if (!(entry instanceof File)) {
+			throw new HttpError(400, "Multipart form-data must include one or more `file` fields");
+		}
+		if (!entry.type.startsWith("image/")) {
+			throw new HttpError(400, "Uploaded file must be an image");
+		}
+		if (entry.size === 0) {
+			throw new HttpError(400, "Uploaded file may not be empty");
+		}
+		if (entry.size > MAX_INVENTORY_ITEM_IMAGE_BYTES) {
+			throw new HttpError(413, "Uploaded file exceeds the 10 MB limit");
+		}
+		return entry;
+	});
+
+const createInventoryItemImages = async (
+	db: Database,
+	inventoryItemId: number,
+	files: File[],
+) => {
+	const writtenFiles: Array<{
+		createdAt: string;
+		file: File;
+		relativePath: string;
+	}> = [];
+
+	try {
+		for (const file of files) {
+			const storedFile = await writeUploadedFile(db, {
+				assetType: "inventory-item-images",
+				file,
+				resourceId: inventoryItemId,
+			});
+			writtenFiles.push({
+				createdAt: utcNow(),
+				file,
+				relativePath: storedFile.relativePath,
+			});
+		}
+	} catch (error) {
+		await Promise.all(
+			writtenFiles.map(({ relativePath }) =>
+				deleteStoredFileBestEffort(db, relativePath),
+			),
+		);
+		throw error;
+	}
+
+	try {
+		return await db.client.$transaction(
+			writtenFiles.map(({ createdAt, file, relativePath }) =>
+				db.client.inventoryItemImage.create({
+					data: {
+						created_at: createdAt,
+						inventory_item: {
+							connect: { id: inventoryItemId },
+						},
+						file: {
+							create: {
+								path: relativePath,
+								content_type: file.type,
+								filename: file.name || null,
+								size_bytes: file.size,
+								created_at: createdAt,
+							},
+						},
+					},
+					select: inventoryItemImageSelect,
+				}),
+			),
+		);
+	} catch (error) {
+		await Promise.all(
+			writtenFiles.map(({ relativePath }) =>
+				deleteStoredFileBestEffort(db, relativePath),
+			),
+		);
+		throw error;
+	}
+};
 
 const parseSort = (url: URL) => {
 	const sort = url.searchParams.get("sort");
@@ -304,8 +437,97 @@ export const inventoryItemDetailRoute = (db: Database) =>
 			);
 		}
 		if (req.method === "DELETE") {
+			const images = await db.client.inventoryItemImage.findMany({
+				where: { inventory_item_id: id },
+				select: { file: { select: { id: true, path: true } } },
+			});
 			await db.client.inventoryItem.delete({ where: { id } });
+			await db.client.file.deleteMany({
+				where: {
+					id: {
+						in: images.map((image) => image.file.id),
+					},
+				},
+			});
+			await Promise.all(
+				images.map((image) =>
+					deleteStoredFileBestEffort(db, image.file.path),
+				),
+			);
 			return empty(204);
 		}
+		throw new HttpError(405, "Method not allowed for this route");
+	});
+
+export const inventoryItemImagesCollectionRoute = (db: Database) =>
+	withErrorHandling(async (req: BunRequest<string>) => {
+		const inventoryItemId = parseIdParam(req.params.id);
+		await ensureInventoryItemExists(db, inventoryItemId);
+
+		if (req.method === "GET") {
+			return json(200, await fetchInventoryItemImages(db, inventoryItemId));
+		}
+
+		if (req.method === "POST") {
+			const formData = await req.formData();
+			const uploaded = parseUploadedInventoryItemImages(formData.getAll("file"));
+			if (uploaded.length === 0) {
+				throw new HttpError(400, "Multipart form-data must include one or more `file` fields");
+			}
+
+			return json(
+				201,
+				await createInventoryItemImages(db, inventoryItemId, uploaded),
+			);
+		}
+
+		throw new HttpError(405, "Method not allowed for this route");
+	});
+
+export const inventoryItemImageDetailRoute = (db: Database) =>
+	withErrorHandling(async (req: BunRequest<string>) => {
+		const inventoryItemId = parseIdParam(req.params.id);
+		const pictureId = parseIdParam(req.params.pictureId);
+		await ensureInventoryItemExists(db, inventoryItemId);
+		const image = await fetchInventoryItemImage(
+			db,
+			inventoryItemId,
+			pictureId,
+		);
+		if (!image) {
+			throw new HttpError(404, "Inventory item image not found");
+		}
+
+		if (req.method === "GET") {
+			return new Response(
+				await readStoredFile(
+					db,
+					image.file.path,
+					"Inventory item image not found",
+				),
+				{
+					status: 200,
+					headers: {
+						"Content-Type": image.file.content_type,
+						"Cache-Control": "no-store",
+						...(image.file.filename
+							? {
+									"Content-Disposition": `inline; filename="${image.file.filename}"`,
+								}
+							: {}),
+					},
+				},
+			);
+		}
+
+		if (req.method === "DELETE") {
+			await db.client.inventoryItemImage.delete({
+				where: { id: pictureId },
+			});
+			await db.client.file.delete({ where: { id: image.file.id } });
+			await deleteStoredFileBestEffort(db, image.file.path);
+			return empty(204);
+		}
+
 		throw new HttpError(405, "Method not allowed for this route");
 	});

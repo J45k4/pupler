@@ -29,13 +29,11 @@ model Product {
 	barcode              String?            @unique
 	default_unit         String?            @map("default_unit")
 	is_perishable        Boolean            @map("is_perishable")
-	picture_path         String?            @map("picture_path")
-	picture_content_type String?            @map("picture_content_type")
-	picture_filename     String?            @map("picture_filename")
-	picture_uploaded_at  String?            @map("picture_uploaded_at")
+	picture_file_id      Int?               @map("picture_file_id")
 	created_at           String             @map("created_at")
 	updated_at           String             @map("updated_at")
 	ingredient           Ingredient?        @relation(fields: [ingredient_id], references: [id])
+	picture_file         File?              @relation("ProductPicture", fields: [picture_file_id], references: [id], onDelete: SetNull)
 	product_links        ProductLink[]
 	receipt_items        ReceiptItem[]
 	inventory_items      InventoryItem[]
@@ -43,6 +41,7 @@ model Product {
 	shopping_list_items  ShoppingListItem[]
 
 	@@index([ingredient_id], map: "idx_products_ingredient_id")
+	@@index([picture_file_id], map: "idx_products_picture_file_id")
 	@@map("products")
 }
 
@@ -75,16 +74,15 @@ model Receipt {
 	purchased_at         String        @map("purchased_at")
 	currency             String
 	total_amount         Float?        @map("total_amount")
-	picture_path         String?       @map("picture_path")
-	picture_content_type String?       @map("picture_content_type")
-	picture_filename     String?       @map("picture_filename")
-	picture_uploaded_at  String?       @map("picture_uploaded_at")
+	picture_file_id      Int?          @map("picture_file_id")
 	created_at           String        @map("created_at")
 	updated_at           String        @map("updated_at")
 	group                Group?        @relation(fields: [group_id], references: [id], onDelete: SetNull)
+	picture_file         File?         @relation("ReceiptPicture", fields: [picture_file_id], references: [id], onDelete: SetNull)
 	receipt_items        ReceiptItem[]
 
 	@@index([group_id], map: "idx_receipts_group_id")
+	@@index([picture_file_id], map: "idx_receipts_picture_file_id")
 	@@map("receipts")
 }
 
@@ -140,11 +138,40 @@ model InventoryItem {
 	product         Product?            @relation(fields: [product_id], references: [id])
 	receipt_item    ReceiptItem?        @relation(fields: [receipt_item_id], references: [id])
 	container       InventoryContainer? @relation(fields: [container_id], references: [id])
+	inventory_item_images InventoryItemImage[]
 
 	@@index([ingredient_id], map: "idx_inventory_ingredient_id")
 	@@index([product_id], map: "idx_inventory_product_id")
 	@@index([container_id], map: "idx_inventory_container_id")
 	@@map("inventory_items")
+}
+
+model InventoryItemImage {
+	id                Int           @id @default(autoincrement())
+	inventory_item_id Int           @map("inventory_item_id")
+	file_id           Int           @map("file_id")
+	created_at        String        @map("created_at")
+	inventory_item    InventoryItem @relation(fields: [inventory_item_id], references: [id], onDelete: Cascade)
+	file              File          @relation(fields: [file_id], references: [id], onDelete: Cascade)
+
+	@@index([inventory_item_id], map: "idx_inventory_item_images_inventory_item_id")
+	@@index([file_id], map: "idx_inventory_item_images_file_id")
+	@@map("inventory_item_images")
+}
+
+model File {
+	id                    Int                  @id @default(autoincrement())
+	path                  String               @unique
+	content_type          String               @map("content_type")
+	filename              String?
+	size_bytes            Int                  @map("size_bytes")
+	created_at            String               @map("created_at")
+	product_pictures      Product[]            @relation("ProductPicture")
+	receipt_pictures      Receipt[]            @relation("ReceiptPicture")
+	inventory_item_images InventoryItemImage[]
+	recipe_images         RecipeImage[]
+
+	@@map("files")
 }
 
 model Recipe {
@@ -167,13 +194,13 @@ model Recipe {
 model RecipeImage {
 	id           Int    @id @default(autoincrement())
 	recipe_id    Int    @map("recipe_id")
-	path         String
-	content_type String @map("content_type")
-	filename     String?
+	file_id      Int    @map("file_id")
 	created_at   String @map("created_at")
-	recipe       Recipe @relation(fields: [recipe_id], references: [id])
+	recipe       Recipe @relation(fields: [recipe_id], references: [id], onDelete: Cascade)
+	file         File   @relation(fields: [file_id], references: [id], onDelete: Cascade)
 
 	@@index([recipe_id], map: "idx_recipe_images_recipe_id")
+	@@index([file_id], map: "idx_recipe_images_file_id")
 	@@map("recipe_images")
 }
 

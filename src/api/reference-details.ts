@@ -18,6 +18,14 @@ export const groupSummarySelect = {
 	name: true,
 } as const;
 
+export const fileDetailSelect = {
+	id: true,
+	content_type: true,
+	filename: true,
+	size_bytes: true,
+	created_at: true,
+} as const;
+
 export const receiptDetailSelect = {
 	id: true,
 	group_id: true,
@@ -25,10 +33,14 @@ export const receiptDetailSelect = {
 	purchased_at: true,
 	currency: true,
 	total_amount: true,
+	picture_file_id: true,
 	created_at: true,
 	updated_at: true,
 	group: {
 		select: groupSummarySelect,
+	},
+	picture_file: {
+		select: fileDetailSelect,
 	},
 } as const;
 
@@ -40,12 +52,14 @@ export const productDetailSelect = {
 	barcode: true,
 	default_unit: true,
 	is_perishable: true,
-	picture_filename: true,
-	picture_uploaded_at: true,
+	picture_file_id: true,
 	created_at: true,
 	updated_at: true,
 	ingredient: {
 		select: ingredientSummarySelect,
+	},
+	picture_file: {
+		select: fileDetailSelect,
 	},
 } as const;
 
@@ -69,6 +83,18 @@ export const inventoryItemDetailSelect = {
 	},
 	product: {
 		select: productSummarySelect,
+	},
+	inventory_item_images: {
+		select: {
+			id: true,
+			inventory_item_id: true,
+			file_id: true,
+			created_at: true,
+			file: {
+				select: fileDetailSelect,
+			},
+		},
+		orderBy: [{ created_at: "desc" }, { id: "desc" }],
 	},
 } as const;
 

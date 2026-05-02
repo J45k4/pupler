@@ -18,6 +18,14 @@ type Ingredient = IngredientSummary & {
 	updated_at: string;
 };
 
+type StoredFile = {
+	id: number;
+	content_type: string;
+	filename: string | null;
+	size_bytes: number;
+	created_at: string;
+};
+
 type Product = {
 	id: number;
 	ingredient_id: number | null;
@@ -26,8 +34,8 @@ type Product = {
 	barcode: string | null;
 	default_unit: string | null;
 	is_perishable: boolean;
-	picture_filename?: string | null;
-	picture_uploaded_at?: string | null;
+	picture_file_id?: number | null;
+	picture_file?: StoredFile | null;
 	created_at: string;
 	updated_at: string;
 	ingredient?: IngredientSummary | null;
@@ -53,6 +61,8 @@ type PurchaseReceipt = {
 	created_at: string;
 	updated_at: string;
 	group?: GroupSummary | null;
+	picture_file_id?: number | null;
+	picture_file?: StoredFile | null;
 };
 
 type PurchaseReceiptItem = {
@@ -64,6 +74,14 @@ type PurchaseReceiptItem = {
 	unit_price: number | null;
 	line_total: number | null;
 	created_at: string;
+};
+
+type InventoryItemImage = {
+	id: number;
+	inventory_item_id: number;
+	file_id: number;
+	created_at: string;
+	file: StoredFile;
 };
 
 type InventoryItem = {
@@ -83,6 +101,7 @@ type InventoryItem = {
 	updated_at: string;
 	ingredient?: IngredientSummary | null;
 	product?: IngredientSummary & { ingredient_id: number | null } | null;
+	inventory_item_images?: InventoryItemImage[];
 };
 
 type InventoryContainer = {
@@ -141,9 +160,9 @@ type Recipe = {
 type RecipeImage = {
 	id: number;
 	recipe_id: number;
-	content_type: string;
-	filename: string | null;
+	file_id: number;
 	created_at: string;
+	file: StoredFile;
 };
 
 type DraftRecipeIngredient = {
@@ -914,11 +933,11 @@ const renderRecipeDetail = (recipe: Recipe) => {
 												<img
 													class="recipe-image-card__image"
 													src="/api/recipes/${recipe.id}/pictures/${image.id}?updated=${encodeURIComponent(image.created_at)}"
-													alt="${escapeHtml(image.filename ?? recipe.name)}"
+													alt="${escapeHtml(image.file.filename ?? recipe.name)}"
 												/>
 												<div class="recipe-image-card__meta">
 													<div>
-														<strong>${escapeHtml(image.filename ?? `Image #${image.id}`)}</strong>
+														<strong>${escapeHtml(image.file.filename ?? `Image #${image.id}`)}</strong>
 														<div class="section-copy">${formatReceiptDateTime(image.created_at)}</div>
 													</div>
 													<button
@@ -1257,8 +1276,9 @@ const renderProductDetail = (product: Product) => {
 		return;
 	}
 
-	const pictureUrl = product.picture_uploaded_at
-		? `/api/products/${product.id}/picture?updated=${encodeURIComponent(product.picture_uploaded_at)}`
+	const productPictureUpdated = product.picture_file?.created_at ?? null;
+	const pictureUrl = productPictureUpdated
+		? `/api/products/${product.id}/picture?updated=${encodeURIComponent(productPictureUpdated)}`
 		: `/api/products/${product.id}/picture`;
 
 	page.innerHTML = `
@@ -1293,9 +1313,9 @@ const renderProductDetail = (product: Product) => {
 					<div class="actions">
 						<button class="secondary" type="submit">Upload Picture</button>
 						${
-							product.picture_uploaded_at
-								? '<button class="secondary" type="button" id="product-picture-delete">Remove Picture</button>'
-								: ""
+								product.picture_file
+									? '<button class="secondary" type="button" id="product-picture-delete">Remove Picture</button>'
+									: ""
 						}
 					</div>
 				</form>
@@ -2259,6 +2279,10 @@ const renderReceiptDetail = (
 	const productsById = new Map(
 		products.map((product) => [product.id, product]),
 	);
+	const receiptPictureUpdated = receipt.picture_file?.created_at ?? null;
+	const receiptPictureUrl = receiptPictureUpdated
+		? `/api/receipts/${receipt.id}/picture?updated=${encodeURIComponent(receiptPictureUpdated)}`
+		: `/api/receipts/${receipt.id}/picture`;
 
 	page.innerHTML = `
 		<section class="page-heading page-heading--compact">
@@ -2279,9 +2303,9 @@ const renderReceiptDetail = (
 						aria-label="Open receipt picture in fullscreen"
 					>
 						<img
-							class="receipt-picture__image"
-							src="/api/receipts/${receipt.id}/picture"
-							alt="${escapeHtml(receipt.store_name)}"
+								class="receipt-picture__image"
+								src="${receiptPictureUrl}"
+								alt="${escapeHtml(receipt.store_name)}"
 							loading="lazy"
 							onerror="this.closest('.receipt-picture').innerHTML='<div class=&quot;empty&quot;>No receipt picture uploaded.</div>'"
 						/>
@@ -2821,6 +2845,20 @@ const deleteRecipeImage = async (recipeId: number, imageId: number) => {
 	if (response.status !== 204) {
 		const body = (await response.json()) as { error?: string };
 		throw new Error(body.error ?? "Failed to delete recipe image");
+	}
+};
+
+const deleteInventoryItemImage = async (itemId: number, imageId: number) => {
+	const response = await fetch(
+		`/api/inventory-items/${itemId}/pictures/${imageId}`,
+		{
+			method: "DELETE",
+		},
+	);
+
+	if (response.status !== 204) {
+		const body = (await response.json()) as { error?: string };
+		throw new Error(body.error ?? "Failed to delete inventory item image");
 	}
 };
 
@@ -3565,6 +3603,22 @@ const uploadRecipePictures = async (recipeId: number, files: File[]) => {
 	const body = (await response.json()) as { error?: string };
 	if (!response.ok) {
 		throw new Error(body.error ?? "Failed to upload recipe images");
+	}
+};
+
+const uploadInventoryItemPictures = async (itemId: number, files: File[]) => {
+	const formData = new FormData();
+	for (const file of files) {
+		formData.append("file", file);
+	}
+
+	const response = await fetch(`/api/inventory-items/${itemId}/pictures`, {
+		method: "POST",
+		body: formData,
+	});
+	const body = (await response.json()) as { error?: string };
+	if (!response.ok) {
+		throw new Error(body.error ?? "Failed to upload inventory item images");
 	}
 };
 
@@ -5827,6 +5881,7 @@ const renderInventoryItemDetail = (
 			: item.ingredient
 				? escapeHtml(item.ingredient.name)
 				: `Ingredient #${item.ingredient_id}`;
+	const itemImages = item.inventory_item_images ?? [];
 
 	page.innerHTML = `
 		<section class="page-heading page-heading--compact">
@@ -5890,8 +5945,61 @@ const renderInventoryItemDetail = (
 					${renderInventoryDetailRow("Receipt Row ID", item.receipt_item_id === null ? "-" : `${item.receipt_item_id}`)}
 				</dl>
 			</div>
+
+			<div class="card panel inventory-item-images-panel">
+				<h2>Images</h2>
+				${
+					itemImages.length
+						? `
+							<div class="recipe-image-gallery inventory-item-image-gallery">
+								${itemImages
+									.map(
+										(image) => `
+											<article class="recipe-image-card">
+												<img
+													class="recipe-image-card__image"
+													src="/api/inventory-items/${item.id}/pictures/${image.id}?updated=${encodeURIComponent(image.created_at)}"
+													alt="${escapeHtml(image.file.filename ?? item.name)}"
+												/>
+												<div class="recipe-image-card__meta">
+													<div>
+														<strong>${escapeHtml(image.file.filename ?? `Image #${image.id}`)}</strong>
+														<div class="section-copy">${formatReceiptDateTime(image.created_at)}</div>
+													</div>
+													<button
+														class="secondary"
+														type="button"
+														data-delete-inventory-item-image-id="${image.id}"
+													>
+														Remove
+													</button>
+												</div>
+											</article>
+										`,
+									)
+									.join("")}
+							</div>
+						`
+						: '<div class="empty">No inventory item images uploaded yet.</div>'
+				}
+				<form id="inventory-item-picture-form" class="recipe-picture__form inventory-item-picture__form">
+					${renderUploadDropzone({
+						inputId: "inventory-item-picture-input",
+						label: "Images",
+						name: "picture",
+						multiple: true,
+						submitOnDrop: true,
+						emptyText: "Choose one or more images or drop them here.",
+					})}
+					<div class="actions">
+						<button class="secondary" type="submit">Upload Images</button>
+					</div>
+				</form>
+				<div id="inventory-item-picture-status" class="status"></div>
+			</div>
 		</section>
 	`;
+	attachUploadDropzones(page);
 };
 
 const attachInventoryItemDetailEvents = (
@@ -5901,88 +6009,186 @@ const attachInventoryItemDetailEvents = (
 	receiptItems: PurchaseReceiptItem[],
 	receipts: PurchaseReceipt[],
 ) => {
+	const rerenderInventoryItemDetail = (
+		updated: InventoryItem,
+		statusId: string,
+		statusMessage: string,
+	) => {
+		renderInventoryItemDetail(
+			updated,
+			container,
+			products,
+			receiptItems,
+			receipts,
+		);
+		attachInventoryItemDetailEvents(
+			updated,
+			container,
+			products,
+			receiptItems,
+			receipts,
+		);
+		setStatus(statusId, statusMessage);
+	};
+
 	const form = document.getElementById("inventory-item-links-form");
-	if (!(form instanceof HTMLFormElement)) {
-		return;
+	if (form instanceof HTMLFormElement) {
+		form.addEventListener("submit", async (event) => {
+			event.preventDefault();
+
+			const productInput = document.getElementById("inventory-item-product-id");
+			const receiptItemInput = document.getElementById(
+				"inventory-item-receipt-item-id",
+			);
+			if (
+				!(productInput instanceof HTMLSelectElement) ||
+				!(receiptItemInput instanceof HTMLSelectElement)
+			) {
+				return;
+			}
+
+			const productId = productInput.value
+				? Number.parseInt(productInput.value, 10)
+				: null;
+			const receiptItemId = receiptItemInput.value
+				? Number.parseInt(receiptItemInput.value, 10)
+				: null;
+
+			if (
+				(productInput.value && !Number.isInteger(productId)) ||
+				(receiptItemInput.value && !Number.isInteger(receiptItemId))
+			) {
+				setStatus("inventory-item-links-status", "Selected link is invalid.", true);
+				return;
+			}
+
+			const selectedProduct =
+				productId === null
+					? null
+					: products.find((product) => product.id === productId) ??
+						(item.product?.id === productId ? item.product : null);
+			const payload: {
+				ingredient_id?: number | null;
+				product_id: number | null;
+				receipt_item_id: number | null;
+			} = {
+				product_id: productId,
+				receipt_item_id: receiptItemId,
+			};
+
+			if (
+				selectedProduct?.ingredient_id !== null &&
+				selectedProduct?.ingredient_id !== undefined
+			) {
+				payload.ingredient_id = selectedProduct.ingredient_id;
+			}
+
+			try {
+				const updated = await updateInventoryItem(item.id, payload);
+				rerenderInventoryItemDetail(
+					updated,
+					"inventory-item-links-status",
+					`Saved links for ${updated.name}.`,
+				);
+			} catch (error) {
+				setStatus(
+					"inventory-item-links-status",
+					error instanceof Error
+						? error.message
+						: "Failed to update inventory item links.",
+					true,
+				);
+			}
+		});
 	}
 
-	form.addEventListener("submit", async (event) => {
-		event.preventDefault();
+	const pictureForm = document.getElementById("inventory-item-picture-form");
+	if (pictureForm instanceof HTMLFormElement) {
+		pictureForm.addEventListener("submit", async (event) => {
+			event.preventDefault();
 
-		const productInput = document.getElementById("inventory-item-product-id");
-		const receiptItemInput = document.getElementById(
-			"inventory-item-receipt-item-id",
-		);
-		if (
-			!(productInput instanceof HTMLSelectElement) ||
-			!(receiptItemInput instanceof HTMLSelectElement)
-		) {
-			return;
-		}
-
-		const productId = productInput.value
-			? Number.parseInt(productInput.value, 10)
-			: null;
-		const receiptItemId = receiptItemInput.value
-			? Number.parseInt(receiptItemInput.value, 10)
-			: null;
-
-		if (
-			(productInput.value && !Number.isInteger(productId)) ||
-			(receiptItemInput.value && !Number.isInteger(receiptItemId))
-		) {
-			setStatus("inventory-item-links-status", "Selected link is invalid.", true);
-			return;
-		}
-
-		const selectedProduct =
-			productId === null
-				? null
-				: products.find((product) => product.id === productId) ??
-					(item.product?.id === productId ? item.product : null);
-		const payload: {
-			ingredient_id?: number | null;
-			product_id: number | null;
-			receipt_item_id: number | null;
-		} = {
-			product_id: productId,
-			receipt_item_id: receiptItemId,
-		};
-
-		if (
-			selectedProduct?.ingredient_id !== null &&
-			selectedProduct?.ingredient_id !== undefined
-		) {
-			payload.ingredient_id = selectedProduct.ingredient_id;
-		}
-
-		try {
-			const updated = await updateInventoryItem(item.id, payload);
-			renderInventoryItemDetail(
-				updated,
-				container,
-				products,
-				receiptItems,
-				receipts,
+			const pictureInput = document.getElementById(
+				"inventory-item-picture-input",
 			);
-			attachInventoryItemDetailEvents(
-				updated,
-				container,
-				products,
-				receiptItems,
-				receipts,
+			if (!(pictureInput instanceof HTMLInputElement)) {
+				return;
+			}
+
+			const pictures = pictureInput.files
+				? Array.from(pictureInput.files)
+				: [];
+			if (!pictures.length) {
+				setStatus(
+					"inventory-item-picture-status",
+					"Choose one or more images before uploading.",
+					true,
+				);
+				return;
+			}
+
+			try {
+				await uploadInventoryItemPictures(item.id, pictures);
+				const updated = await fetchInventoryItem(item.id);
+				rerenderInventoryItemDetail(
+					updated,
+					"inventory-item-picture-status",
+					pictures.length === 1
+						? `Uploaded 1 image for ${updated.name}.`
+						: `Uploaded ${pictures.length} images for ${updated.name}.`,
+				);
+			} catch (error) {
+				setStatus(
+					"inventory-item-picture-status",
+					error instanceof Error
+						? error.message
+						: "Failed to upload inventory item images",
+					true,
+				);
+			}
+		});
+	}
+
+	document
+		.getElementById("inventory-item-detail-page")
+		?.addEventListener("click", async (event) => {
+			const target = event.target;
+			if (!(target instanceof HTMLElement)) {
+				return;
+			}
+
+			const deleteButton = target.closest<HTMLElement>(
+				"[data-delete-inventory-item-image-id]",
 			);
-			setStatus("inventory-item-links-status", `Saved links for ${updated.name}.`);
-		} catch (error) {
-			setStatus(
-				"inventory-item-links-status",
-				error instanceof Error
-					? error.message
-					: "Failed to update inventory item links.",
-				true,
+			if (!deleteButton) {
+				return;
+			}
+
+			const imageId = Number.parseInt(
+				deleteButton.dataset.deleteInventoryItemImageId ?? "",
+				10,
 			);
-		}
-	});
+			if (!Number.isInteger(imageId)) {
+				return;
+			}
+
+			try {
+				await deleteInventoryItemImage(item.id, imageId);
+				const updated = await fetchInventoryItem(item.id);
+				rerenderInventoryItemDetail(
+					updated,
+					"inventory-item-picture-status",
+					"Removed inventory item image.",
+				);
+			} catch (error) {
+				setStatus(
+					"inventory-item-picture-status",
+					error instanceof Error
+						? error.message
+						: "Failed to delete inventory item image",
+					true,
+				);
+			}
+		});
 };
 
 const renderInventoryPage = () => {

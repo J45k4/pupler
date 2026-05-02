@@ -23,6 +23,8 @@ export {
 } from "./products";
 export {
 	inventoryItemDetailRoute,
+	inventoryItemImageDetailRoute,
+	inventoryItemImagesCollectionRoute,
 	inventoryItemsCollectionRoute,
 } from "./inventory-items";
 export {

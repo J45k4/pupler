@@ -490,19 +490,21 @@ describe("Pupler API e2e", () => {
 			}),
 		);
 
-		const upload = await server.call<{
-			id: number;
-			filename: string | null;
-		}[]>(`/api/recipes/${created.body.id}/pictures`, {
+			const upload = await server.call<{
+				id: number;
+				file: {
+					filename: string | null;
+				};
+			}[]>(`/api/recipes/${created.body.id}/pictures`, {
 			method: "POST",
 			body: formData,
 		});
-		expect(upload.response.status).toBe(201);
-		expect(upload.body).toHaveLength(2);
-		expect(upload.body.map((image) => image.filename)).toEqual([
-			"recipe.png",
-			"recipe-2.png",
-		]);
+			expect(upload.response.status).toBe(201);
+			expect(upload.body).toHaveLength(2);
+			expect(upload.body.map((image) => image.file.filename)).toEqual([
+				"recipe.png",
+				"recipe-2.png",
+			]);
 		expect(existsSync(join(server.filesPath, "recipe-images"))).toBe(true);
 
 		const picture = await fetch(

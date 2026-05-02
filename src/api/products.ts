@@ -28,6 +28,7 @@ import {
 } from "./file-storage";
 import {
 	ensureIngredientExists,
+	fileDetailSelect,
 	productDetailSelect,
 } from "./reference-details";
 
@@ -297,7 +298,14 @@ export const productDetailRoute = (db: Database) =>
 		}
 
 		if (req.method === "DELETE") {
+			const existingPicture = await fetchProductPicture(db, id);
 			await db.client.product.delete({ where: { id } });
+			if (existingPicture?.picture_file) {
+				await db.client.file.delete({
+					where: { id: existingPicture.picture_file.id },
+				});
+				await deleteStoredFileBestEffort(db, existingPicture.picture_file.path);
+			}
 			return empty(204);
 		}
 
@@ -309,10 +317,13 @@ const fetchProductPicture = (db: Database, productId: number) =>
 		where: { id: productId },
 		select: {
 			id: true,
-			picture_path: true,
-			picture_content_type: true,
-			picture_filename: true,
-			picture_uploaded_at: true,
+			picture_file_id: true,
+			picture_file: {
+				select: {
+					path: true,
+					...fileDetailSelect,
+				},
+			},
 		},
 	});
 
@@ -326,19 +337,23 @@ export const productPictureRoute = (db: Database) =>
 
 		if (req.method === "GET") {
 			const row = await fetchProductPicture(db, productId);
-			if (!row?.picture_path || !row.picture_content_type) {
+			if (!row?.picture_file) {
 				throw new HttpError(404, "Product picture not found");
 			}
 			return new Response(
-				await readStoredFile(db, row.picture_path, "Product picture not found"),
+				await readStoredFile(
+					db,
+					row.picture_file.path,
+					"Product picture not found",
+				),
 				{
 					status: 200,
 					headers: {
-						"Content-Type": row.picture_content_type,
+						"Content-Type": row.picture_file.content_type,
 						"Cache-Control": "no-store",
-						...(row.picture_filename
+						...(row.picture_file.filename
 							? {
-									"Content-Disposition": `inline; filename="${row.picture_filename}"`,
+									"Content-Disposition": `inline; filename="${row.picture_file.filename}"`,
 								}
 							: {}),
 					},
@@ -351,13 +366,15 @@ export const productPictureRoute = (db: Database) =>
 			await db.client.product.update({
 				where: { id: productId },
 				data: {
-					picture_path: null,
-					picture_content_type: null,
-					picture_filename: null,
-					picture_uploaded_at: null,
+					picture_file_id: null,
 				},
 			});
-			await deleteStoredFileBestEffort(db, existingPicture?.picture_path);
+			if (existingPicture?.picture_file) {
+				await db.client.file.delete({
+					where: { id: existingPicture.picture_file.id },
+				});
+				await deleteStoredFileBestEffort(db, existingPicture.picture_file.path);
+			}
 			return empty(204);
 		}
 
@@ -388,10 +405,15 @@ export const productPictureRoute = (db: Database) =>
 				await db.client.product.update({
 					where: { id: productId },
 					data: {
-						picture_path: storedFile.relativePath,
-						picture_content_type: uploaded.type,
-						picture_filename: uploaded.name || null,
-						picture_uploaded_at: utcNow(),
+						picture_file: {
+							create: {
+								path: storedFile.relativePath,
+								content_type: uploaded.type,
+								filename: uploaded.name || null,
+								size_bytes: uploaded.size,
+								created_at: utcNow(),
+							},
+						},
 					},
 				});
 			} catch (error) {
@@ -399,7 +421,12 @@ export const productPictureRoute = (db: Database) =>
 				throw error;
 			}
 
-			await deleteStoredFileBestEffort(db, previousPicture?.picture_path);
+			if (previousPicture?.picture_file) {
+				await db.client.file.delete({
+					where: { id: previousPicture.picture_file.id },
+				});
+				await deleteStoredFileBestEffort(db, previousPicture.picture_file.path);
+			}
 
 			return json(200, {
 				product_id: productId,
