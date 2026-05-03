@@ -647,7 +647,52 @@ const renderExpirationsPage = () => {
 		`,
 	);
 
+	attachExpirationPageEvents();
 	void loadExpirationPageData();
+};
+
+const attachExpirationPageEvents = () => {
+	const results = document.getElementById("expiration-results");
+	if (!results) {
+		return;
+	}
+
+	results.addEventListener("click", async (event) => {
+		const target = event.target;
+		if (!(target instanceof HTMLElement)) {
+			return;
+		}
+
+		const consumeButton = target.closest<HTMLButtonElement>(
+			"[data-consume-expiration-item-id]",
+		);
+		if (!consumeButton) {
+			return;
+		}
+
+		const itemId = Number(consumeButton.dataset.consumeExpirationItemId);
+		if (!Number.isInteger(itemId)) {
+			return;
+		}
+
+		const itemName = consumeButton.dataset.consumeExpirationItemName ?? "item";
+		consumeButton.disabled = true;
+		try {
+			await updateInventoryItem(itemId, {
+				consumed_at: new Date().toISOString(),
+			});
+			await loadExpirationPageData(`Consumed ${itemName}.`);
+		} catch (error) {
+			consumeButton.disabled = false;
+			setStatus(
+				"expiration-status",
+				error instanceof Error
+					? error.message
+					: "Failed to consume inventory item.",
+				true,
+			);
+		}
+	});
 };
 
 const renderRecipesPage = () => {
@@ -1639,17 +1684,18 @@ const getInventoryItemLocation = (
 const renderExpirationItem = (
 	item: InventoryItem,
 	containersById: Map<number, string>,
+	options: { showConsumeAction?: boolean } = {},
 ) => {
 	const tag = getExpirationTag(item);
 	const location = getInventoryItemLocation(item, containersById);
 
 	return `
-		<a
-			class="inventory-expiration-item"
-			href="/inventory/items/${item.id}"
-			data-link
-		>
-			<div class="inventory-expiration-item__main">
+		<div class="inventory-expiration-item">
+			<a
+				class="inventory-expiration-item__main"
+				href="/inventory/items/${item.id}"
+				data-link
+			>
 				<strong>${escapeHtml(item.name)}</strong>
 				<div class="inventory-node__meta">
 					<span>${item.quantity} ${escapeHtml(item.unit)}</span>
@@ -1660,9 +1706,25 @@ const renderExpirationItem = (
 							: "No expiration date"
 					}</span>
 				</div>
+			</a>
+			<div class="inventory-expiration-item__actions">
+				<span class="${tag.className}">${escapeHtml(tag.label)}</span>
+				${
+					options.showConsumeAction
+						? `
+							<button
+								class="secondary inventory-node__button"
+								type="button"
+								data-consume-expiration-item-id="${item.id}"
+								data-consume-expiration-item-name="${escapeHtml(item.name)}"
+							>
+								Consume
+							</button>
+						`
+						: ""
+				}
 			</div>
-			<span class="${tag.className}">${escapeHtml(tag.label)}</span>
-		</a>
+		</div>
 	`;
 };
 
@@ -1737,7 +1799,8 @@ const renderExpirationResults = (
 		{
 			batchSize: 20,
 			emptyHtml: '<div class="empty">No active inventory items.</div>',
-			renderItem: (item) => renderExpirationItem(item, containersById),
+			renderItem: (item) =>
+				renderExpirationItem(item, containersById, { showConsumeAction: true }),
 			root,
 		},
 		sortInventoryItemsByExpiration(items),
@@ -3414,7 +3477,7 @@ const loadDashboardExpirationPreview = async () => {
 	}
 };
 
-const loadExpirationPageData = async () => {
+const loadExpirationPageData = async (statusMessage?: string) => {
 	try {
 		const [items, containers] = await Promise.all([
 			fetchInventoryItems(),
@@ -3423,9 +3486,10 @@ const loadExpirationPageData = async () => {
 		renderExpirationResults(containers, items);
 		setStatus(
 			"expiration-status",
-			items.length
-				? `Loaded ${items.length} active item(s).`
-				: "No active inventory items.",
+			statusMessage ??
+				(items.length
+					? `Loaded ${items.length} active item(s).`
+					: "No active inventory items."),
 		);
 	} catch (error) {
 		renderExpirationResults([], []);

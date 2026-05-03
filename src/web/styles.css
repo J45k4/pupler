@@ -1162,7 +1162,6 @@ body.modal-open {
 	border-radius: 18px;
 	background: rgba(255, 255, 255, 0.78);
 	color: inherit;
-	text-decoration: none;
 	transition:
 		border-color 140ms ease,
 		transform 140ms ease;
@@ -1177,10 +1176,19 @@ body.modal-open {
 	display: grid;
 	gap: 0.28rem;
 	min-width: 0;
+	color: inherit;
+	text-decoration: none;
 }
 
 .inventory-expiration-item__main strong {
 	font-size: 0.98rem;
+}
+
+.inventory-expiration-item__actions {
+	display: flex;
+	align-items: center;
+	flex: 0 0 auto;
+	gap: 0.5rem;
 }
 
 .dashboard-spending-summary {
@@ -1670,6 +1678,10 @@ body.modal-open {
 	.inventory-expiration-item {
 		flex-direction: column;
 		align-items: stretch;
+	}
+
+	.inventory-expiration-item__actions {
+		justify-content: space-between;
 	}
 
 	.recipe-ingredient-item {
