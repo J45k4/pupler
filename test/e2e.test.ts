@@ -101,6 +101,13 @@ describe("Pupler API e2e", () => {
 			"text/html",
 		);
 		expect(expirationsPage.body).toContain("<title>Pupler</title>");
+
+		const spendingPage = await server.call<string>("/spending");
+		expect(spendingPage.response.status).toBe(200);
+		expect(spendingPage.response.headers.get("content-type")).toContain(
+			"text/html",
+		);
+		expect(spendingPage.body).toContain("<title>Pupler</title>");
 	});
 
 	test("serves the app shell for receipt pages", async () => {

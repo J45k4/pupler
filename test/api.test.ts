@@ -34,6 +34,7 @@ import {
 	recipesCollectionRoute,
 	shoppingListItemDetailRoute,
 	shoppingListItemsCollectionRoute,
+	spendingRoute,
 } from "../src/api";
 import {
 	resolveDatabasePath,
@@ -99,6 +100,7 @@ const createRoutes = () => {
 			"/api/inventory-items/:id": inventoryItemDetailRoute(db),
 			"/api/shopping-list-items": shoppingListItemsCollectionRoute(db),
 			"/api/shopping-list-items/:id": shoppingListItemDetailRoute(db),
+			"/api/spending": spendingRoute(db),
 			"/version": Response.json(versionPayload()),
 		},
 	};
@@ -1377,6 +1379,145 @@ describe("Pupler API", () => {
 		expect(listed).toHaveLength(1);
 		expect(listed[0].id).toBe(created.id);
 		expect(listed[0].line_total).toBe(5.4);
+	});
+
+	test("summarizes spending by product category from receipt items", async () => {
+		const routes = createRoutes();
+
+		const foodResponse = await request(routes, "/api/products", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: "Milk",
+				category: "food",
+				barcode: "spend-1",
+				default_unit: "pcs",
+				is_perishable: true,
+			}),
+		});
+		const foodProduct = await foodResponse.json();
+
+		const householdResponse = await request(routes, "/api/products", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: "Soap",
+				category: "household",
+				barcode: "spend-2",
+				default_unit: "pcs",
+				is_perishable: false,
+			}),
+		});
+		const householdProduct = await householdResponse.json();
+
+		const recentReceiptResponse = await request(routes, "/api/receipts", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				store_name: "Prisma",
+				purchased_at: "2026-04-13T12:00:00.000Z",
+				currency: "EUR",
+				total_amount: 10.5,
+			}),
+		});
+		const recentReceipt = await recentReceiptResponse.json();
+
+		const oldReceiptResponse = await request(routes, "/api/receipts", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				store_name: "Old Store",
+				purchased_at: "2026-03-01T12:00:00.000Z",
+				currency: "EUR",
+				total_amount: 99,
+			}),
+		});
+		const oldReceipt = await oldReceiptResponse.json();
+
+		for (const item of [
+			{
+				receipt_id: recentReceipt.id,
+				product_id: foodProduct.id,
+				quantity: 2,
+				unit: "pcs",
+				unit_price: 1.25,
+				line_total: null,
+			},
+			{
+				receipt_id: recentReceipt.id,
+				product_id: foodProduct.id,
+				quantity: 1,
+				unit: "pcs",
+				unit_price: 2,
+				line_total: 3,
+			},
+			{
+				receipt_id: recentReceipt.id,
+				product_id: householdProduct.id,
+				quantity: 1,
+				unit: "pcs",
+				unit_price: null,
+				line_total: null,
+			},
+			{
+				receipt_id: oldReceipt.id,
+				product_id: householdProduct.id,
+				quantity: 1,
+				unit: "pcs",
+				unit_price: 99,
+				line_total: 99,
+			},
+		]) {
+			const response = await request(routes, "/api/receipt-items", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(item),
+			});
+			expect(response.status).toBe(201);
+		}
+
+		const breakdownResponse = await request(
+			routes,
+			"/api/spending?from=2026-04-01T00:00:00.000Z&to=2026-04-30T23:59:59.999Z",
+		);
+		expect(breakdownResponse.status).toBe(200);
+		const breakdown = await breakdownResponse.json();
+		expect(breakdown.item_count).toBe(3);
+		expect(breakdown.missing_total_count).toBe(1);
+		expect(breakdown.currency_totals).toEqual([
+			{ currency: "EUR", total: 5.5 },
+		]);
+		expect(breakdown.categories).toHaveLength(2);
+		expect(breakdown.categories[0]).toMatchObject(
+			{
+				category: "food",
+				currency: "EUR",
+				total: 5.5,
+				item_count: 2,
+				missing_total_count: 0,
+			},
+		);
+		expect(breakdown.categories[0].items).toHaveLength(2);
+		expect(breakdown.categories[0].items[0]).toMatchObject({
+			product_name: "Milk",
+			store_name: "Prisma",
+			receipt_id: recentReceipt.id,
+			amount: 2.5,
+		});
+		expect(breakdown.categories[1]).toMatchObject(
+			{
+				category: "household",
+				currency: "EUR",
+				total: 0,
+				item_count: 1,
+				missing_total_count: 1,
+			},
+		);
+		expect(breakdown.categories[1].items).toHaveLength(1);
+		expect(breakdown.categories[1].items[0]).toMatchObject({
+			product_name: "Soap",
+			amount: null,
+		});
 	});
 
 	test("updates receipt items, validates references, and unlinks inventory on delete", async () => {

@@ -30,6 +30,7 @@ import {
 	recipesCollectionRoute,
 	shoppingListItemDetailRoute,
 	shoppingListItemsCollectionRoute,
+	spendingRoute,
 } from "./api";
 import { deriveFilesPath } from "./api/core";
 
@@ -105,6 +106,7 @@ export const server = (options: ServerOptions = {}) => {
 			"/api/meal-plan-items/:id": mealPlanItemDetailRoute(db),
 			"/api/shopping-list-items": shoppingListItemsCollectionRoute(db),
 			"/api/shopping-list-items/:id": shoppingListItemDetailRoute(db),
+			"/api/spending": spendingRoute(db),
 			"/health": new Response("ok"),
 			"/version": Response.json(versionPayload()),
 			"/api/*": Response.json(
@@ -121,6 +123,7 @@ export const server = (options: ServerOptions = {}) => {
 			"/products/:id": index,
 			"/receipts": index,
 			"/receipts/:id": index,
+			"/spending": index,
 			"/shoppinglist": index,
 			"/recipes": index,
 			"/recipes/new": index,

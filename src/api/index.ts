@@ -58,3 +58,6 @@ export {
 	shoppingListItemDetailRoute,
 	shoppingListItemsCollectionRoute,
 } from "./shopping-list-items";
+export {
+	spendingRoute,
+} from "./spending";

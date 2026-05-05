@@ -1227,6 +1227,151 @@ body.modal-open {
 	gap: 0.75rem;
 }
 
+.spending-breakdown-panel {
+	gap: 1.1rem;
+}
+
+.spending-breakdown-summary {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+	gap: 0.75rem;
+	margin-bottom: 0.75rem;
+}
+
+.spending-breakdown-group {
+	display: grid;
+	gap: 0.75rem;
+	padding: 0.9rem 0;
+	border-top: 1px solid var(--line);
+}
+
+.spending-breakdown-group h3 {
+	margin: 0;
+	font-size: 0.95rem;
+}
+
+.spending-breakdown-list {
+	display: grid;
+	gap: 0.7rem;
+}
+
+.spending-breakdown-details {
+	display: grid;
+	gap: 0.55rem;
+}
+
+.spending-breakdown-details > summary {
+	list-style: none;
+	cursor: pointer;
+}
+
+.spending-breakdown-details > summary::-webkit-details-marker {
+	display: none;
+}
+
+.spending-breakdown-row {
+	display: grid;
+	grid-template-columns: minmax(0, 1.15fr) minmax(120px, 2fr) auto auto;
+	align-items: center;
+	gap: 0.9rem;
+	padding: 0.8rem 0.9rem;
+	border: 1px solid var(--line);
+	border-radius: 18px;
+	background: rgba(255, 255, 255, 0.78);
+}
+
+.spending-breakdown-row::after {
+	content: "▾";
+	color: var(--muted);
+	font-size: 0.9rem;
+	transition: transform 140ms ease;
+}
+
+.spending-breakdown-details[open] .spending-breakdown-row::after {
+	transform: rotate(180deg);
+}
+
+.spending-breakdown-row__label {
+	display: grid;
+	gap: 0.25rem;
+	min-width: 0;
+}
+
+.spending-breakdown-row__label strong {
+	overflow-wrap: anywhere;
+}
+
+.spending-breakdown-row__label span {
+	color: var(--muted);
+	font-size: 0.82rem;
+}
+
+.spending-breakdown-row__meter {
+	height: 0.65rem;
+	overflow: hidden;
+	border-radius: 999px;
+	background: rgba(49, 87, 90, 0.12);
+}
+
+.spending-breakdown-row__meter div {
+	height: 100%;
+	border-radius: inherit;
+	background: linear-gradient(90deg, #3b6f72, #ba5a31);
+}
+
+.spending-breakdown-row__total {
+	justify-self: end;
+	white-space: nowrap;
+}
+
+.spending-breakdown-items {
+	display: grid;
+	gap: 0.45rem;
+	padding: 0 0.4rem 0.2rem 1rem;
+}
+
+.spending-breakdown-item {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 0.75rem;
+	padding: 0.7rem 0.85rem;
+	border: 1px solid rgba(49, 87, 90, 0.12);
+	border-radius: 14px;
+	background: rgba(255, 255, 255, 0.52);
+	color: inherit;
+	text-decoration: none;
+}
+
+.spending-breakdown-item:hover {
+	border-color: rgba(186, 90, 49, 0.28);
+}
+
+.spending-breakdown-item__main,
+.spending-breakdown-item__meta {
+	display: grid;
+	gap: 0.22rem;
+}
+
+.spending-breakdown-item__main {
+	min-width: 0;
+}
+
+.spending-breakdown-item__main strong {
+	overflow-wrap: anywhere;
+}
+
+.spending-breakdown-item__main span,
+.spending-breakdown-item__meta span {
+	color: var(--muted);
+	font-size: 0.8rem;
+}
+
+.spending-breakdown-item__meta {
+	justify-items: end;
+	white-space: nowrap;
+}
+
 .inventory-root {
 	display: grid;
 	gap: 1rem;
@@ -1612,6 +1757,22 @@ body.modal-open {
 
 	.recipe-create-ingredient-form {
 		grid-template-columns: 1fr;
+	}
+
+	.spending-breakdown-row {
+		grid-template-columns: 1fr;
+	}
+
+	.spending-breakdown-row__total {
+		justify-self: start;
+	}
+
+	.spending-breakdown-item {
+		grid-template-columns: 1fr;
+	}
+
+	.spending-breakdown-item__meta {
+		justify-items: start;
 	}
 
 	.recipe-create-ingredient-preview__item,
