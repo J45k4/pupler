@@ -6,13 +6,6 @@ export const ingredientSummarySelect = {
 	default_unit: true,
 } as const;
 
-export const productSummarySelect = {
-	id: true,
-	name: true,
-	default_unit: true,
-	ingredient_id: true,
-} as const;
-
 export const groupSummarySelect = {
 	id: true,
 	name: true,
@@ -24,6 +17,17 @@ export const fileDetailSelect = {
 	filename: true,
 	size_bytes: true,
 	created_at: true,
+} as const;
+
+export const productSummarySelect = {
+	id: true,
+	name: true,
+	default_unit: true,
+	ingredient_id: true,
+	picture_file_id: true,
+	picture_file: {
+		select: fileDetailSelect,
+	},
 } as const;
 
 export const receiptDetailSelect = {

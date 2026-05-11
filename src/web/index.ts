@@ -175,7 +175,11 @@ type ShoppingListItem = {
 	created_at: string;
 	updated_at: string;
 	ingredient?: IngredientSummary | null;
-	product?: IngredientSummary & { ingredient_id: number | null } | null;
+	product?: (IngredientSummary & {
+		ingredient_id: number | null;
+		picture_file_id?: number | null;
+		picture_file?: StoredFile | null;
+	}) | null;
 };
 
 type RecipeIngredient = {
@@ -1551,6 +1555,12 @@ const renderShoppingListItems = (items: ShoppingListItem[]) => {
 			<tbody>
 				${items
 					.map((item) => {
+						const productPictureUpdated = item.product?.picture_file?.created_at ?? null;
+						const productPictureUrl = item.product_id
+							? productPictureUpdated
+								? `/api/products/${item.product_id}/picture?updated=${encodeURIComponent(productPictureUpdated)}`
+								: `/api/products/${item.product_id}/picture`
+							: null;
 						const checked = item.done ? " checked" : "";
 						const rowClass = item.done
 							? "shoppinglist-table__row shoppinglist-table__row--done"
@@ -1562,7 +1572,19 @@ const renderShoppingListItems = (items: ShoppingListItem[]) => {
 
 						return `
 							<tr class="${rowClass}">
-								<td>${escapeHtml(item.name)}</td>
+								<td>
+									<div class="shoppinglist-product">
+										${productPictureUrl
+											? `<img class="shoppinglist-product__image" src="${productPictureUrl}" alt="${escapeHtml(item.product?.name ?? item.name)}" loading="lazy" onerror="this.remove()" />`
+											: ""}
+										<div>
+											<div class="shoppinglist-product__name">${escapeHtml(item.name)}</div>
+											${item.product
+												? `<a class="shoppinglist-product__linked" href="/products/${item.product.id}" data-link>Product: ${escapeHtml(item.product.name)}</a>`
+												: ""}
+										</div>
+									</div>
+								</td>
 								<td class="shoppinglist-table__date">
 									<span class="shoppinglist-table__date-label">${dateLabel}</span>
 									${dateValue}
