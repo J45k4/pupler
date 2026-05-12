@@ -5185,6 +5185,11 @@ const attachReceiptsPageEvents = () => {
 	const form = document.getElementById("receipt-form");
 	const modal = document.getElementById("receipt-create-modal");
 	const openModalButton = document.getElementById("open-receipt-modal-button");
+	const groupModal = document.getElementById("group-create-modal");
+	const groupForm = document.getElementById("group-create-form");
+	const openGroupModalButton = document.getElementById(
+		"open-group-modal-button",
+	);
 	const refreshButton = document.getElementById("receipt-refresh-button");
 	const groupFilter = document.getElementById("receipt-group-filter");
 	const results = document.getElementById("receipt-results");
@@ -5207,6 +5212,39 @@ const attachReceiptsPageEvents = () => {
 			form.reset();
 		}
 		setStatus("receipt-create-status", "");
+	};
+
+	const closeGroupModal = () => {
+		if (!groupModal) {
+			return;
+		}
+
+		groupModal.hidden = true;
+		document.body.classList.remove("modal-open");
+		if (groupForm instanceof HTMLFormElement) {
+			groupForm.reset();
+			const submitButton = groupForm.querySelector<HTMLButtonElement>(
+				'button[type="submit"]',
+			);
+			if (submitButton) {
+				submitButton.disabled = false;
+			}
+		}
+		setStatus("group-create-status", "");
+	};
+
+	const openGroupModal = () => {
+		if (!groupModal) {
+			return;
+		}
+
+		groupModal.hidden = false;
+		document.body.classList.add("modal-open");
+		setStatus("group-create-status", "");
+		const groupNameInput = document.getElementById("group-create-name");
+		if (groupNameInput instanceof HTMLInputElement) {
+			groupNameInput.focus();
+		}
 	};
 
 	const openCreateModal = () => {
@@ -5309,6 +5347,47 @@ const attachReceiptsPageEvents = () => {
 	});
 
 	openModalButton?.addEventListener("click", openCreateModal);
+	openGroupModalButton?.addEventListener("click", openGroupModal);
+
+	if (groupForm instanceof HTMLFormElement) {
+		groupForm.addEventListener("submit", async (event) => {
+			event.preventDefault();
+
+			const groupNameInput = document.getElementById("group-create-name");
+			if (!(groupNameInput instanceof HTMLInputElement)) {
+				return;
+			}
+
+			const name = groupNameInput.value.trim();
+			if (!name) {
+				setStatus("group-create-status", "Group name is required.", true);
+				return;
+			}
+
+			const submitButton = groupForm.querySelector<HTMLButtonElement>(
+				'button[type="submit"]',
+			);
+			if (submitButton) {
+				submitButton.disabled = true;
+			}
+			setStatus("group-create-status", "Creating group...");
+
+			try {
+				const group = await createGroup(name);
+				closeGroupModal();
+				await loadReceipts(`Created group ${group.name}.`);
+			} catch (error) {
+				if (submitButton) {
+					submitButton.disabled = false;
+				}
+				setStatus(
+					"group-create-status",
+					error instanceof Error ? error.message : "Failed to create group",
+					true,
+				);
+			}
+		});
+	}
 
 	modal?.addEventListener("click", (event) => {
 		const target = event.target;
@@ -5321,9 +5400,24 @@ const attachReceiptsPageEvents = () => {
 		}
 	});
 
+	groupModal?.addEventListener("click", (event) => {
+		const target = event.target;
+		if (!(target instanceof HTMLElement)) {
+			return;
+		}
+
+		if (target.dataset.groupCreateModalClose !== undefined) {
+			closeGroupModal();
+		}
+	});
+
 	window.addEventListener("keydown", (event) => {
 		if (event.key === "Escape" && modal && !modal.hidden) {
 			closeCreateModal();
+			return;
+		}
+		if (event.key === "Escape" && groupModal && !groupModal.hidden) {
+			closeGroupModal();
 		}
 	});
 
@@ -6984,6 +7078,13 @@ const renderReceiptsPage = () => {
 						<h2>Receipts</h2>
 						<div class="actions">
 							<button
+								class="secondary"
+								type="button"
+								id="open-group-modal-button"
+							>
+								New group
+							</button>
+							<button
 								class="primary"
 								type="button"
 								id="open-receipt-modal-button"
@@ -7077,6 +7178,48 @@ const renderReceiptsPage = () => {
 						</div>
 					</form>
 					<div id="receipt-create-status" class="status"></div>
+				</div>
+			</div>
+
+			<div class="receipt-create-modal" id="group-create-modal" hidden>
+				<div
+					class="receipt-create-modal__backdrop"
+					data-group-create-modal-close
+				></div>
+				<div
+					class="receipt-create-modal__dialog card panel"
+					role="dialog"
+					aria-modal="true"
+					aria-labelledby="group-create-modal-title"
+				>
+					<div class="section-header">
+						<h2 id="group-create-modal-title">New Group</h2>
+						<button
+							class="secondary"
+							type="button"
+							aria-label="Close new group modal"
+							data-group-create-modal-close
+						>
+							Close
+						</button>
+					</div>
+					<form id="group-create-form">
+						<label>
+							Group Name
+							<input id="group-create-name" name="group-name" placeholder="grocery" required />
+						</label>
+						<div class="actions">
+							<button class="primary" type="submit">Create Group</button>
+							<button
+								class="secondary"
+								type="button"
+								data-group-create-modal-close
+							>
+								Cancel
+							</button>
+						</div>
+					</form>
+					<div id="group-create-status" class="status"></div>
 				</div>
 			</div>
 		`,
