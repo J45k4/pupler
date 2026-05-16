@@ -9,7 +9,14 @@ import {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_DAYS = 30;
-const QUERY_FIELDS = new Set(["days", "from", "to"]);
+const QUERY_FIELDS = new Set(["days", "from", "to", "range"]);
+
+type SpendingPeriod = {
+	from: string | null;
+	to: string;
+	days: number | null;
+	range: "days" | "all";
+};
 
 type SpendingBucket = {
 	category: string;
@@ -41,7 +48,7 @@ const normalizeCategory = (category: string) => {
 	return trimmed.length ? trimmed : "Uncategorized";
 };
 
-const parseSpendingQuery = (url: URL) => {
+const parseSpendingQuery = (url: URL): SpendingPeriod => {
 	for (const key of url.searchParams.keys()) {
 		if (!QUERY_FIELDS.has(key)) {
 			throw new HttpError(400, `Unknown query parameter \`${key}\``);
@@ -54,6 +61,24 @@ const parseSpendingQuery = (url: URL) => {
 		: new Date().toISOString();
 	const fromParam = url.searchParams.get("from");
 	const daysParam = url.searchParams.get("days");
+	const rangeParam = url.searchParams.get("range");
+	if (rangeParam !== null && rangeParam !== "all") {
+		throw new HttpError(400, "Query parameter `range` must be `all`");
+	}
+	if (rangeParam === "all") {
+		if (fromParam !== null || daysParam !== null) {
+			throw new HttpError(
+				400,
+				"Use `range=all` without `from` or `days`",
+			);
+		}
+		return {
+			from: null,
+			to,
+			days: null,
+			range: "all",
+		};
+	}
 	if (fromParam !== null && daysParam !== null) {
 		throw new HttpError(400, "Use either `from` or `days`, not both");
 	}
@@ -81,6 +106,7 @@ const parseSpendingQuery = (url: URL) => {
 		from,
 		to,
 		days: Math.ceil((Date.parse(to) - Date.parse(from)) / DAY_MS),
+		range: "days",
 	};
 };
 
@@ -113,7 +139,7 @@ export const spendingRoute = (db: Database) =>
 			where: {
 				receipt: {
 					purchased_at: {
-						gte: period.from,
+						...(period.from === null ? {} : { gte: period.from }),
 						lte: period.to,
 					},
 				},

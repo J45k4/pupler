@@ -1518,6 +1518,29 @@ describe("Pupler API", () => {
 			product_name: "Soap",
 			amount: null,
 		});
+
+		const allTimeResponse = await request(
+			routes,
+			"/api/spending?range=all&to=2026-04-30T23:59:59.999Z",
+		);
+		expect(allTimeResponse.status).toBe(200);
+		const allTimeBreakdown = await allTimeResponse.json();
+		expect(allTimeBreakdown.period).toMatchObject({
+			from: null,
+			to: "2026-04-30T23:59:59.999Z",
+			days: null,
+			range: "all",
+		});
+		expect(allTimeBreakdown.item_count).toBe(4);
+		expect(allTimeBreakdown.currency_totals).toEqual([
+			{ currency: "EUR", total: 104.5 },
+		]);
+
+		const mixedRangeResponse = await request(
+			routes,
+			"/api/spending?range=all&days=30",
+		);
+		expect(mixedRangeResponse.status).toBe(400);
 	});
 
 	test("updates receipt items, validates references, and unlinks inventory on delete", async () => {

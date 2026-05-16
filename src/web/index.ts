@@ -115,9 +115,10 @@ type SpendingCurrencyTotal = {
 
 type SpendingBreakdown = {
 	period: {
-		from: string;
+		from: string | null;
 		to: string;
-		days: number;
+		days: number | null;
+		range: "days" | "all";
 	};
 	item_count: number;
 	missing_total_count: number;
@@ -283,6 +284,48 @@ const escapeHtml = (value: string) =>
 		.replaceAll(">", "&gt;")
 		.replaceAll('"', "&quot;")
 		.replaceAll("'", "&#39;");
+
+const SPENDING_RANGE_OPTIONS = [
+	{ value: "7", label: "Last 7 Days" },
+	{ value: "30", label: "Last 30 Days" },
+	{ value: "90", label: "Last 90 Days" },
+	{ value: "365", label: "Last 365 Days" },
+	{ value: "all", label: "All Time" },
+] as const;
+
+type SpendingRangeOption = (typeof SPENDING_RANGE_OPTIONS)[number];
+
+const DEFAULT_SPENDING_RANGE_VALUE = "30";
+
+const getSpendingRangeOption = (
+	value: string | null | undefined,
+): SpendingRangeOption =>
+	SPENDING_RANGE_OPTIONS.find((option) => option.value === value) ??
+	SPENDING_RANGE_OPTIONS.find(
+		(option) => option.value === DEFAULT_SPENDING_RANGE_VALUE,
+	)!;
+
+const getCurrentSpendingRangeOption = () =>
+	getSpendingRangeOption(new URLSearchParams(window.location.search).get("span"));
+
+const renderSpendingRangeOptions = (selectedValue: string) =>
+	SPENDING_RANGE_OPTIONS.map(
+		(option) => `
+			<option value="${escapeHtml(option.value)}" ${
+				option.value === selectedValue ? "selected" : ""
+			}>
+				${escapeHtml(option.label)}
+			</option>
+		`,
+	).join("");
+
+const spendingRangeStatusSuffix = (option: SpendingRangeOption) =>
+	option.value === "all" ? "across all time" : `in the last ${option.value} days`;
+
+const spendingRangeEmptyMessage = (option: SpendingRangeOption) =>
+	option.value === "all"
+		? "No receipt items recorded yet."
+		: `No receipt items in the last ${option.value} days.`;
 
 const UNIT_GROUPS = [
 	{
@@ -683,6 +726,8 @@ const renderOverviewPage = () => {
 };
 
 const renderSpendingPage = () => {
+	const selectedRange = getCurrentSpendingRangeOption();
+
 	renderPage(
 		`
 			<section class="page-heading page-heading--compact">
@@ -696,8 +741,16 @@ const renderSpendingPage = () => {
 			<section class="workspace workspace--single">
 				<div class="card panel spending-breakdown-panel">
 					<div class="section-header">
-						<h2>Last 30 Days</h2>
-						<a class="secondary action-link" href="/receipts" data-link>Receipts</a>
+						<h2 id="spending-breakdown-title">${escapeHtml(selectedRange.label)}</h2>
+						<div class="spending-breakdown-controls">
+							<label for="spending-range-select">
+								<span>Time span</span>
+								<select id="spending-range-select">
+									${renderSpendingRangeOptions(selectedRange.value)}
+								</select>
+							</label>
+							<a class="secondary action-link" href="/receipts" data-link>Receipts</a>
+						</div>
 					</div>
 					<div id="spending-breakdown-summary"></div>
 					<div id="spending-breakdown-results"></div>
@@ -707,7 +760,30 @@ const renderSpendingPage = () => {
 		`,
 	);
 
-	void loadSpendingBreakdownPage();
+	attachSpendingBreakdownPageEvents();
+	void loadSpendingBreakdownPage(selectedRange);
+};
+
+const attachSpendingBreakdownPageEvents = () => {
+	const rangeSelect = document.getElementById("spending-range-select");
+	if (!(rangeSelect instanceof HTMLSelectElement)) {
+		return;
+	}
+
+	rangeSelect.addEventListener("change", () => {
+		const selectedRange = getSpendingRangeOption(rangeSelect.value);
+		rangeSelect.value = selectedRange.value;
+
+		const url = new URL(window.location.href);
+		if (selectedRange.value === DEFAULT_SPENDING_RANGE_VALUE) {
+			url.searchParams.delete("span");
+		} else {
+			url.searchParams.set("span", selectedRange.value);
+		}
+		window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+
+		void loadSpendingBreakdownPage(selectedRange);
+	});
 };
 
 const renderExpirationsPage = () => {
@@ -2034,7 +2110,23 @@ const groupSpendingItemsByProduct = (
 	});
 };
 
-const renderSpendingBreakdown = (breakdown: SpendingBreakdown | null) => {
+const formatSpendingPeriod = (
+	breakdown: SpendingBreakdown,
+	option: SpendingRangeOption,
+) => {
+	if (breakdown.period.range === "all" || option.value === "all") {
+		return `All receipts through ${formatReceiptDateTime(breakdown.period.to)}`;
+	}
+	if (breakdown.period.from === null) {
+		return `Through ${formatReceiptDateTime(breakdown.period.to)}`;
+	}
+	return `${formatReceiptDateTime(breakdown.period.from)} - ${formatReceiptDateTime(breakdown.period.to)}`;
+};
+
+const renderSpendingBreakdown = (
+	breakdown: SpendingBreakdown | null,
+	option: SpendingRangeOption,
+) => {
 	const summaryRoot = document.getElementById("spending-breakdown-summary");
 	const resultsRoot = document.getElementById("spending-breakdown-results");
 	if (!summaryRoot || !resultsRoot) {
@@ -2043,8 +2135,9 @@ const renderSpendingBreakdown = (breakdown: SpendingBreakdown | null) => {
 
 	if (!breakdown || breakdown.item_count === 0) {
 		summaryRoot.innerHTML = "";
-		resultsRoot.innerHTML =
-			'<div class="empty">No receipt items in the last 30 days.</div>';
+		resultsRoot.innerHTML = `<div class="empty">${escapeHtml(
+			spendingRangeEmptyMessage(option),
+		)}</div>`;
 		return;
 	}
 
@@ -2066,7 +2159,7 @@ const renderSpendingBreakdown = (breakdown: SpendingBreakdown | null) => {
 				.join("")}
 		</div>
 		<div class="section-copy">
-			${formatReceiptDateTime(breakdown.period.from)} - ${formatReceiptDateTime(breakdown.period.to)}
+			${formatSpendingPeriod(breakdown, option)}
 			${
 				breakdown.missing_total_count
 					? `, ${breakdown.missing_total_count} item(s) without a line total or unit price`
@@ -3367,8 +3460,11 @@ const fetchReceipts = async (groupFilter = "all") => {
 	return body as PurchaseReceipt[];
 };
 
-const fetchSpendingBreakdown = async (days = 30) => {
-	const params = new URLSearchParams({ days: String(days) });
+const fetchSpendingBreakdown = async (option: SpendingRangeOption) => {
+	const params =
+		option.value === "all"
+			? new URLSearchParams({ range: "all" })
+			: new URLSearchParams({ days: option.value });
 	const response = await fetch(`/api/spending?${params.toString()}`);
 	const body = (await response.json()) as
 		| SpendingBreakdown
@@ -3742,18 +3838,25 @@ const loadDashboardSpendingSummary = async () => {
 	}
 };
 
-const loadSpendingBreakdownPage = async () => {
+const loadSpendingBreakdownPage = async (
+	option = getCurrentSpendingRangeOption(),
+) => {
+	const title = document.getElementById("spending-breakdown-title");
+	if (title) {
+		title.textContent = option.label;
+	}
+	setStatus("spending-breakdown-status", "Loading spending breakdown...");
 	try {
-		const breakdown = await fetchSpendingBreakdown(30);
-		renderSpendingBreakdown(breakdown);
+		const breakdown = await fetchSpendingBreakdown(option);
+		renderSpendingBreakdown(breakdown, option);
 		setStatus(
 			"spending-breakdown-status",
 			breakdown.item_count
-				? `${breakdown.item_count} receipt item(s) in the last 30 days.`
-				: "No receipt items in the last 30 days.",
+				? `${breakdown.item_count} receipt item(s) ${spendingRangeStatusSuffix(option)}.`
+				: spendingRangeEmptyMessage(option),
 		);
 	} catch (error) {
-		renderSpendingBreakdown(null);
+		renderSpendingBreakdown(null, option);
 		setStatus(
 			"spending-breakdown-status",
 			error instanceof Error
