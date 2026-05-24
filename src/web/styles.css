@@ -1110,7 +1110,7 @@ body.modal-open {
 	border-top: 1px solid var(--line);
 }
 
-.shoppinglist-table__row--done td:first-child {
+.shoppinglist-table__row--done td:nth-child(2) {
 	color: var(--muted);
 	text-decoration: line-through;
 }
@@ -1163,7 +1163,7 @@ body.modal-open {
 }
 
 .shoppinglist-table__check {
-	width: 88px;
+	width: 64px;
 	text-align: center;
 }
 

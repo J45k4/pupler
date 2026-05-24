@@ -1623,9 +1623,9 @@ const renderShoppingListItems = (items: ShoppingListItem[]) => {
 		<table class="shoppinglist-table">
 			<thead>
 				<tr>
+					<th>Done</th>
 					<th>Name</th>
 					<th>Date</th>
-					<th>Done</th>
 				</tr>
 			</thead>
 			<tbody>
@@ -1648,6 +1648,14 @@ const renderShoppingListItems = (items: ShoppingListItem[]) => {
 
 						return `
 							<tr class="${rowClass}">
+								<td class="shoppinglist-table__check">
+									<input
+										type="checkbox"
+										data-shopping-item-id="${item.id}"
+										aria-label="Mark ${escapeHtml(item.name)} done"
+										${checked}
+									/>
+								</td>
 								<td>
 									<div class="shoppinglist-product">
 										${productPictureUrl
@@ -1664,14 +1672,6 @@ const renderShoppingListItems = (items: ShoppingListItem[]) => {
 								<td class="shoppinglist-table__date">
 									<span class="shoppinglist-table__date-label">${dateLabel}</span>
 									${dateValue}
-								</td>
-								<td class="shoppinglist-table__check">
-									<input
-										type="checkbox"
-										data-shopping-item-id="${item.id}"
-										aria-label="Mark ${escapeHtml(item.name)} done"
-										${checked}
-									/>
 								</td>
 							</tr>
 						`;
