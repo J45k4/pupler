@@ -404,6 +404,11 @@ button:hover,
 	margin-bottom: 1rem;
 }
 
+.toolbar--wrap {
+	align-items: center;
+	flex-wrap: wrap;
+}
+
 .toolbar input {
 	flex: 1;
 	min-width: 0;
@@ -412,6 +417,10 @@ button:hover,
 .toolbar__select {
 	flex: 0 0 140px;
 	width: 140px;
+}
+
+.receipt-view-toggle {
+	margin-right: auto;
 }
 
 .shoppinglist-input {
@@ -896,6 +905,25 @@ button:hover,
 .receipt-drop-target--active {
 	border-color: rgba(186, 90, 49, 0.4);
 	box-shadow: 0 0 0 3px rgba(186, 90, 49, 0.12);
+}
+
+.receipt-card--timeline {
+	width: min(100%, 46rem);
+}
+
+.receipt-timeline__cutoff {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	width: min(100%, 46rem);
+	color: var(--muted);
+	font-size: 0.85rem;
+}
+
+.receipt-timeline__cutoff-line {
+	flex: 1;
+	height: 1px;
+	background: var(--line);
 }
 
 .metadata-link {

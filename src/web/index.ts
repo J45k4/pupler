@@ -228,12 +228,17 @@ type DraftRecipeIngredient = {
 };
 
 type InventoryItemMode = "active" | "consumed" | "all";
+type ReceiptViewMode = "board" | "chronological";
+type ReceiptTimelineEntry =
+	| { kind: "cutoff" }
+	| { kind: "receipt"; receipt: PurchaseReceipt };
 
 let receiptDetailAbortController: AbortController | null = null;
 let productPageAbortController: AbortController | null = null;
 let productDetailAbortController: AbortController | null = null;
 let productInfiniteScroll: InfiniteScroll<Product> | null = null;
 let expirationInfiniteScroll: InfiniteScroll<InventoryItem> | null = null;
+let receiptInfiniteScroll: InfiniteScroll<ReceiptTimelineEntry> | null = null;
 let receiptBoardState: {
 	groups: Group[];
 	receipts: PurchaseReceipt[];
@@ -250,6 +255,8 @@ const render = (html: string) => {
 	productInfiniteScroll = null;
 	expirationInfiniteScroll?.destroy();
 	expirationInfiniteScroll = null;
+	receiptInfiniteScroll?.destroy();
+	receiptInfiniteScroll = null;
 	document.body.classList.remove("modal-open");
 	document.body.innerHTML = html;
 };
@@ -2453,10 +2460,10 @@ const renderInventoryTree = (
 
 const renderReceiptCard = (
 	receipt: PurchaseReceipt,
-	options: { draggable?: boolean } = {},
+	options: { className?: string; draggable?: boolean } = {},
 ) => `
 	<a
-		class="receipt-card"
+		class="receipt-card${options.className ? ` ${options.className}` : ""}"
 		href="/receipts/${receipt.id}"
 		data-link
 		${options.draggable === false ? "" : `draggable="true" data-receipt-drag-id="${receipt.id}"`}
@@ -2485,7 +2492,67 @@ const renderReceiptCard = (
 	</a>
 `;
 
-const renderReceipts = (
+const createReceiptTimelineEntries = (receipts: PurchaseReceipt[]) => {
+	if (!receipts.length) {
+		return [];
+	}
+
+	const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+	const entries: ReceiptTimelineEntry[] = [];
+	let insertedCutoff = false;
+
+	for (const receipt of receipts) {
+		if (!insertedCutoff && Date.parse(receipt.purchased_at) < cutoff) {
+			entries.push({ kind: "cutoff" });
+			insertedCutoff = true;
+		}
+
+		entries.push({ kind: "receipt", receipt });
+	}
+
+	if (!insertedCutoff) {
+		entries.push({ kind: "cutoff" });
+	}
+
+	return entries;
+};
+
+const renderReceiptCutoffMarker = () => `
+	<div class="receipt-timeline__cutoff" role="note">
+		<span class="receipt-timeline__cutoff-line"></span>
+		<span class="tag">30-day spending counter cutoff</span>
+		<span class="receipt-timeline__cutoff-line"></span>
+	</div>
+`;
+
+const renderReceiptTimelineEntry = (entry: ReceiptTimelineEntry) =>
+	entry.kind === "cutoff"
+		? renderReceiptCutoffMarker()
+		: renderReceiptCard(entry.receipt, {
+				className: "receipt-card--timeline",
+				draggable: false,
+			});
+
+const renderReceiptTimeline = (receipts: PurchaseReceipt[]) => {
+	const results = document.getElementById("receipt-results");
+	if (!results) {
+		return;
+	}
+
+	receiptInfiniteScroll?.destroy();
+	receiptInfiniteScroll = new InfiniteScroll(
+		{
+			batchSize: 20,
+			emptyHtml: '<div class="empty">No receipts yet.</div>',
+			renderItem: renderReceiptTimelineEntry,
+			root: results,
+		},
+		createReceiptTimelineEntries(receipts),
+	);
+	receiptInfiniteScroll.render();
+};
+
+const renderReceiptBoard = (
 	receipts: PurchaseReceipt[],
 	groups: Group[] = [],
 	selectedFilter = "all",
@@ -2555,6 +2622,23 @@ const renderReceipts = (
 	`;
 };
 
+const renderReceipts = (
+	receipts: PurchaseReceipt[],
+	groups: Group[] = [],
+	selectedFilter = "all",
+	viewMode: ReceiptViewMode = "board",
+) => {
+	receiptInfiniteScroll?.destroy();
+	receiptInfiniteScroll = null;
+
+	if (viewMode === "chronological") {
+		renderReceiptTimeline(receipts);
+		return;
+	}
+
+	renderReceiptBoard(receipts, groups, selectedFilter);
+};
+
 const renderReceiptGroupControls = (groups: Group[], selectedFilter: string) => {
 	const groupOptions = document.getElementById("receipt-group-options");
 	if (groupOptions instanceof HTMLDataListElement) {
@@ -2590,6 +2674,13 @@ const getReceiptGroupFilter = () => {
 		return "all";
 	}
 	return groupFilter.value || "all";
+};
+
+const getReceiptViewMode = (): ReceiptViewMode => {
+	const viewToggle = document.getElementById("receipt-chronological-view");
+	return viewToggle instanceof HTMLInputElement && viewToggle.checked
+		? "chronological"
+		: "board";
 };
 
 const renderGroupDetail = (group: Group, receipts: PurchaseReceipt[]) => {
@@ -5266,16 +5357,17 @@ const loadReceipts = async (statusMessage?: string) => {
 		renderReceiptGroupControls(groups, groupFilter);
 		const activeGroupFilter = getReceiptGroupFilter();
 		receiptBoardState = { groups, receipts };
-		renderReceipts(receipts, groups, activeGroupFilter);
+		const viewMode = getReceiptViewMode();
+		renderReceipts(receipts, groups, activeGroupFilter, viewMode);
 		setStatus(
 			"receipt-status",
 			statusMessage ??
-				`Loaded ${receipts.length} receipt(s) and ${groups.length} group(s).`,
+				`Loaded ${receipts.length} receipt(s) and ${groups.length} group(s) in ${viewMode === "chronological" ? "chronological" : "board"} view.`,
 		);
 	} catch (error) {
 		receiptBoardState = { groups: [], receipts: [] };
 		renderReceiptGroupControls([], "all");
-		renderReceipts([], [], "all");
+		renderReceipts([], [], "all", getReceiptViewMode());
 		setStatus(
 			"receipt-status",
 			error instanceof Error ? error.message : "Failed to load receipts",
@@ -5295,6 +5387,7 @@ const attachReceiptsPageEvents = () => {
 	);
 	const refreshButton = document.getElementById("receipt-refresh-button");
 	const groupFilter = document.getElementById("receipt-group-filter");
+	const viewToggle = document.getElementById("receipt-chronological-view");
 	const results = document.getElementById("receipt-results");
 
 	let activeDropTarget: HTMLElement | null = null;
@@ -5530,6 +5623,21 @@ const attachReceiptsPageEvents = () => {
 
 	groupFilter?.addEventListener("change", () => {
 		void loadReceipts();
+	});
+
+	viewToggle?.addEventListener("change", () => {
+		if (!receiptBoardState) {
+			void loadReceipts();
+			return;
+		}
+
+		const activeGroupFilter = getReceiptGroupFilter();
+		renderReceipts(
+			receiptBoardState.receipts,
+			receiptBoardState.groups,
+			activeGroupFilter,
+			getReceiptViewMode(),
+		);
 	});
 
 	results?.addEventListener("dragstart", (event) => {
@@ -7196,7 +7304,7 @@ const renderReceiptsPage = () => {
 							</button>
 						</div>
 					</div>
-					<div class="toolbar">
+					<div class="toolbar toolbar--wrap">
 						<select
 							id="receipt-group-filter"
 							class="toolbar__select"
@@ -7205,6 +7313,10 @@ const renderReceiptsPage = () => {
 							<option value="all">All groups</option>
 							<option value="ungrouped">Ungrouped</option>
 						</select>
+						<label class="checkbox-toggle receipt-view-toggle">
+							<input id="receipt-chronological-view" type="checkbox" />
+							Chronological view
+						</label>
 						<button class="secondary" type="button" id="receipt-refresh-button">Refresh</button>
 					</div>
 					<div id="receipt-status" class="status"></div>
