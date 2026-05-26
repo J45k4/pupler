@@ -289,6 +289,27 @@ const RESOURCES: ResourceConfig[] = [
 			updated_at: { type: "timestamp" },
 		},
 	},
+	{
+		command: "todos",
+		path: "/api/todos",
+		fields: {
+			title: { type: "string" },
+			notes: { type: "string", nullable: true },
+			status: { type: "integer" },
+			due_at: { type: "timestamp", nullable: true },
+			completed_at: { type: "timestamp", nullable: true },
+		},
+		queryFields: {
+			id: { type: "integer" },
+			title: { type: "string", nullable: true },
+			notes: { type: "string", nullable: true },
+			status: { type: "integer" },
+			due_at: { type: "timestamp", nullable: true },
+			completed_at: { type: "timestamp", nullable: true },
+			created_at: { type: "timestamp" },
+			updated_at: { type: "timestamp" },
+		},
+	},
 ];
 
 const RESOURCE_MAP = new Map(RESOURCES.map((resource) => [resource.command, resource]));

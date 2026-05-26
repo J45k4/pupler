@@ -35,6 +35,8 @@ import {
 	shoppingListItemDetailRoute,
 	shoppingListItemsCollectionRoute,
 	spendingRoute,
+	todoDetailRoute,
+	todosCollectionRoute,
 } from "../src/api";
 import {
 	resolveDatabasePath,
@@ -100,6 +102,8 @@ const createRoutes = () => {
 			"/api/inventory-items/:id": inventoryItemDetailRoute(db),
 			"/api/shopping-list-items": shoppingListItemsCollectionRoute(db),
 			"/api/shopping-list-items/:id": shoppingListItemDetailRoute(db),
+			"/api/todos": todosCollectionRoute(db),
+			"/api/todos/:id": todoDetailRoute(db),
 			"/api/spending": spendingRoute(db),
 			"/version": Response.json(versionPayload()),
 		},
@@ -2172,5 +2176,79 @@ describe("Pupler API", () => {
 		expect(createdItem.ingredient.name).toBe("Sausage");
 		expect(createdItem.product.name).toBe("Snellman Sausage Pack");
 		expect(createdItem.source_recipe_id).toBe(recipe.id);
+	});
+
+	test("creates, completes, archives, and deletes todos", async () => {
+		const routes = createRoutes();
+
+		const createResponse = await request(routes, "/api/todos", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				title: "Take bins out",
+				notes: "before evening",
+				status: 1,
+				due_at: "2026-05-25T18:00:00.000Z",
+				completed_at: null,
+			}),
+		});
+		expect(createResponse.status).toBe(201);
+		const created = await createResponse.json();
+		expect(created.title).toBe("Take bins out");
+		expect(created.status).toBe(1);
+
+		const completeResponse = await request(
+			routes,
+			`/api/todos/${created.id}`,
+			{
+				method: "PATCH",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					status: 2,
+					completed_at: "2026-05-25T18:30:00.000Z",
+				}),
+			},
+			{ id: String(created.id) },
+		);
+		expect(completeResponse.status).toBe(200);
+		const completed = await completeResponse.json();
+		expect(completed.status).toBe(2);
+		expect(completed.completed_at).toBe("2026-05-25T18:30:00.000Z");
+
+		const listDoneResponse = await request(routes, "/api/todos?status=2");
+		expect(listDoneResponse.status).toBe(200);
+		const doneTodos = await listDoneResponse.json();
+		expect(doneTodos).toHaveLength(1);
+
+		const archiveResponse = await request(
+			routes,
+			`/api/todos/${created.id}`,
+			{
+				method: "PATCH",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ status: 3 }),
+			},
+			{ id: String(created.id) },
+		);
+		expect(archiveResponse.status).toBe(200);
+		expect((await archiveResponse.json()).status).toBe(3);
+
+		const invalidStatusResponse = await request(routes, "/api/todos", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				title: "Bad status",
+				status: 9,
+			}),
+		});
+		expect(invalidStatusResponse.status).toBe(400);
+
+		const deleteResponse = await request(
+			routes,
+			`/api/todos/${created.id}`,
+			{ method: "DELETE" },
+			{ id: String(created.id) },
+		);
+		expect(deleteResponse.status).toBe(204);
 	});
 });

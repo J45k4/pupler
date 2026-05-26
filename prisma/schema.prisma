@@ -260,3 +260,18 @@ model ShoppingListItem {
 	@@index([product_id], map: "idx_shopping_list_items_product_id")
 	@@map("shopping_list_items")
 }
+
+model Todo {
+	id           Int     @id @default(autoincrement())
+	title        String
+	notes        String?
+	status       Int     @default(1)
+	due_at       String? @map("due_at")
+	completed_at String? @map("completed_at")
+	created_at   String  @map("created_at")
+	updated_at   String  @map("updated_at")
+
+	@@index([status], map: "idx_todos_status")
+	@@index([due_at], map: "idx_todos_due_at")
+	@@map("todos")
+}

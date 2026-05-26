@@ -31,6 +31,8 @@ import {
 	shoppingListItemDetailRoute,
 	shoppingListItemsCollectionRoute,
 	spendingRoute,
+	todoDetailRoute,
+	todosCollectionRoute,
 } from "./api";
 import { deriveFilesPath } from "./api/core";
 
@@ -106,6 +108,8 @@ export const server = (options: ServerOptions = {}) => {
 			"/api/meal-plan-items/:id": mealPlanItemDetailRoute(db),
 			"/api/shopping-list-items": shoppingListItemsCollectionRoute(db),
 			"/api/shopping-list-items/:id": shoppingListItemDetailRoute(db),
+			"/api/todos": todosCollectionRoute(db),
+			"/api/todos/:id": todoDetailRoute(db),
 			"/api/spending": spendingRoute(db),
 			"/health": new Response("ok"),
 			"/version": Response.json(versionPayload()),
@@ -125,6 +129,7 @@ export const server = (options: ServerOptions = {}) => {
 			"/receipts/:id": index,
 			"/spending": index,
 			"/shoppinglist": index,
+			"/todos": index,
 			"/recipes": index,
 			"/recipes/new": index,
 			"/recipes/:id": index,

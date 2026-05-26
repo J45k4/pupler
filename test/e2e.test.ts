@@ -138,6 +138,13 @@ describe("Pupler API e2e", () => {
 		);
 		expect(page.body).toContain("<title>Pupler</title>");
 		expect(page.body).toContain("<body></body>");
+
+		const todosPage = await server.call<string>("/todos");
+		expect(todosPage.response.status).toBe(200);
+		expect(todosPage.response.headers.get("content-type")).toContain(
+			"text/html",
+		);
+		expect(todosPage.body).toContain("<title>Pupler</title>");
 	});
 
 	test("serves the app shell for recipe pages", async () => {

@@ -59,5 +59,9 @@ export {
 	shoppingListItemsCollectionRoute,
 } from "./shopping-list-items";
 export {
+	todoDetailRoute,
+	todosCollectionRoute,
+} from "./todos";
+export {
 	spendingRoute,
 } from "./spending";

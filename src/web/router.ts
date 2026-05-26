@@ -4,7 +4,7 @@ type Handler = (params: Record<string, string>) => HandlerResult;
 const SWIPE_NAV_MIN_DISTANCE = 72;
 const SWIPE_NAV_MAX_VERTICAL_DISTANCE = 80;
 const SWIPE_NAV_DIRECTION_RATIO = 1.35;
-const SWIPE_NAV_EDGE_GUTTER = 18;
+const SWIPE_NAV_SNAP_DURATION_MS = 180;
 
 type MatchResult = {
 	pattern: string;
@@ -142,7 +142,7 @@ export const installLinkInterceptor = (root: ParentNode = document) => {
 const shouldIgnoreSwipeTarget = (target: EventTarget | null) =>
 	target instanceof Element &&
 	target.closest(
-		'a, button, input, textarea, select, label, [contenteditable="true"], [data-swipe-nav-ignore], .navbar',
+		'button, input, label, select, textarea, [contenteditable="true"], [data-swipe-nav-ignore]',
 	);
 
 const getCurrentSwipePathIndex = (paths: string[]) =>
@@ -174,6 +174,188 @@ export const installSwipeNavigation = ({
 	let trackingPointerId: number | null = null;
 	let startX = 0;
 	let startY = 0;
+	let startAt = 0;
+	let swiped = false;
+	let lastSwipeAt = 0;
+	let isDraggingPage = false;
+	let isTrackingTouch = false;
+	let swipePreview: HTMLIFrameElement | null = null;
+	let swipePreviewPath: string | null = null;
+	let swipePreviewDirection = 0;
+
+	const getSwipeSurface = () =>
+		document.querySelector<HTMLElement>(".page-shell");
+
+	const removeSwipePreview = () => {
+		swipePreview?.remove();
+		swipePreview = null;
+		swipePreviewPath = null;
+		swipePreviewDirection = 0;
+	};
+
+	const ensureSwipePreview = (path: string, direction: number) => {
+		if (
+			swipePreview &&
+			swipePreviewPath === path &&
+			swipePreviewDirection === direction
+		) {
+			return swipePreview;
+		}
+
+		removeSwipePreview();
+		const frame = document.createElement("iframe");
+		frame.className = "swipe-page-preview";
+		frame.setAttribute("aria-hidden", "true");
+		frame.tabIndex = -1;
+		const header = document.querySelector<HTMLElement>(".site-header");
+		const previewTop = header?.getBoundingClientRect().bottom ?? 0;
+		frame.style.setProperty("--swipe-preview-top", `${previewTop}px`);
+		frame.src = "/";
+		frame.addEventListener("load", () => {
+			const previewWindow = frame.contentWindow;
+			const previewDocument = frame.contentDocument;
+			if (!previewWindow || !previewDocument) {
+				return;
+			}
+			const style = previewDocument.createElement("style");
+			style.textContent = `
+				.site-header { display: none !important; }
+				.status { display: none !important; }
+				html, body { overflow: hidden !important; }
+				.page-shell { padding-top: 2rem !important; }
+			`;
+			previewDocument.head.append(style);
+			previewWindow.history.replaceState({}, "", path);
+			previewWindow.dispatchEvent(new PopStateEvent("popstate"));
+		});
+		document.body.append(frame);
+		swipePreview = frame;
+		swipePreviewPath = path;
+		swipePreviewDirection = direction;
+		return frame;
+	};
+
+	const setSwipeTransforms = (deltaX: number) => {
+		const surface = getSwipeSurface();
+		if (surface) {
+			surface.style.transform = `translate3d(${deltaX}px, 0, 0)`;
+		}
+		if (swipePreview) {
+			swipePreview.style.transform = `translate3d(${deltaX + swipePreviewDirection * window.innerWidth}px, 0, 0)`;
+		}
+	};
+
+	const resetSwipeSurface = () => {
+		const surface = getSwipeSurface();
+		if (surface) {
+			surface.classList.remove("page-shell--swiping");
+			surface.classList.remove("page-shell--swipe-commit");
+			surface.classList.add("page-shell--swipe-reset");
+		}
+		swipePreview?.classList.add("swipe-page-preview--reset");
+		setSwipeTransforms(0);
+		window.setTimeout(() => {
+			surface?.classList.remove("page-shell--swipe-reset");
+			if (surface) surface.style.transform = "";
+			removeSwipePreview();
+		}, SWIPE_NAV_SNAP_DURATION_MS);
+	};
+
+	const updateSwipeSurface = (deltaX: number, deltaY: number) => {
+		const absX = Math.abs(deltaX);
+		const absY = Math.abs(deltaY);
+		if (
+			!isDraggingPage &&
+			(absX < 12 || absX < absY * SWIPE_NAV_DIRECTION_RATIO)
+		) {
+			return false;
+		}
+
+		isDraggingPage = true;
+		const surface = getSwipeSurface();
+		if (!surface) return false;
+		const width = Math.max(1, window.innerWidth);
+		const nextPath = getSwipeNavigationPath(paths, deltaX);
+		const direction = deltaX < 0 ? 1 : -1;
+		const targetDelta = nextPath ? deltaX : deltaX * 0.28;
+		const clamped = Math.max(
+			-width,
+			Math.min(width, targetDelta),
+		);
+		if (nextPath) {
+			const preview = ensureSwipePreview(nextPath, direction);
+			preview.classList.add("swipe-page-preview--swiping");
+			preview.classList.remove("swipe-page-preview--reset");
+			preview.classList.remove("swipe-page-preview--commit");
+		} else {
+			removeSwipePreview();
+		}
+		surface.classList.add("page-shell--swiping");
+		surface.classList.remove("page-shell--swipe-reset");
+		surface.classList.remove("page-shell--swipe-commit");
+		setSwipeTransforms(clamped);
+		return true;
+	};
+
+	const startTracking = (x: number, y: number) => {
+		startX = x;
+		startY = y;
+		startAt = performance.now();
+		swiped = false;
+		isDraggingPage = false;
+		isTrackingTouch = true;
+	};
+
+	const finishTracking = (x: number, y: number) => {
+		if (Date.now() - lastSwipeAt < 500) {
+			return false;
+		}
+
+		const deltaX = x - startX;
+		const deltaY = y - startY;
+		const absX = Math.abs(deltaX);
+		const absY = Math.abs(deltaY);
+
+		const elapsed = Math.max(1, performance.now() - startAt);
+		const velocity = absX / elapsed;
+		const snapThreshold = Math.max(
+			SWIPE_NAV_MIN_DISTANCE,
+			window.innerWidth * 0.25,
+		);
+		const isIntentionalFastSwipe = absX >= 48 && velocity >= 0.45;
+
+		if (
+			(absX < snapThreshold && !isIntentionalFastSwipe) ||
+			absY > SWIPE_NAV_MAX_VERTICAL_DISTANCE ||
+			absX < absY * SWIPE_NAV_DIRECTION_RATIO
+		) {
+			return false;
+		}
+
+		const nextPath = getSwipeNavigationPath(paths, deltaX);
+		if (!nextPath) {
+			resetSwipeSurface();
+			return false;
+		}
+
+		swiped = true;
+		lastSwipeAt = Date.now();
+		const surface = getSwipeSurface();
+		if (!surface) {
+			navigate(nextPath);
+			return true;
+		}
+		surface.classList.remove("page-shell--swiping");
+		surface.classList.add("page-shell--swipe-commit");
+		swipePreview?.classList.remove("swipe-page-preview--swiping");
+		swipePreview?.classList.add("swipe-page-preview--commit");
+		setSwipeTransforms(deltaX < 0 ? -window.innerWidth : window.innerWidth);
+		window.setTimeout(() => {
+			removeSwipePreview();
+			navigate(nextPath);
+		}, SWIPE_NAV_SNAP_DURATION_MS);
+		return true;
+	};
 
 	root.addEventListener("pointerdown", (event) => {
 		if (!(event instanceof PointerEvent)) {
@@ -187,16 +369,20 @@ export const installSwipeNavigation = ({
 		) {
 			return;
 		}
+		trackingPointerId = event.pointerId;
+		startTracking(event.clientX, event.clientY);
+	});
+
+	root.addEventListener("pointermove", (event) => {
 		if (
-			event.clientX <= SWIPE_NAV_EDGE_GUTTER ||
-			event.clientX >= window.innerWidth - SWIPE_NAV_EDGE_GUTTER
+			!(event instanceof PointerEvent) ||
+			trackingPointerId !== event.pointerId
 		) {
 			return;
 		}
-
-		trackingPointerId = event.pointerId;
-		startX = event.clientX;
-		startY = event.clientY;
+		if (updateSwipeSurface(event.clientX - startX, event.clientY - startY)) {
+			event.preventDefault();
+		}
 	});
 
 	root.addEventListener("pointerup", (event) => {
@@ -208,26 +394,12 @@ export const installSwipeNavigation = ({
 		}
 
 		trackingPointerId = null;
-
-		const deltaX = event.clientX - startX;
-		const deltaY = event.clientY - startY;
-		const absX = Math.abs(deltaX);
-		const absY = Math.abs(deltaY);
-
-		if (
-			absX < SWIPE_NAV_MIN_DISTANCE ||
-			absY > SWIPE_NAV_MAX_VERTICAL_DISTANCE ||
-			absX < absY * SWIPE_NAV_DIRECTION_RATIO
-		) {
-			return;
+		isTrackingTouch = false;
+		if (finishTracking(event.clientX, event.clientY)) {
+			event.preventDefault();
+		} else if (isDraggingPage) {
+			resetSwipeSurface();
 		}
-
-		const nextPath = getSwipeNavigationPath(paths, deltaX);
-		if (!nextPath) {
-			return;
-		}
-
-		navigate(nextPath);
 	});
 
 	root.addEventListener("pointercancel", (event) => {
@@ -236,8 +408,67 @@ export const installSwipeNavigation = ({
 			trackingPointerId === event.pointerId
 		) {
 			trackingPointerId = null;
+			isTrackingTouch = false;
+			resetSwipeSurface();
 		}
 	});
+
+	root.addEventListener(
+		"touchstart",
+		(event) => {
+			if (
+				!isTouchNavigationAvailable() ||
+				event.touches.length !== 1 ||
+				shouldIgnoreSwipeTarget(event.target)
+			) {
+				return;
+			}
+			const touch = event.touches[0];
+			if (!touch) return;
+			startTracking(touch.clientX, touch.clientY);
+		},
+		{ passive: true },
+	);
+
+	root.addEventListener(
+		"touchmove",
+		(event) => {
+			if (!isTrackingTouch) return;
+			const touch = event.touches[0];
+			if (!touch) return;
+			if (updateSwipeSurface(touch.clientX - startX, touch.clientY - startY)) {
+				event.preventDefault();
+			}
+		},
+		{ passive: false },
+	);
+
+	root.addEventListener(
+		"touchend",
+		(event) => {
+			if (!isTrackingTouch) return;
+			isTrackingTouch = false;
+			const touch = event.changedTouches[0];
+			if (!touch) return;
+			if (finishTracking(touch.clientX, touch.clientY)) {
+				event.preventDefault();
+			} else if (isDraggingPage) {
+				resetSwipeSurface();
+			}
+		},
+		{ passive: false },
+	);
+
+	root.addEventListener(
+		"click",
+		(event) => {
+			if (!swiped) return;
+			event.preventDefault();
+			event.stopPropagation();
+			swiped = false;
+		},
+		true,
+	);
 };
 
 export const navigate = (path: string) => {
