@@ -279,6 +279,26 @@ const renderPage = (content: string) => {
 			${content}
 		</main>
 	`);
+	requestAnimationFrame(() => {
+		const activeLink = document.querySelector<HTMLElement>(
+			".navbar__link--active",
+		);
+		const navbar = activeLink?.closest<HTMLElement>(".navbar");
+		if (!activeLink || !navbar) {
+			return;
+		}
+
+		navbar.scrollTo({
+			left:
+				activeLink.offsetLeft -
+				(navbar.clientWidth - activeLink.clientWidth) / 2,
+			behavior: "auto",
+		});
+
+		if (window.scrollX !== 0) {
+			window.scrollTo({ left: 0, top: window.scrollY, behavior: "auto" });
+		}
+	});
 };
 
 const setStatus = (elementId: string, message: string, isError = false) => {
@@ -4916,6 +4936,46 @@ const attachShoppingListPageEvents = () => {
 };
 
 const attachTodosPageEvents = () => {
+	const modal = document.getElementById("todo-create-modal");
+	const addButton = document.getElementById("open-todo-modal-button");
+	const titleInput = document.getElementById("todo-title");
+
+	const closeModal = () => {
+		if (!modal) {
+			return;
+		}
+		modal.hidden = true;
+		document.body.classList.remove("modal-open");
+		setStatus("todo-modal-status", "");
+	};
+
+	const openModal = () => {
+		if (!modal) {
+			return;
+		}
+		modal.hidden = false;
+		document.body.classList.add("modal-open");
+		setStatus("todo-modal-status", "");
+		if (titleInput instanceof HTMLInputElement) {
+			titleInput.focus();
+		}
+	};
+
+	addButton?.addEventListener("click", openModal);
+	modal?.addEventListener("click", (event) => {
+		const target = event.target;
+		if (!(target instanceof HTMLElement)) return;
+		if (target.dataset.todoModalClose !== undefined) {
+			closeModal();
+		}
+	});
+
+	document.addEventListener("keydown", (event) => {
+		if (event.key === "Escape" && modal && !modal.hidden) {
+			closeModal();
+		}
+	});
+
 	document
 		.getElementById("todo-form")
 		?.addEventListener("submit", async (event) => {
@@ -4931,7 +4991,7 @@ const attachTodosPageEvents = () => {
 
 			const title = titleInput.value.trim();
 			if (!title) {
-				setStatus("todo-status", "Todo title is required", true);
+				setStatus("todo-modal-status", "Todo title is required", true);
 				return;
 			}
 
@@ -4967,10 +5027,11 @@ const attachTodosPageEvents = () => {
 				titleInput.value = "";
 				if (notesInput instanceof HTMLInputElement) notesInput.value = "";
 				if (dueAtInput instanceof HTMLInputElement) dueAtInput.value = "";
+				closeModal();
 				await loadTodos();
 			} catch (error) {
 				setStatus(
-					"todo-status",
+					"todo-modal-status",
 					error instanceof Error ? error.message : "Failed to add todo",
 					true,
 				);
@@ -7782,8 +7843,47 @@ const renderTodosPage = () => {
 		`
 			<section class="workspace workspace--single">
 				<div class="card panel">
+					<div class="section-header">
+						<h2>Todos</h2>
+						<div class="todos-panel-actions">
+							<label class="checkbox-toggle" for="todos-show-done">
+								<input id="todos-show-done" type="checkbox" aria-label="Show done todos" />
+								<span>Show done</span>
+							</label>
+							<label class="checkbox-toggle" for="todos-show-archived">
+								<input id="todos-show-archived" type="checkbox" aria-label="Show archived todos" />
+								<span>Show archived</span>
+							</label>
+							<button class="primary" id="open-todo-modal-button" type="button">Add</button>
+						</div>
+					</div>
+					<div id="todo-status" class="status"></div>
+					<div id="todo-results" class="results"></div>
+				</div>
+			</section>
+
+			<div class="todo-create-modal" id="todo-create-modal" hidden>
+				<div class="todo-create-modal__backdrop" data-todo-modal-close></div>
+				<div
+					class="todo-create-modal__dialog card panel"
+					role="dialog"
+					aria-modal="true"
+					aria-labelledby="todo-create-modal-title"
+				>
+					<div class="section-header">
+						<h2 id="todo-create-modal-title">Add Todo</h2>
+						<button
+							class="secondary"
+							type="button"
+							aria-label="Close add todo modal"
+							data-todo-modal-close
+						>
+							Close
+						</button>
+					</div>
 					<form id="todo-form">
-						<div class="shoppinglist-input">
+						<label>
+							Todo
 							<input
 								id="todo-title"
 								name="todo-title"
@@ -7791,38 +7891,31 @@ const renderTodosPage = () => {
 								autocomplete="off"
 								required
 							/>
+						</label>
+						<label>
+							Notes
 							<input
 								id="todo-notes"
 								name="todo-notes"
 								placeholder="Notes (optional)"
 								autocomplete="off"
 							/>
+						</label>
+						<label>
+							Due
 							<input
 								id="todo-due-at"
 								name="todo-due-at"
 								type="datetime-local"
-								aria-label="Due date"
 							/>
-							<button class="primary" type="submit">Add</button>
+						</label>
+						<div class="actions">
+							<button class="primary" type="submit">Add Todo</button>
 						</div>
 					</form>
-					<div id="todo-status" class="status"></div>
+					<div id="todo-modal-status" class="status"></div>
 				</div>
-
-				<div class="card panel">
-					<div class="section-header section-header--end">
-						<label class="checkbox-toggle" for="todos-show-done">
-							<input id="todos-show-done" type="checkbox" aria-label="Show done todos" />
-							<span>Show done</span>
-						</label>
-						<label class="checkbox-toggle" for="todos-show-archived">
-							<input id="todos-show-archived" type="checkbox" aria-label="Show archived todos" />
-							<span>Show archived</span>
-						</label>
-					</div>
-					<div id="todo-results" class="results"></div>
-				</div>
-			</section>
+			</div>
 		`,
 	);
 

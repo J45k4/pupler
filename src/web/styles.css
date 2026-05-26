@@ -143,7 +143,6 @@ body {
 	width: min(1100px, calc(100% - 2rem));
 	margin: 0 auto;
 	padding: 2rem 0 4rem;
-	will-change: transform;
 }
 
 .page-shell--swiping {
@@ -151,6 +150,7 @@ body {
 	z-index: 6;
 	pointer-events: none;
 	transition: none;
+	will-change: transform;
 }
 
 .page-shell--swipe-reset {
@@ -158,6 +158,7 @@ body {
 	z-index: 6;
 	pointer-events: none;
 	transition: transform 180ms ease-out;
+	will-change: transform;
 }
 
 .page-shell--swipe-commit {
@@ -165,6 +166,7 @@ body {
 	z-index: 6;
 	pointer-events: none;
 	transition: transform 180ms ease-out;
+	will-change: transform;
 }
 
 .swipe-page-preview {
@@ -494,6 +496,14 @@ button:hover,
 	gap: 0.75rem;
 	grid-template-columns: minmax(0, 1fr) auto;
 	align-items: center;
+}
+
+.todos-panel-actions {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 0.85rem;
+	flex-wrap: wrap;
 }
 
 .checkbox-toggle {
@@ -1135,11 +1145,13 @@ body.modal-open {
 }
 
 .product-create-modal[hidden],
+.todo-create-modal[hidden],
 .receipt-create-modal[hidden] {
 	display: none;
 }
 
 .product-create-modal,
+.todo-create-modal,
 .receipt-create-modal {
 	position: fixed;
 	inset: 0;
@@ -1150,6 +1162,7 @@ body.modal-open {
 }
 
 .product-create-modal__backdrop,
+.todo-create-modal__backdrop,
 .receipt-create-modal__backdrop {
 	position: absolute;
 	inset: 0;
@@ -1158,6 +1171,7 @@ body.modal-open {
 }
 
 .product-create-modal__dialog,
+.todo-create-modal__dialog,
 .receipt-create-modal__dialog {
 	position: relative;
 	z-index: 1;
@@ -1934,6 +1948,7 @@ body.modal-open {
 	}
 
 	.product-create-modal,
+	.todo-create-modal,
 	.receipt-create-modal {
 		padding: 0.9rem;
 	}
@@ -1953,6 +1968,7 @@ body.modal-open {
 	}
 
 	.product-create-modal__dialog,
+	.todo-create-modal__dialog,
 	.receipt-create-modal__dialog {
 		width: 100%;
 		max-height: calc(100vh - 1.8rem);
