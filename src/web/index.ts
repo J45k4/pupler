@@ -303,6 +303,26 @@ const escapeHtml = (value: string) =>
 		.replaceAll('"', "&quot;")
 		.replaceAll("'", "&#39;");
 
+const renderSwipeNavigationPreview = (path: string) => {
+	const item = primaryNavItems.find(({ href }) => href === path);
+	const label = item?.label ?? "Page";
+	return `
+		<main class="page-shell swipe-page-preview__shell">
+			<section class="card panel page-panel swipe-page-preview__card">
+				<div class="page-heading">
+					<div>
+						<span class="eyebrow">Preview</span>
+						<h1 class="page-title">${escapeHtml(label)}</h1>
+					</div>
+				</div>
+				<p class="page-copy">
+					Release to open ${escapeHtml(label)}.
+				</p>
+			</section>
+		</main>
+	`;
+};
+
 const SPENDING_RANGE_OPTIONS = [
 	{ value: "7", label: "Last 7 Days" },
 	{ value: "30", label: "Last 30 Days" },
@@ -7908,6 +7928,7 @@ window.onload = () => {
 	installLinkInterceptor(document.body);
 	installSwipeNavigation({
 		paths: primaryNavItems.map(({ href }) => href),
+		renderPreview: renderSwipeNavigationPreview,
 	});
 
 	routes({

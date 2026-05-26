@@ -15,6 +15,7 @@ type MatchResult = {
 type SwipeNavigationOptions = {
 	paths: string[];
 	root?: HTMLElement | Document;
+	renderPreview?: (path: string) => string;
 };
 
 let matcher: ReturnType<typeof patternMatcher> | null = null;
@@ -170,6 +171,7 @@ const isTouchNavigationAvailable = () =>
 export const installSwipeNavigation = ({
 	paths,
 	root = document,
+	renderPreview,
 }: SwipeNavigationOptions) => {
 	let trackingPointerId: number | null = null;
 	let startX = 0;
@@ -179,7 +181,7 @@ export const installSwipeNavigation = ({
 	let lastSwipeAt = 0;
 	let isDraggingPage = false;
 	let isTrackingTouch = false;
-	let swipePreview: HTMLIFrameElement | null = null;
+	let swipePreview: HTMLElement | null = null;
 	let swipePreviewPath: string | null = null;
 	let swipePreviewDirection = 0;
 
@@ -203,36 +205,18 @@ export const installSwipeNavigation = ({
 		}
 
 		removeSwipePreview();
-		const frame = document.createElement("iframe");
-		frame.className = "swipe-page-preview";
-		frame.setAttribute("aria-hidden", "true");
-		frame.tabIndex = -1;
+		const preview = document.createElement("div");
+		preview.className = "swipe-page-preview";
+		preview.setAttribute("aria-hidden", "true");
 		const header = document.querySelector<HTMLElement>(".site-header");
 		const previewTop = header?.getBoundingClientRect().bottom ?? 0;
-		frame.style.setProperty("--swipe-preview-top", `${previewTop}px`);
-		frame.src = "/";
-		frame.addEventListener("load", () => {
-			const previewWindow = frame.contentWindow;
-			const previewDocument = frame.contentDocument;
-			if (!previewWindow || !previewDocument) {
-				return;
-			}
-			const style = previewDocument.createElement("style");
-			style.textContent = `
-				.site-header { display: none !important; }
-				.status { display: none !important; }
-				html, body { overflow: hidden !important; }
-				.page-shell { padding-top: 2rem !important; }
-			`;
-			previewDocument.head.append(style);
-			previewWindow.history.replaceState({}, "", path);
-			previewWindow.dispatchEvent(new PopStateEvent("popstate"));
-		});
-		document.body.append(frame);
-		swipePreview = frame;
+		preview.style.setProperty("--swipe-preview-top", `${previewTop}px`);
+		preview.innerHTML = renderPreview?.(path) ?? "";
+		document.body.append(preview);
+		swipePreview = preview;
 		swipePreviewPath = path;
 		swipePreviewDirection = direction;
-		return frame;
+		return preview;
 	};
 
 	const setSwipeTransforms = (deltaX: number) => {

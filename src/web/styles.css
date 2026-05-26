@@ -176,10 +176,18 @@ body {
 	z-index: 5;
 	width: 100vw;
 	height: calc(100dvh - var(--swipe-preview-top, 0px));
-	border: 0;
+	overflow: hidden;
 	background: var(--bg);
 	pointer-events: none;
 	will-change: transform;
+}
+
+.swipe-page-preview__shell {
+	padding-top: 2rem;
+}
+
+.swipe-page-preview__card {
+	min-height: min(18rem, 55dvh);
 }
 
 .swipe-page-preview--swiping {
