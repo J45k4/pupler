@@ -2028,15 +2028,13 @@ body.modal-open {
 
 	.navbar {
 		width: 100%;
-		flex-wrap: nowrap;
-		overflow-x: auto;
-		overflow-y: hidden;
-		padding: 0 0.25rem;
+		flex-wrap: wrap;
+		justify-content: center;
+		overflow: visible;
+		padding: 0.45rem 0.5rem 0.55rem;
 		margin: 0;
 		border-top: 1px solid rgba(81, 56, 36, 0.08);
-		scroll-snap-type: x proximity;
 		scrollbar-width: none;
-		-webkit-overflow-scrolling: touch;
 	}
 
 	.navbar::-webkit-scrollbar {
@@ -2045,13 +2043,12 @@ body.modal-open {
 
 	.navbar__link {
 		position: relative;
-		min-height: 3rem;
-		padding: 0.85rem 0.95rem 0.8rem;
-		border-radius: 0;
+		min-height: 2.6rem;
+		padding: 0.62rem 0.72rem 0.58rem;
+		border-radius: 999px;
 		background: transparent;
-		font-size: 0.95rem;
+		font-size: clamp(0.78rem, 2.9vw, 0.95rem);
 		font-weight: 800;
-		scroll-snap-align: start;
 	}
 
 	.navbar__link:hover {

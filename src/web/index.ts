@@ -279,11 +279,6 @@ const renderPage = (content: string) => {
 			${content}
 		</main>
 	`);
-	requestAnimationFrame(() => {
-		document
-			.querySelector(".navbar__link--active")
-			?.scrollIntoView({ block: "nearest", inline: "center" });
-	});
 };
 
 const setStatus = (elementId: string, message: string, isError = false) => {
