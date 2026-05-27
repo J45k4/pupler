@@ -2141,7 +2141,42 @@ body.modal-open {
 	}
 
 	.panel {
-		padding: 1rem;
+		padding: 1rem 0;
+	}
+
+	.panel > h2,
+	.panel > h3,
+	.panel > p,
+	.panel > form,
+	.panel > dl,
+	.panel > .toolbar,
+	.panel > .section-header,
+	.panel > .status,
+	.panel > .page-heading,
+	.panel > .page-copy,
+	.panel > .receipt-metadata,
+	.panel > .time-project-create,
+	.panel > .time-report-summary,
+	.panel > .spending-breakdown-controls,
+	.panel > .inventory-detail-block,
+	.panel > .recipe-detail-section {
+		padding-right: 1rem;
+		padding-left: 1rem;
+	}
+
+	.page-heading {
+		padding-right: 1rem;
+		padding-left: 1rem;
+	}
+
+	.receipt-modal__dialog,
+	.product-create-modal__dialog,
+	.todo-create-modal__dialog,
+	.receipt-create-modal__dialog,
+	.recipe-ingredient-modal__dialog,
+	.inventory-container-modal__dialog {
+		padding-right: 1rem;
+		padding-left: 1rem;
 	}
 
 	.brand {

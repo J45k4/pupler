@@ -293,6 +293,7 @@ let receiptBoardState: {
 	groups: Group[];
 	receipts: PurchaseReceipt[];
 } | null = null;
+let receiptViewModeOverride: ReceiptViewMode | null = null;
 let inventoryTreeState: {
 	containers: InventoryContainer[];
 	items: InventoryItem[];
@@ -3150,11 +3151,18 @@ const getReceiptGroupFilter = () => {
 	return groupFilter.value || "all";
 };
 
+const getDefaultReceiptViewMode = (): ReceiptViewMode =>
+	window.matchMedia("(max-width: 860px)").matches ? "chronological" : "board";
+
 const getReceiptViewMode = (): ReceiptViewMode => {
+	if (receiptViewModeOverride) {
+		return receiptViewModeOverride;
+	}
 	const viewToggle = document.getElementById("receipt-chronological-view");
-	return viewToggle instanceof HTMLInputElement && viewToggle.checked
-		? "chronological"
-		: "board";
+	if (viewToggle instanceof HTMLInputElement) {
+		return viewToggle.checked ? "chronological" : "board";
+	}
+	return getDefaultReceiptViewMode();
 };
 
 const renderGroupDetail = (group: Group, receipts: PurchaseReceipt[]) => {
@@ -6555,6 +6563,10 @@ const attachReceiptsPageEvents = () => {
 	});
 
 	viewToggle?.addEventListener("change", () => {
+		receiptViewModeOverride =
+			viewToggle instanceof HTMLInputElement && viewToggle.checked
+				? "chronological"
+				: "board";
 		if (!receiptBoardState) {
 			void loadReceipts();
 			return;
@@ -8199,6 +8211,8 @@ const renderReceiptsPage = () => {
 	)
 		.toISOString()
 		.slice(0, 16);
+	const initialReceiptViewMode =
+		receiptViewModeOverride ?? getDefaultReceiptViewMode();
 
 	renderPage(
 		`
@@ -8233,7 +8247,7 @@ const renderReceiptsPage = () => {
 							<option value="ungrouped">Ungrouped</option>
 						</select>
 						<label class="checkbox-toggle receipt-view-toggle">
-							<input id="receipt-chronological-view" type="checkbox" />
+							<input id="receipt-chronological-view" type="checkbox" ${initialReceiptViewMode === "chronological" ? "checked" : ""} />
 							Chronological view
 						</label>
 						<button class="secondary" type="button" id="receipt-refresh-button">Refresh</button>
