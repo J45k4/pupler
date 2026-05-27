@@ -1068,7 +1068,7 @@ const renderRecipeCreatePage = () => {
 			</section>
 
 			<section class="workspace workspace--single">
-				<div class="card panel shoppinglist-create-panel">
+				<div class="card panel">
 					<form id="recipe-create-form">
 						<label for="recipe-name">
 							Name
@@ -1343,7 +1343,7 @@ const renderRecipeDetail = (recipe: Recipe) => {
 			</div>
 
 			<div class="recipe-detail-stack">
-				<div class="card panel shoppinglist-results-panel">
+				<div class="card panel">
 					<section class="recipe-detail-section">
 						<h2>Recipe Details</h2>
 						<form id="recipe-detail-form">
@@ -8368,7 +8368,7 @@ const renderShoppingListsPage = () => {
 	renderPage(
 		`
 			<section class="workspace workspace--single">
-				<div class="card panel">
+				<div class="card panel shoppinglist-create-panel">
 					<form id="shopping-list-item-form">
 						<div class="shoppinglist-input">
 							<input
@@ -8384,7 +8384,7 @@ const renderShoppingListsPage = () => {
 					<div id="shopping-list-item-status" class="status"></div>
 				</div>
 
-				<div class="card panel">
+				<div class="card panel shoppinglist-results-panel">
 					<div class="section-header section-header--end">
 						<label class="checkbox-toggle" for="shoppinglist-show-done">
 							<input
