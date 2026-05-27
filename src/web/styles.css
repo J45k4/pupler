@@ -1172,6 +1172,21 @@ body.modal-open {
 	width: 10rem;
 }
 
+.shoppinglist-table--todos th:first-child,
+.shoppinglist-table--todos td:first-child {
+	width: 5rem;
+}
+
+.shoppinglist-table--todos th:nth-child(3),
+.shoppinglist-table--todos td:nth-child(3) {
+	width: 12rem;
+}
+
+.shoppinglist-table--todos th:last-child,
+.shoppinglist-table--todos td:last-child {
+	width: 8rem;
+}
+
 .shoppinglist-product {
 	display: flex;
 	align-items: center;
@@ -2294,6 +2309,84 @@ body.modal-open {
 		border-right: 0;
 		border-left: 0;
 		border-radius: 0;
+	}
+
+	.todos-panel-actions {
+		justify-content: flex-start;
+		padding-right: 1rem;
+		padding-left: 1rem;
+	}
+
+	.todos-panel-actions .primary {
+		margin-left: 0;
+	}
+
+	.shoppinglist-table--todos {
+		display: block;
+		border: 0;
+		background: transparent;
+	}
+
+	.shoppinglist-table--todos thead {
+		display: none;
+	}
+
+	.shoppinglist-table--todos tbody {
+		display: grid;
+		gap: 0.75rem;
+		padding: 0 1rem;
+	}
+
+	.shoppinglist-table--todos tr {
+		display: grid;
+		grid-template-columns: auto minmax(0, 1fr);
+		grid-template-areas:
+			"check title"
+			"check due"
+			"check action";
+		align-items: center;
+		gap: 0.35rem 0.8rem;
+		padding: 0.9rem 0.85rem;
+		border: 1px solid var(--line);
+		border-radius: 18px;
+		background: rgba(255, 255, 255, 0.6);
+	}
+
+	.shoppinglist-table--todos tbody tr + tr td {
+		border-top: 0;
+	}
+
+	.shoppinglist-table--todos td {
+		display: block;
+		padding: 0;
+	}
+
+	.shoppinglist-table--todos td:first-child {
+		grid-area: check;
+		width: auto;
+	}
+
+	.shoppinglist-table--todos td:nth-child(2) {
+		grid-area: title;
+		min-width: 0;
+	}
+
+	.shoppinglist-table--todos td:nth-child(3) {
+		grid-area: due;
+		width: auto;
+		font-size: 0.88rem;
+		white-space: normal;
+	}
+
+	.shoppinglist-table--todos td:last-child {
+		grid-area: action;
+		width: auto;
+		justify-self: start;
+	}
+
+	.shoppinglist-table--todos td:last-child .secondary {
+		min-width: 0;
+		padding: 0.65rem 0.8rem;
 	}
 
 	.shoppinglist-results-panel {
