@@ -152,6 +152,84 @@ describe("Pupler CLI", () => {
 		expect(listedBody[0]?.id).toBe(createdBody.id);
 	});
 
+	test("creates time projects and starts/stops time entries", async () => {
+		const server = await startServer();
+
+		const project = await runCli(
+			[
+				"time-projects",
+				"create",
+				"--json",
+				"--name",
+				"Pupler",
+				"--color",
+				"#2d7c6f",
+				"--archived-at",
+				"null",
+			],
+			{ baseUrl: server.baseUrl },
+		);
+		expect(project.exitCode).toBe(0);
+		const projectBody = JSON.parse(project.stdout) as {
+			id: number;
+			name: string;
+		};
+		expect(projectBody.name).toBe("Pupler");
+
+		const started = await runCli(
+			[
+				"time-entries",
+				"start",
+				"--json",
+				"--project-id",
+				String(projectBody.id),
+				"--description",
+				"Build timer",
+				"--started-at",
+				"2026-05-26T10:00:00.000Z",
+			],
+			{ baseUrl: server.baseUrl },
+		);
+		expect(started.exitCode).toBe(0);
+		const startedBody = JSON.parse(started.stdout) as {
+			id: number;
+			ended_at: string | null;
+		};
+		expect(startedBody.ended_at).toBeNull();
+
+		const stopped = await runCli(
+			[
+				"time-entries",
+				"stop",
+				String(startedBody.id),
+				"--json",
+				"--ended-at",
+				"2026-05-26T11:15:00.000Z",
+			],
+			{ baseUrl: server.baseUrl },
+		);
+		expect(stopped.exitCode).toBe(0);
+		const stoppedBody = JSON.parse(stopped.stdout) as {
+			ended_at: string | null;
+		};
+		expect(stoppedBody.ended_at).toBe("2026-05-26T11:15:00.000Z");
+
+		const listed = await runCli(
+			[
+				"time-entries",
+				"list",
+				"--json",
+				"--project-id",
+				String(projectBody.id),
+			],
+			{ baseUrl: server.baseUrl },
+		);
+		expect(listed.exitCode).toBe(0);
+		const listedBody = JSON.parse(listed.stdout) as Array<{ id: number }>;
+		expect(listedBody).toHaveLength(1);
+		expect(listedBody[0]?.id).toBe(startedBody.id);
+	});
+
 	test("creates and lists products as JSON", async () => {
 		const server = await startServer();
 		const ingredient = await server.call<{ id: number }>("/api/ingredients", {

@@ -5,6 +5,7 @@ export const primaryNavItems = [
 	{ href: "/receipts", label: "Receipts", mobileLabel: "Receipts" },
 	{ href: "/shoppinglist", label: "Shoppinglist", mobileLabel: "Shopping" },
 	{ href: "/todos", label: "Todos", mobileLabel: "Todos" },
+	{ href: "/time", label: "Time", mobileLabel: "Time" },
 	{ href: "/recipes", label: "Recipes", mobileLabel: "Recipes" },
 ];
 

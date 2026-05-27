@@ -1,8 +1,7 @@
 import { InfiniteScroll } from "./infinite-scroll";
-import { primaryNavItems, renderNavbar } from "./navbar";
+import { renderNavbar } from "./navbar";
 import {
 	installLinkInterceptor,
-	installSwipeNavigation,
 	navigate,
 	routes,
 } from "./router";
@@ -194,6 +193,45 @@ type Todo = {
 	updated_at: string;
 };
 
+type TimeProject = {
+	id: number;
+	name: string;
+	color: string;
+	archived_at: string | null;
+	created_at: string;
+	updated_at: string;
+};
+
+type TimeEntry = {
+	id: number;
+	project_id: number;
+	description: string | null;
+	started_at: string;
+	ended_at: string | null;
+	created_at: string;
+	updated_at: string;
+	project?: TimeProject;
+};
+
+type TimeReportProjectTotal = {
+	project_id: number;
+	project_name: string;
+	project_color: string;
+	total_seconds: number;
+	entry_count: number;
+};
+
+type TimeReport = {
+	period: {
+		from: string | null;
+		to: string;
+		range: "custom" | "all";
+	};
+	total_seconds: number;
+	running_entry: TimeEntry | null;
+	project_totals: TimeReportProjectTotal[];
+};
+
 type RecipeIngredient = {
 	id: number;
 	recipe_id: number;
@@ -250,6 +288,7 @@ let productDetailAbortController: AbortController | null = null;
 let productInfiniteScroll: InfiniteScroll<Product> | null = null;
 let expirationInfiniteScroll: InfiniteScroll<InventoryItem> | null = null;
 let receiptInfiniteScroll: InfiniteScroll<ReceiptTimelineEntry> | null = null;
+let timeTimerInterval: number | null = null;
 let receiptBoardState: {
 	groups: Group[];
 	receipts: PurchaseReceipt[];
@@ -268,6 +307,10 @@ const render = (html: string) => {
 	expirationInfiniteScroll = null;
 	receiptInfiniteScroll?.destroy();
 	receiptInfiniteScroll = null;
+	if (timeTimerInterval !== null) {
+		window.clearInterval(timeTimerInterval);
+		timeTimerInterval = null;
+	}
 	document.body.classList.remove("modal-open");
 	document.body.innerHTML = html;
 };
@@ -288,11 +331,10 @@ const renderPage = (content: string) => {
 			return;
 		}
 
-		navbar.scrollTo({
-			left:
-				activeLink.offsetLeft -
-				(navbar.clientWidth - activeLink.clientWidth) / 2,
+		activeLink.scrollIntoView({
 			behavior: "auto",
+			block: "nearest",
+			inline: "center",
 		});
 
 		if (window.scrollX !== 0) {
@@ -317,26 +359,6 @@ const escapeHtml = (value: string) =>
 		.replaceAll(">", "&gt;")
 		.replaceAll('"', "&quot;")
 		.replaceAll("'", "&#39;");
-
-const renderSwipeNavigationPreview = (path: string) => {
-	const item = primaryNavItems.find(({ href }) => href === path);
-	const label = item?.label ?? "Page";
-	return `
-		<main class="page-shell swipe-page-preview__shell">
-			<section class="card panel page-panel swipe-page-preview__card">
-				<div class="page-heading">
-					<div>
-						<span class="eyebrow">Preview</span>
-						<h1 class="page-title">${escapeHtml(label)}</h1>
-					</div>
-				</div>
-				<p class="page-copy">
-					Release to open ${escapeHtml(label)}.
-				</p>
-			</section>
-		</main>
-	`;
-};
 
 const SPENDING_RANGE_OPTIONS = [
 	{ value: "7", label: "Last 7 Days" },
@@ -379,6 +401,39 @@ const spendingRangeEmptyMessage = (option: SpendingRangeOption) =>
 	option.value === "all"
 		? "No receipt items recorded yet."
 		: `No receipt items in the last ${option.value} days.`;
+
+const TIME_RANGE_OPTIONS = [
+	{ value: "today", label: "Today" },
+	{ value: "7", label: "Last 7 Days" },
+	{ value: "30", label: "Last 30 Days" },
+	{ value: "all", label: "All Time" },
+] as const;
+
+type TimeRangeOption = (typeof TIME_RANGE_OPTIONS)[number];
+
+const DEFAULT_TIME_RANGE_VALUE = "today";
+
+const getTimeRangeOption = (
+	value: string | null | undefined,
+): TimeRangeOption =>
+	TIME_RANGE_OPTIONS.find((option) => option.value === value) ??
+	TIME_RANGE_OPTIONS.find(
+		(option) => option.value === DEFAULT_TIME_RANGE_VALUE,
+	)!;
+
+const getCurrentTimeRangeOption = () =>
+	getTimeRangeOption(new URLSearchParams(window.location.search).get("span"));
+
+const renderTimeRangeOptions = (selectedValue: string) =>
+	TIME_RANGE_OPTIONS.map(
+		(option) => `
+			<option value="${escapeHtml(option.value)}" ${
+				option.value === selectedValue ? "selected" : ""
+			}>
+				${escapeHtml(option.label)}
+			</option>
+		`,
+	).join("");
 
 const UNIT_GROUPS = [
 	{
@@ -715,6 +770,25 @@ const formatReceiptDateTime = (value: string) =>
 		minute: "2-digit",
 	}).format(new Date(value));
 
+const formatDuration = (totalSeconds: number) => {
+	const seconds = Math.max(0, Math.floor(totalSeconds));
+	const hours = Math.floor(seconds / 3600);
+	const minutes = Math.floor((seconds % 3600) / 60);
+	const remainingSeconds = seconds % 60;
+	if (hours > 0) {
+		return `${hours}h ${String(minutes).padStart(2, "0")}m`;
+	}
+	if (minutes > 0) {
+		return `${minutes}m ${String(remainingSeconds).padStart(2, "0")}s`;
+	}
+	return `${remainingSeconds}s`;
+};
+
+const timeEntryDurationSeconds = (entry: TimeEntry) => {
+	const end = entry.ended_at ? Date.parse(entry.ended_at) : Date.now();
+	return Math.max(0, Math.floor((end - Date.parse(entry.started_at)) / 1000));
+};
+
 const formatDateTimeLocalInput = (date = new Date()) =>
 	new Date(date.getTime() - date.getTimezoneOffset() * 60000)
 		.toISOString()
@@ -994,7 +1068,7 @@ const renderRecipeCreatePage = () => {
 			</section>
 
 			<section class="workspace workspace--single">
-				<div class="card panel">
+				<div class="card panel shoppinglist-create-panel">
 					<form id="recipe-create-form">
 						<label for="recipe-name">
 							Name
@@ -1269,7 +1343,7 @@ const renderRecipeDetail = (recipe: Recipe) => {
 			</div>
 
 			<div class="recipe-detail-stack">
-				<div class="card panel">
+				<div class="card panel shoppinglist-results-panel">
 					<section class="recipe-detail-section">
 						<h2>Recipe Details</h2>
 						<form id="recipe-detail-form">
@@ -1692,7 +1766,7 @@ const renderShoppingListItems = (items: ShoppingListItem[]) => {
 	}
 
 	results.innerHTML = `
-		<table class="shoppinglist-table">
+		<table class="shoppinglist-table shoppinglist-table--shopping">
 			<thead>
 				<tr>
 					<th>Done</th>
@@ -1743,7 +1817,7 @@ const renderShoppingListItems = (items: ShoppingListItem[]) => {
 								</td>
 								<td class="shoppinglist-table__date">
 									<span class="shoppinglist-table__date-label">${dateLabel}</span>
-									${dateValue}
+									<span class="shoppinglist-table__date-value">${dateValue}</span>
 								</td>
 							</tr>
 						`;
@@ -1766,7 +1840,7 @@ const renderTodoItems = (items: Todo[]) => {
 	}
 
 	results.innerHTML = `
-		<table class="shoppinglist-table">
+		<table class="shoppinglist-table shoppinglist-table--todos">
 			<thead>
 				<tr>
 					<th>Done</th>
@@ -1818,6 +1892,275 @@ const renderTodoItems = (items: Todo[]) => {
 			</tbody>
 		</table>
 	`;
+};
+
+const timeApiJson = async <T>(path: string, options: RequestInit = {}) => {
+	const response = await fetch(path, {
+		...options,
+		headers: {
+			...(options.body ? { "Content-Type": "application/json" } : {}),
+			...(options.headers ?? {}),
+		},
+	});
+	const body = (await response.json()) as T | { error?: string };
+
+	if (!response.ok) {
+		throw new Error(
+			"error" in body
+				? (body.error ?? "Time tracking request failed")
+				: "Time tracking request failed",
+		);
+	}
+
+	return body as T;
+};
+
+const fetchTimeProjects = () =>
+	timeApiJson<TimeProject[]>("/api/time-projects?sort=name&order=asc");
+
+const fetchTimeEntries = () =>
+	timeApiJson<TimeEntry[]>("/api/time-entries?sort=started_at&order=desc");
+
+const timeRangeQuery = (option: TimeRangeOption) => {
+	const params = new URLSearchParams();
+	const now = new Date();
+	params.set("to", now.toISOString());
+	if (option.value === "all") {
+		params.delete("to");
+		params.set("range", "all");
+		return params;
+	}
+	if (option.value === "today") {
+		const start = new Date(now);
+		start.setHours(0, 0, 0, 0);
+		params.set("from", start.toISOString());
+		return params;
+	}
+	const days = Number.parseInt(option.value, 10);
+	params.set(
+		"from",
+		new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString(),
+	);
+	return params;
+};
+
+const fetchTimeReport = (option: TimeRangeOption) =>
+	timeApiJson<TimeReport>(`/api/time-report?${timeRangeQuery(option).toString()}`);
+
+const renderTimeProjectOptions = (
+	projects: TimeProject[],
+	selectedId?: number | null,
+) =>
+	projects
+		.filter((project) => project.archived_at === null || project.id === selectedId)
+		.map(
+			(project) => `
+				<option value="${project.id}" ${project.id === selectedId ? "selected" : ""}>
+					${escapeHtml(project.name)}
+				</option>
+			`,
+		)
+		.join("");
+
+const renderTimeTimer = (
+	projects: TimeProject[],
+	runningEntry: TimeEntry | null,
+) => {
+	const root = document.getElementById("time-timer-panel");
+	if (!root) return;
+	const activeProjects = projects.filter((project) => project.archived_at === null);
+
+	root.innerHTML = `
+		<div class="section-header">
+			<h2>Timer</h2>
+			${runningEntry ? '<span class="tag">Running</span>' : '<span class="tag tag--neutral">Stopped</span>'}
+		</div>
+		${runningEntry
+			? `
+				<div class="time-running">
+					<div class="time-running__project">
+						<span class="time-color" style="--time-color: ${escapeHtml(runningEntry.project?.color ?? "#2d7c6f")}"></span>
+						<strong>${escapeHtml(runningEntry.project?.name ?? "Project")}</strong>
+					</div>
+					<div id="running-timer-duration" class="time-running__duration">
+						${formatDuration(timeEntryDurationSeconds(runningEntry))}
+					</div>
+					${runningEntry.description ? `<p class="section-copy">${escapeHtml(runningEntry.description)}</p>` : ""}
+					<button class="primary" type="button" id="time-stop-button" data-time-entry-id="${runningEntry.id}">Stop</button>
+				</div>
+			`
+			: `
+				<form id="time-entry-start-form">
+					<label>
+						Project
+						<select id="time-entry-project" required ${activeProjects.length ? "" : "disabled"}>
+							${renderTimeProjectOptions(activeProjects)}
+						</select>
+					</label>
+					<label>
+						Description
+						<input id="time-entry-description" placeholder="What are you working on?" autocomplete="off" />
+					</label>
+					<button class="primary" type="submit" ${activeProjects.length ? "" : "disabled"}>Start Timer</button>
+				</form>
+			`}
+	`;
+
+	if (timeTimerInterval !== null) {
+		window.clearInterval(timeTimerInterval);
+		timeTimerInterval = null;
+	}
+	if (runningEntry) {
+		timeTimerInterval = window.setInterval(() => {
+			const duration = document.getElementById("running-timer-duration");
+			if (duration) {
+				duration.textContent = formatDuration(timeEntryDurationSeconds(runningEntry));
+			}
+		}, 1000);
+	}
+};
+
+const renderTimeProjects = (projects: TimeProject[]) => {
+	const root = document.getElementById("time-project-results");
+	if (!root) return;
+	if (!projects.length) {
+		root.innerHTML = '<div class="empty">No time projects yet.</div>';
+		return;
+	}
+
+	root.innerHTML = projects
+		.map(
+			(project) => `
+				<div class="time-project-row ${project.archived_at ? "time-project-row--archived" : ""}">
+					<span class="time-color" style="--time-color: ${escapeHtml(project.color)}"></span>
+					<input data-time-project-name="${project.id}" value="${escapeHtml(project.name)}" aria-label="Project name" />
+					<input data-time-project-color="${project.id}" value="${escapeHtml(project.color)}" aria-label="Project color" />
+					<button class="secondary" type="button" data-save-time-project-id="${project.id}">Save</button>
+					<button class="secondary" type="button" data-archive-time-project-id="${project.id}" ${project.archived_at ? "disabled" : ""}>Archive</button>
+				</div>
+			`,
+		)
+		.join("");
+};
+
+const renderTimeEntries = (entries: TimeEntry[], projects: TimeProject[]) => {
+	const root = document.getElementById("time-entry-results");
+	if (!root) return;
+	const recentEntries = entries.slice(0, 20);
+	if (!recentEntries.length) {
+		root.innerHTML = '<div class="empty">No time entries yet.</div>';
+		return;
+	}
+
+	root.innerHTML = recentEntries
+		.map((entry) => {
+			const startedAt = formatDateTimeLocalInput(new Date(entry.started_at));
+			const endedAt = entry.ended_at
+				? formatDateTimeLocalInput(new Date(entry.ended_at))
+				: "";
+			return `
+				<div class="time-entry-card">
+					<div class="time-entry-card__header">
+						<select data-time-entry-project="${entry.id}" aria-label="Entry project">
+							${renderTimeProjectOptions(projects, entry.project_id)}
+						</select>
+						<span class="tag ${entry.ended_at ? "tag--neutral" : ""}">
+							${entry.ended_at ? formatDuration(timeEntryDurationSeconds(entry)) : "Running"}
+						</span>
+					</div>
+					<input data-time-entry-description="${entry.id}" value="${escapeHtml(entry.description ?? "")}" aria-label="Entry description" />
+					<div class="row">
+						<label>
+							Start
+							<input data-time-entry-started-at="${entry.id}" type="datetime-local" value="${startedAt}" />
+						</label>
+						<label>
+							End
+							<input data-time-entry-ended-at="${entry.id}" type="datetime-local" value="${endedAt}" ${entry.ended_at ? "" : "disabled"} />
+						</label>
+					</div>
+					<div class="actions">
+						<button class="secondary" type="button" data-save-time-entry-id="${entry.id}">Save</button>
+						<button class="secondary" type="button" data-delete-time-entry-id="${entry.id}">Delete</button>
+					</div>
+					<div class="section-copy">${formatReceiptDateTime(entry.started_at)}</div>
+				</div>
+			`;
+		})
+		.join("");
+};
+
+const renderTimeReport = (report: TimeReport) => {
+	const summaryRoot = document.getElementById("time-report-summary");
+	const resultsRoot = document.getElementById("time-report-results");
+	if (!summaryRoot || !resultsRoot) return;
+
+	summaryRoot.innerHTML = `
+		<div class="time-report-summary">
+			<div>
+				<span>Total</span>
+				<strong>${formatDuration(report.total_seconds)}</strong>
+			</div>
+			<div>
+				<span>Projects</span>
+				<strong>${report.project_totals.length}</strong>
+			</div>
+		</div>
+	`;
+
+	if (!report.project_totals.length) {
+		resultsRoot.innerHTML = '<div class="empty">No tracked time in this range.</div>';
+		return;
+	}
+
+	resultsRoot.innerHTML = report.project_totals
+		.map(
+			(project) => `
+				<div class="time-report-row">
+					<div>
+						<span class="time-color" style="--time-color: ${escapeHtml(project.project_color)}"></span>
+						<strong>${escapeHtml(project.project_name)}</strong>
+						<span class="section-copy">${project.entry_count} entr${project.entry_count === 1 ? "y" : "ies"}</span>
+					</div>
+					<strong>${formatDuration(project.total_seconds)}</strong>
+				</div>
+			`,
+		)
+		.join("");
+};
+
+const loadTimeTrackingPage = async () => {
+	try {
+		setStatus("time-status", "Loading time tracking...");
+		const range = getCurrentTimeRangeOption();
+		const [projects, entries, report] = await Promise.all([
+			fetchTimeProjects(),
+			fetchTimeEntries(),
+			fetchTimeReport(range),
+		]);
+		const runningEntry =
+			entries.find((entry) => entry.ended_at === null) ??
+			report.running_entry ??
+			null;
+		const manualProjectSelect = document.getElementById("time-manual-project");
+		if (manualProjectSelect instanceof HTMLSelectElement) {
+			manualProjectSelect.innerHTML = renderTimeProjectOptions(projects);
+			manualProjectSelect.disabled = !projects.some(
+				(project) => project.archived_at === null,
+			);
+		}
+		renderTimeTimer(projects, runningEntry);
+		renderTimeProjects(projects);
+		renderTimeEntries(entries, projects);
+		renderTimeReport(report);
+		setStatus("time-status", `Loaded ${entries.length} time entr${entries.length === 1 ? "y" : "ies"}.`);
+	} catch (error) {
+		setStatus(
+			"time-status",
+			error instanceof Error ? error.message : "Failed to load time tracking.",
+			true,
+		);
+	}
 };
 
 const buildContainerChildren = (containers: InventoryContainer[]) => {
@@ -5097,6 +5440,244 @@ const attachTodosPageEvents = () => {
 		?.addEventListener("change", () => void loadTodos());
 };
 
+const attachTimePageEvents = () => {
+	const page = document.getElementById("time-page");
+	if (!page) return;
+
+	document
+		.getElementById("time-range-select")
+		?.addEventListener("change", (event) => {
+			const target = event.target;
+			if (!(target instanceof HTMLSelectElement)) return;
+			const selectedRange = getTimeRangeOption(target.value);
+			target.value = selectedRange.value;
+			const url = new URL(window.location.href);
+			if (selectedRange.value === DEFAULT_TIME_RANGE_VALUE) {
+				url.searchParams.delete("span");
+			} else {
+				url.searchParams.set("span", selectedRange.value);
+			}
+			window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+			void loadTimeTrackingPage();
+		});
+
+	document
+		.getElementById("time-project-form")
+		?.addEventListener("submit", async (event) => {
+			event.preventDefault();
+			const nameInput = document.getElementById("time-project-name");
+			const colorInput = document.getElementById("time-project-color");
+			if (!(nameInput instanceof HTMLInputElement)) return;
+			const name = nameInput.value.trim();
+			if (!name) {
+				setStatus("time-project-status", "Project name is required.", true);
+				return;
+			}
+			try {
+				await timeApiJson<TimeProject>("/api/time-projects", {
+					method: "POST",
+					body: JSON.stringify({
+						name,
+						color:
+							colorInput instanceof HTMLInputElement && colorInput.value.trim()
+								? colorInput.value.trim()
+								: undefined,
+						archived_at: null,
+					}),
+				});
+				nameInput.value = "";
+				setStatus("time-project-status", `Created ${name}.`);
+				await loadTimeTrackingPage();
+			} catch (error) {
+				setStatus(
+					"time-project-status",
+					error instanceof Error ? error.message : "Failed to create project.",
+					true,
+				);
+			}
+		});
+
+	document
+		.getElementById("time-manual-entry-form")
+		?.addEventListener("submit", async (event) => {
+			event.preventDefault();
+			const projectInput = document.getElementById("time-manual-project");
+			const descriptionInput = document.getElementById("time-manual-description");
+			const startedAtInput = document.getElementById("time-manual-started-at");
+			const endedAtInput = document.getElementById("time-manual-ended-at");
+			if (
+				!(projectInput instanceof HTMLSelectElement) ||
+				!(startedAtInput instanceof HTMLInputElement) ||
+				!(endedAtInput instanceof HTMLInputElement)
+			) {
+				return;
+			}
+			const startedAt = localDateTimeToIso(startedAtInput.value);
+			const endedAt = localDateTimeToIso(endedAtInput.value);
+			if (!startedAt || !endedAt) {
+				setStatus("time-entry-status", "Start and end are required.", true);
+				return;
+			}
+			try {
+				await timeApiJson<TimeEntry>("/api/time-entries", {
+					method: "POST",
+					body: JSON.stringify({
+						project_id: Number(projectInput.value),
+						description:
+							descriptionInput instanceof HTMLInputElement &&
+							descriptionInput.value.trim()
+								? descriptionInput.value.trim()
+								: null,
+						started_at: startedAt,
+						ended_at: endedAt,
+					}),
+				});
+				if (event.target instanceof HTMLFormElement) event.target.reset();
+				setStatus("time-entry-status", "Added manual entry.");
+				await loadTimeTrackingPage();
+			} catch (error) {
+				setStatus(
+					"time-entry-status",
+					error instanceof Error ? error.message : "Failed to add entry.",
+					true,
+				);
+			}
+		});
+
+	page.addEventListener("submit", async (event) => {
+		const target = event.target;
+		if (!(target instanceof HTMLFormElement)) return;
+		if (target.id !== "time-entry-start-form") return;
+		event.preventDefault();
+
+		const projectInput = document.getElementById("time-entry-project");
+		const descriptionInput = document.getElementById("time-entry-description");
+		if (!(projectInput instanceof HTMLSelectElement)) return;
+
+		try {
+			await timeApiJson<TimeEntry>("/api/time-entries/start", {
+				method: "POST",
+				body: JSON.stringify({
+					project_id: Number(projectInput.value),
+					description:
+						descriptionInput instanceof HTMLInputElement &&
+						descriptionInput.value.trim()
+							? descriptionInput.value.trim()
+							: null,
+				}),
+			});
+			setStatus("time-status", "Timer started.");
+			await loadTimeTrackingPage();
+		} catch (error) {
+			setStatus(
+				"time-status",
+				error instanceof Error ? error.message : "Failed to start timer.",
+				true,
+			);
+		}
+	});
+
+	page.addEventListener("click", async (event) => {
+		const target = event.target;
+		if (!(target instanceof HTMLElement)) return;
+
+		const stopButton = target.closest("[data-time-entry-id]");
+		const saveProjectButton = target.closest("[data-save-time-project-id]");
+		const archiveProjectButton = target.closest("[data-archive-time-project-id]");
+		const saveEntryButton = target.closest("[data-save-time-entry-id]");
+		const deleteEntryButton = target.closest("[data-delete-time-entry-id]");
+
+		try {
+			if (stopButton instanceof HTMLButtonElement) {
+				await timeApiJson<TimeEntry>(
+					`/api/time-entries/${stopButton.dataset.timeEntryId}/stop`,
+					{ method: "POST", body: JSON.stringify({}) },
+				);
+				setStatus("time-status", "Timer stopped.");
+				await loadTimeTrackingPage();
+				return;
+			}
+
+			if (saveProjectButton instanceof HTMLButtonElement) {
+				const id = Number(saveProjectButton.dataset.saveTimeProjectId);
+				const nameInput = document.querySelector<HTMLInputElement>(
+					`[data-time-project-name="${id}"]`,
+				);
+				const colorInput = document.querySelector<HTMLInputElement>(
+					`[data-time-project-color="${id}"]`,
+				);
+				await timeApiJson<TimeProject>(`/api/time-projects/${id}`, {
+					method: "PATCH",
+					body: JSON.stringify({
+						name: nameInput?.value.trim(),
+						color: colorInput?.value.trim(),
+					}),
+				});
+				setStatus("time-project-status", "Project saved.");
+				await loadTimeTrackingPage();
+				return;
+			}
+
+			if (archiveProjectButton instanceof HTMLButtonElement) {
+				const id = Number(archiveProjectButton.dataset.archiveTimeProjectId);
+				await timeApiJson<TimeProject>(`/api/time-projects/${id}`, {
+					method: "PATCH",
+					body: JSON.stringify({ archived_at: new Date().toISOString() }),
+				});
+				setStatus("time-project-status", "Project archived.");
+				await loadTimeTrackingPage();
+				return;
+			}
+
+			if (saveEntryButton instanceof HTMLButtonElement) {
+				const id = Number(saveEntryButton.dataset.saveTimeEntryId);
+				const projectInput = document.querySelector<HTMLSelectElement>(
+					`[data-time-entry-project="${id}"]`,
+				);
+				const descriptionInput = document.querySelector<HTMLInputElement>(
+					`[data-time-entry-description="${id}"]`,
+				);
+				const startedAtInput = document.querySelector<HTMLInputElement>(
+					`[data-time-entry-started-at="${id}"]`,
+				);
+				const endedAtInput = document.querySelector<HTMLInputElement>(
+					`[data-time-entry-ended-at="${id}"]`,
+				);
+				await timeApiJson<TimeEntry>(`/api/time-entries/${id}`, {
+					method: "PATCH",
+					body: JSON.stringify({
+						project_id: projectInput ? Number(projectInput.value) : undefined,
+						description: descriptionInput?.value.trim() || null,
+						started_at: startedAtInput
+							? localDateTimeToIso(startedAtInput.value)
+							: undefined,
+						ended_at:
+							endedAtInput && !endedAtInput.disabled
+								? localDateTimeToIso(endedAtInput.value)
+								: undefined,
+					}),
+				});
+				setStatus("time-entry-status", "Entry saved.");
+				await loadTimeTrackingPage();
+				return;
+			}
+
+			if (deleteEntryButton instanceof HTMLButtonElement) {
+				const id = Number(deleteEntryButton.dataset.deleteTimeEntryId);
+				await fetch(`/api/time-entries/${id}`, { method: "DELETE" });
+				setStatus("time-entry-status", "Entry deleted.");
+				await loadTimeTrackingPage();
+			}
+		} catch (error) {
+			setStatus(
+				"time-status",
+				error instanceof Error ? error.message : "Time tracking action failed.",
+				true,
+			);
+		}
+	});
+};
+
 const attachRecipeCreatePageEvents = () => {
 	const draftIngredients: DraftRecipeIngredient[] = [];
 
@@ -7838,6 +8419,107 @@ const renderShoppingListsPage = () => {
 	attachShoppingListPageEvents();
 };
 
+const renderTimePage = () => {
+	const selectedRange = getCurrentTimeRangeOption();
+	const now = new Date();
+	const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+
+	renderPage(
+		`
+			<section id="time-page">
+				<section class="page-heading page-heading--compact">
+					<div>
+						<span class="eyebrow">Time</span>
+						<h1 class="page-title">Time Tracking</h1>
+					</div>
+					<div class="spending-breakdown-controls">
+						<label for="time-range-select">
+							<span>Report span</span>
+							<select id="time-range-select">
+								${renderTimeRangeOptions(selectedRange.value)}
+							</select>
+						</label>
+					</div>
+				</section>
+
+				<section class="workspace time-workspace">
+					<div class="time-sidebar">
+						<div class="card panel" id="time-timer-panel"></div>
+
+						<div class="card panel">
+							<div class="section-header">
+								<h2>Projects</h2>
+							</div>
+							<form id="time-project-form">
+								<div class="time-project-create">
+									<input id="time-project-name" placeholder="Project name" autocomplete="off" required />
+									<input id="time-project-color" placeholder="#2d7c6f" autocomplete="off" />
+									<button class="primary" type="submit">Add</button>
+								</div>
+							</form>
+							<div id="time-project-status" class="status"></div>
+							<div id="time-project-results" class="time-project-list"></div>
+						</div>
+					</div>
+
+					<div class="time-main">
+						<div class="card panel">
+							<div class="section-header">
+								<h2>Manual Entry</h2>
+							</div>
+							<form id="time-manual-entry-form">
+								<div class="row">
+									<label>
+										Project
+										<select id="time-manual-project" required></select>
+									</label>
+									<label>
+										Description
+										<input id="time-manual-description" placeholder="Optional note" autocomplete="off" />
+									</label>
+								</div>
+								<div class="row">
+									<label>
+										Start
+										<input id="time-manual-started-at" type="datetime-local" value="${formatDateTimeLocalInput(oneHourAgo)}" required />
+									</label>
+									<label>
+										End
+										<input id="time-manual-ended-at" type="datetime-local" value="${formatDateTimeLocalInput(now)}" required />
+									</label>
+								</div>
+								<div class="actions">
+									<button class="primary" type="submit">Add Entry</button>
+								</div>
+							</form>
+							<div id="time-entry-status" class="status"></div>
+						</div>
+
+						<div class="card panel">
+							<div class="section-header">
+								<h2>${escapeHtml(selectedRange.label)}</h2>
+							</div>
+							<div id="time-report-summary"></div>
+							<div id="time-report-results" class="time-report-list"></div>
+						</div>
+
+						<div class="card panel">
+							<div class="section-header">
+								<h2>Recent Entries</h2>
+							</div>
+							<div id="time-status" class="status"></div>
+							<div id="time-entry-results" class="time-entry-list"></div>
+						</div>
+					</div>
+				</section>
+			</section>
+		`,
+	);
+
+	attachTimePageEvents();
+	void loadTimeTrackingPage();
+};
+
 const renderTodosPage = () => {
 	renderPage(
 		`
@@ -8014,10 +8696,6 @@ const renderNotFoundPage = () => {
 
 window.onload = () => {
 	installLinkInterceptor(document.body);
-	installSwipeNavigation({
-		paths: primaryNavItems.map(({ href }) => href),
-		renderPreview: renderSwipeNavigationPreview,
-	});
 
 	routes({
 		"/": renderOverviewPage,
@@ -8033,6 +8711,7 @@ window.onload = () => {
 		"/spending": renderSpendingPage,
 		"/shoppinglist": renderShoppingListsPage,
 		"/todos": renderTodosPage,
+		"/time": renderTimePage,
 		"/recipes/new": renderRecipeCreatePage,
 		"/recipes/:id": renderRecipeDetailPage,
 		"/recipes": renderRecipesPage,

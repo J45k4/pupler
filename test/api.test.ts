@@ -35,6 +35,13 @@ import {
 	shoppingListItemDetailRoute,
 	shoppingListItemsCollectionRoute,
 	spendingRoute,
+	timeEntriesCollectionRoute,
+	timeEntryDetailRoute,
+	timeEntryStartRoute,
+	timeEntryStopRoute,
+	timeProjectDetailRoute,
+	timeProjectsCollectionRoute,
+	timeReportRoute,
 	todoDetailRoute,
 	todosCollectionRoute,
 } from "../src/api";
@@ -104,6 +111,13 @@ const createRoutes = () => {
 			"/api/shopping-list-items/:id": shoppingListItemDetailRoute(db),
 			"/api/todos": todosCollectionRoute(db),
 			"/api/todos/:id": todoDetailRoute(db),
+			"/api/time-projects": timeProjectsCollectionRoute(db),
+			"/api/time-projects/:id": timeProjectDetailRoute(db),
+			"/api/time-entries": timeEntriesCollectionRoute(db),
+			"/api/time-entries/start": timeEntryStartRoute(db),
+			"/api/time-entries/:id/stop": timeEntryStopRoute(db),
+			"/api/time-entries/:id": timeEntryDetailRoute(db),
+			"/api/time-report": timeReportRoute(db),
 			"/api/spending": spendingRoute(db),
 			"/version": Response.json(versionPayload()),
 		},
@@ -122,6 +136,10 @@ const request = async (
 		? "/api/products/:id/picture"
 		: pathname.match(/^\/api\/receipts\/\d+\/picture$/)
 			? "/api/receipts/:id/picture"
+			: pathname.match(/^\/api\/time-entries\/start$/)
+				? "/api/time-entries/start"
+				: pathname.match(/^\/api\/time-entries\/\d+\/stop$/)
+					? "/api/time-entries/:id/stop"
 			: pathname.match(/^\/api\/recipes\/\d+\/pictures$/)
 				? "/api/recipes/:id/pictures"
 				: pathname.match(/^\/api\/recipes\/\d+\/pictures\/\d+$/)
@@ -217,6 +235,122 @@ describe("Pupler API", () => {
 			{ id: String(created.id) },
 		);
 		expect(missingResponse.status).toBe(404);
+	});
+
+	test("tracks time projects, timers, entries, and report totals", async () => {
+		const routes = createRoutes();
+
+		const projectResponse = await request(routes, "/api/time-projects", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: "Pupler",
+				color: "#2d7c6f",
+				archived_at: null,
+			}),
+		});
+		expect(projectResponse.status).toBe(201);
+		const project = await projectResponse.json();
+		expect(project.name).toBe("Pupler");
+
+		const manualEntryResponse = await request(routes, "/api/time-entries", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				project_id: project.id,
+				description: "Planning",
+				started_at: "2026-05-26T08:00:00.000Z",
+				ended_at: "2026-05-26T09:30:00.000Z",
+			}),
+		});
+		expect(manualEntryResponse.status).toBe(201);
+		const manualEntry = await manualEntryResponse.json();
+		expect(manualEntry.project.name).toBe("Pupler");
+
+		const invalidEntryResponse = await request(routes, "/api/time-entries", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				project_id: project.id,
+				started_at: "2026-05-26T10:00:00.000Z",
+				ended_at: "2026-05-26T09:00:00.000Z",
+			}),
+		});
+		expect(invalidEntryResponse.status).toBe(400);
+
+		const startResponse = await request(routes, "/api/time-entries/start", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				project_id: project.id,
+				description: "Build",
+				started_at: "2026-05-26T10:00:00.000Z",
+			}),
+		});
+		expect(startResponse.status).toBe(201);
+		const firstRunning = await startResponse.json();
+		expect(firstRunning.ended_at).toBeNull();
+
+		const restartResponse = await request(routes, "/api/time-entries/start", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				project_id: project.id,
+				description: "Review",
+				started_at: "2026-05-26T11:00:00.000Z",
+			}),
+		});
+		expect(restartResponse.status).toBe(201);
+		const secondRunning = await restartResponse.json();
+		expect(secondRunning.ended_at).toBeNull();
+
+		const firstEntryResponse = await request(
+			routes,
+			`/api/time-entries/${firstRunning.id}`,
+			{},
+			{ id: String(firstRunning.id) },
+		);
+		const firstEntry = await firstEntryResponse.json();
+		expect(firstEntry.ended_at).toBe("2026-05-26T11:00:00.000Z");
+
+		const stopResponse = await request(
+			routes,
+			`/api/time-entries/${secondRunning.id}/stop`,
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					ended_at: "2026-05-26T12:00:00.000Z",
+				}),
+			},
+			{ id: String(secondRunning.id) },
+		);
+		expect(stopResponse.status).toBe(200);
+		const stopped = await stopResponse.json();
+		expect(stopped.ended_at).toBe("2026-05-26T12:00:00.000Z");
+
+		const secondStopResponse = await request(
+			routes,
+			`/api/time-entries/${secondRunning.id}/stop`,
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({}),
+			},
+			{ id: String(secondRunning.id) },
+		);
+		expect(secondStopResponse.status).toBe(400);
+
+		const reportResponse = await request(
+			routes,
+			"/api/time-report?from=2026-05-26T00:00:00.000Z&to=2026-05-27T00:00:00.000Z",
+		);
+		expect(reportResponse.status).toBe(200);
+		const report = await reportResponse.json();
+		expect(report.total_seconds).toBe(12600);
+		expect(report.project_totals).toHaveLength(1);
+		expect(report.project_totals[0].project_id).toBe(project.id);
+		expect(report.project_totals[0].entry_count).toBe(3);
 	});
 
 	test("groups receipts and clears receipt links when a group is deleted", async () => {

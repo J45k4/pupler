@@ -310,11 +310,51 @@ const RESOURCES: ResourceConfig[] = [
 			updated_at: { type: "timestamp" },
 		},
 	},
+	{
+		command: "time-projects",
+		path: "/api/time-projects",
+		fields: {
+			name: { type: "string" },
+			color: { type: "string" },
+			archived_at: { type: "timestamp", nullable: true },
+		},
+		queryFields: {
+			id: { type: "integer" },
+			name: { type: "string", nullable: true },
+			color: { type: "string", nullable: true },
+			archived_at: { type: "timestamp", nullable: true },
+			created_at: { type: "timestamp" },
+			updated_at: { type: "timestamp" },
+		},
+	},
+	{
+		command: "time-entries",
+		path: "/api/time-entries",
+		fields: {
+			project_id: { type: "integer" },
+			description: { type: "string", nullable: true },
+			started_at: { type: "timestamp" },
+			ended_at: { type: "timestamp", nullable: true },
+		},
+		queryFields: {
+			id: { type: "integer" },
+			project_id: { type: "integer" },
+			description: { type: "string", nullable: true },
+			started_at: { type: "timestamp", nullable: true },
+			ended_at: { type: "timestamp", nullable: true },
+			running: { type: "boolean" },
+			from: { type: "timestamp" },
+			to: { type: "timestamp" },
+			created_at: { type: "timestamp" },
+			updated_at: { type: "timestamp" },
+		},
+	},
 ];
 
 const RESOURCE_MAP = new Map(RESOURCES.map((resource) => [resource.command, resource]));
 const RESOURCE_NAMES = RESOURCES.map((resource) => resource.command).join(", ");
 const CRUD_COMMANDS = ["list", "get", "create", "replace", "update", "delete"];
+const TIME_ENTRY_COMMANDS = [...CRUD_COMMANDS, "start", "stop"];
 const HELP_TEXT = `Pupler CLI
 
 Usage:
@@ -612,7 +652,9 @@ const resolveRequestBaseUrl = (globalOptions: GlobalOptions) =>
 
 const renderResourceHelp = (resource: ResourceConfig) => {
 	const fields = renderFieldFlags(resource.fields);
-	const commands = [...CRUD_COMMANDS];
+	const commands = resource.command === "time-entries"
+		? [...TIME_ENTRY_COMMANDS]
+		: [...CRUD_COMMANDS];
 	if (resource.hasPicture) {
 		commands.push("picture");
 	}
@@ -673,6 +715,26 @@ ${examples}
 `;
 		case "delete":
 			return `Usage: bun ./cli/cli.ts ${resource.command} delete <id>`;
+		case "start":
+			if (resource.command !== "time-entries") {
+				throw new CliError(`Unknown command \`${command}\``);
+			}
+			return `Usage: bun ./cli/cli.ts time-entries start --project-id <integer> [flags]
+
+Writable flags:
+  --project-id <integer>
+  --description <string|null>
+  --started-at <ISO timestamp>
+`;
+		case "stop":
+			if (resource.command !== "time-entries") {
+				throw new CliError(`Unknown command \`${command}\``);
+			}
+			return `Usage: bun ./cli/cli.ts time-entries stop <id> [flags]
+
+Writable flags:
+  --ended-at <ISO timestamp>
+`;
 		default:
 			throw new CliError(`Unknown command \`${command}\``);
 	}
@@ -752,6 +814,85 @@ const runPictureCommand = async (
 	throw new CliError(`Unknown picture command \`${action}\``);
 };
 
+const buildTimeEntryStartPayload = (flags: Record<string, FlagValue>) => {
+	const allowedFields: Record<string, FieldSpec> = {
+		project_id: { type: "integer" },
+		description: { type: "string", nullable: true },
+		started_at: { type: "timestamp" },
+	};
+	const payload: Record<string, unknown> = {};
+
+	for (const [key, value] of Object.entries(flags)) {
+		const field = allowedFields[key];
+		if (!field) {
+			throw new CliError(`Unknown flag \`--${toFlagName(key)}\` for \`time-entries start\``);
+		}
+		payload[key] = parseFieldValue(key, field, value);
+	}
+
+	if (payload.project_id === undefined) {
+		throw new CliError("Flag `--project-id` is required");
+	}
+
+	return payload;
+};
+
+const buildTimeEntryStopPayload = (flags: Record<string, FlagValue>) => {
+	const allowedFields: Record<string, FieldSpec> = {
+		ended_at: { type: "timestamp" },
+	};
+	const payload: Record<string, unknown> = {};
+
+	for (const [key, value] of Object.entries(flags)) {
+		const field = allowedFields[key];
+		if (!field) {
+			throw new CliError(`Unknown flag \`--${toFlagName(key)}\` for \`time-entries stop\``);
+		}
+		payload[key] = parseFieldValue(key, field, value);
+	}
+
+	return payload;
+};
+
+const runTimeEntryCommand = async (
+	resource: ResourceConfig,
+	command: string,
+	args: string[],
+	globalOptions: GlobalOptions,
+): Promise<CommandResult> => {
+	if (globalOptions.help || command === "help") {
+		return { message: renderCommandHelp(resource, command) };
+	}
+
+	const baseUrl = resolveRequestBaseUrl(globalOptions);
+	const parsed = parseArgs(args);
+
+	if (command === "start") {
+		ensureNoExtraPositionals(parsed.positionals, 0);
+		const payload = await requestJson({
+			baseUrl,
+			path: `${resource.path}/start`,
+			method: "POST",
+			body: buildTimeEntryStartPayload(parsed.flags),
+		});
+		return { payload };
+	}
+
+	if (command === "stop") {
+		const id = requireId(parsed.positionals, resource.command, command);
+		ensureNoExtraPositionals(parsed.positionals, 1);
+		const payload = await requestJson({
+			baseUrl,
+			path: `${resource.path}/${id}/stop`,
+			method: "POST",
+			body: buildTimeEntryStopPayload(parsed.flags),
+		});
+		return { payload };
+	}
+
+	throw new CliError(`Unknown command \`${command}\``);
+};
+
 const runResourceCommand = async (
 	resource: ResourceConfig,
 	command: string,
@@ -760,6 +901,10 @@ const runResourceCommand = async (
 ): Promise<CommandResult> => {
 	if (command === "picture") {
 		return runPictureCommand(resource, args, globalOptions);
+	}
+
+	if (resource.command === "time-entries" && ["start", "stop"].includes(command)) {
+		return runTimeEntryCommand(resource, command, args, globalOptions);
 	}
 
 	if (!CRUD_COMMANDS.includes(command)) {

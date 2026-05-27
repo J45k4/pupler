@@ -63,5 +63,18 @@ export {
 	todosCollectionRoute,
 } from "./todos";
 export {
+	timeProjectDetailRoute,
+	timeProjectsCollectionRoute,
+} from "./time-projects";
+export {
+	timeEntriesCollectionRoute,
+	timeEntryDetailRoute,
+	timeEntryStartRoute,
+	timeEntryStopRoute,
+} from "./time-entries";
+export {
+	timeReportRoute,
+} from "./time-report";
+export {
 	spendingRoute,
 } from "./spending";

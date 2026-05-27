@@ -275,3 +275,33 @@ model Todo {
 	@@index([due_at], map: "idx_todos_due_at")
 	@@map("todos")
 }
+
+model TimeProject {
+	id           Int         @id @default(autoincrement())
+	name         String
+	color        String
+	archived_at  String?     @map("archived_at")
+	created_at   String      @map("created_at")
+	updated_at   String      @map("updated_at")
+	time_entries TimeEntry[]
+
+	@@index([name], map: "idx_time_projects_name")
+	@@index([archived_at], map: "idx_time_projects_archived_at")
+	@@map("time_projects")
+}
+
+model TimeEntry {
+	id          Int         @id @default(autoincrement())
+	project_id  Int         @map("project_id")
+	description String?
+	started_at  String      @map("started_at")
+	ended_at    String?     @map("ended_at")
+	created_at  String      @map("created_at")
+	updated_at  String      @map("updated_at")
+	project     TimeProject @relation(fields: [project_id], references: [id])
+
+	@@index([project_id], map: "idx_time_entries_project_id")
+	@@index([started_at], map: "idx_time_entries_started_at")
+	@@index([ended_at], map: "idx_time_entries_ended_at")
+	@@map("time_entries")
+}
