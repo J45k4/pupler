@@ -441,15 +441,18 @@ button:hover,
 	align-items: center;
 	justify-content: flex-end;
 	gap: 0.85rem;
-	flex-wrap: wrap;
+	flex-wrap: nowrap;
+	overflow-x: auto;
 }
 
 .checkbox-toggle {
 	display: inline-flex;
 	align-items: center;
+	flex: 0 0 auto;
 	gap: 0.6rem;
 	color: var(--muted);
 	font-size: 0.95rem;
+	white-space: nowrap;
 }
 
 .checkbox-toggle input {
@@ -2318,7 +2321,9 @@ body.modal-open {
 	}
 
 	.todos-panel-actions .primary {
+		flex: 0 0 auto;
 		margin-left: 0;
+		white-space: nowrap;
 	}
 
 	.shoppinglist-table--todos {
