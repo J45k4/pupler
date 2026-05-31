@@ -1934,7 +1934,6 @@ body.modal-open {
 	background: rgba(255, 255, 255, 0.55);
 }
 
-.time-entry-card__header,
 .time-report-row,
 .time-report-summary {
 	display: flex;
@@ -1943,8 +1942,38 @@ body.modal-open {
 	gap: 1rem;
 }
 
-.time-entry-card__header select {
-	max-width: 18rem;
+.time-entry-card__header {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: start;
+	gap: 1rem;
+}
+
+.time-entry-card__project {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 0.65rem;
+	min-width: 0;
+}
+
+.time-entry-card__project strong,
+.time-entry-card__description {
+	overflow-wrap: anywhere;
+}
+
+.time-entry-card__edit {
+	min-width: 6rem;
+	padding-inline: 1.15rem;
+}
+
+.time-entry-card__restart {
+	width: 100%;
+}
+
+.time-entry-card__form {
+	display: grid;
+	gap: 0.8rem;
 }
 
 .time-report-summary {
@@ -1995,7 +2024,6 @@ body.modal-open {
 		grid-template-columns: 1fr;
 	}
 
-	.time-entry-card__header,
 	.time-report-row,
 	.time-report-summary {
 		align-items: stretch;

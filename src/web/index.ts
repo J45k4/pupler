@@ -289,6 +289,7 @@ let productInfiniteScroll: InfiniteScroll<Product> | null = null;
 let expirationInfiniteScroll: InfiniteScroll<InventoryItem> | null = null;
 let receiptInfiniteScroll: InfiniteScroll<ReceiptTimelineEntry> | null = null;
 let timeTimerInterval: number | null = null;
+const editingTimeEntryIds = new Set<number>();
 let receiptBoardState: {
 	groups: Group[];
 	receipts: PurchaseReceipt[];
@@ -1920,7 +1921,9 @@ const fetchTimeProjects = () =>
 	timeApiJson<TimeProject[]>("/api/time-projects?sort=name&order=asc");
 
 const fetchTimeEntries = () =>
-	timeApiJson<TimeEntry[]>("/api/time-entries?sort=started_at&order=desc");
+	timeApiJson<TimeEntry[]>(
+		"/api/time-entries?sort=started_at&order=desc&running=false",
+	);
 
 const timeRangeQuery = (option: TimeRangeOption) => {
 	const params = new URLSearchParams();
@@ -2059,32 +2062,74 @@ const renderTimeEntries = (entries: TimeEntry[], projects: TimeProject[]) => {
 			const endedAt = entry.ended_at
 				? formatDateTimeLocalInput(new Date(entry.ended_at))
 				: "";
+			const project =
+				entry.project ?? projects.find((item) => item.id === entry.project_id);
+			const projectName = project?.name ?? "Project";
+			const projectColor = project?.color ?? "#2d7c6f";
+			const duration = entry.ended_at
+				? formatDuration(timeEntryDurationSeconds(entry))
+				: "Running";
+			const dateRange = entry.ended_at
+				? `${formatReceiptDateTime(entry.started_at)} - ${formatReceiptDateTime(entry.ended_at)}`
+				: `${formatReceiptDateTime(entry.started_at)} - Running`;
+			const description = entry.description ?? "";
+			const isEditing = editingTimeEntryIds.has(entry.id);
+			if (isEditing) {
+				return `
+					<div class="time-entry-card">
+						<div class="time-entry-card__header">
+							<div class="time-entry-card__project">
+								<span class="time-color" style="--time-color: ${escapeHtml(projectColor)}"></span>
+								<strong>${escapeHtml(projectName)}</strong>
+								<span class="tag ${entry.ended_at ? "tag--neutral" : ""}">${duration}</span>
+							</div>
+						</div>
+						<div class="time-entry-card__form">
+							<select data-time-entry-project="${entry.id}" aria-label="Entry project">
+								${renderTimeProjectOptions(projects, entry.project_id)}
+							</select>
+							<input data-time-entry-description="${entry.id}" value="${escapeHtml(description)}" aria-label="Entry description" />
+							<div class="row">
+								<label>
+									Start
+									<input data-time-entry-started-at="${entry.id}" type="datetime-local" value="${startedAt}" />
+								</label>
+								<label>
+									End
+									<input data-time-entry-ended-at="${entry.id}" type="datetime-local" value="${endedAt}" ${entry.ended_at ? "" : "disabled"} />
+								</label>
+							</div>
+							<div class="actions">
+								<button class="secondary" type="button" data-save-time-entry-id="${entry.id}">Save</button>
+								<button class="secondary" type="button" data-cancel-edit-time-entry-id="${entry.id}">Cancel</button>
+								<button class="secondary" type="button" data-delete-time-entry-id="${entry.id}">Delete</button>
+							</div>
+						</div>
+						<div class="section-copy">${dateRange}</div>
+					</div>
+				`;
+			}
 			return `
 				<div class="time-entry-card">
 					<div class="time-entry-card__header">
-						<select data-time-entry-project="${entry.id}" aria-label="Entry project">
-							${renderTimeProjectOptions(projects, entry.project_id)}
-						</select>
-						<span class="tag ${entry.ended_at ? "tag--neutral" : ""}">
-							${entry.ended_at ? formatDuration(timeEntryDurationSeconds(entry)) : "Running"}
-						</span>
+						<div class="time-entry-card__project">
+							<span class="time-color" style="--time-color: ${escapeHtml(projectColor)}"></span>
+							<strong>${escapeHtml(projectName)}</strong>
+							<span class="tag ${entry.ended_at ? "tag--neutral" : ""}">${duration}</span>
+						</div>
+						<button class="secondary time-entry-card__edit" type="button" data-edit-time-entry-id="${entry.id}">Edit</button>
 					</div>
-					<input data-time-entry-description="${entry.id}" value="${escapeHtml(entry.description ?? "")}" aria-label="Entry description" />
-					<div class="row">
-						<label>
-							Start
-							<input data-time-entry-started-at="${entry.id}" type="datetime-local" value="${startedAt}" />
-						</label>
-						<label>
-							End
-							<input data-time-entry-ended-at="${entry.id}" type="datetime-local" value="${endedAt}" ${entry.ended_at ? "" : "disabled"} />
-						</label>
-					</div>
-					<div class="actions">
-						<button class="secondary" type="button" data-save-time-entry-id="${entry.id}">Save</button>
-						<button class="secondary" type="button" data-delete-time-entry-id="${entry.id}">Delete</button>
-					</div>
-					<div class="section-copy">${formatReceiptDateTime(entry.started_at)}</div>
+					${description ? `<div class="time-entry-card__description">${escapeHtml(description)}</div>` : ""}
+					<div class="section-copy">${dateRange}</div>
+					<button
+						class="secondary time-entry-card__restart"
+						type="button"
+						data-start-again-time-entry-id="${entry.id}"
+						data-time-entry-project-id="${entry.project_id}"
+						data-time-entry-description="${escapeHtml(description)}"
+					>
+						Start Again
+					</button>
 				</div>
 			`;
 		})
@@ -5592,6 +5637,9 @@ const attachTimePageEvents = () => {
 		const stopButton = target.closest("[data-time-entry-id]");
 		const saveProjectButton = target.closest("[data-save-time-project-id]");
 		const archiveProjectButton = target.closest("[data-archive-time-project-id]");
+		const editEntryButton = target.closest("[data-edit-time-entry-id]");
+		const cancelEditEntryButton = target.closest("[data-cancel-edit-time-entry-id]");
+		const startAgainEntryButton = target.closest("[data-start-again-time-entry-id]");
 		const saveEntryButton = target.closest("[data-save-time-entry-id]");
 		const deleteEntryButton = target.closest("[data-delete-time-entry-id]");
 
@@ -5637,6 +5685,35 @@ const attachTimePageEvents = () => {
 				return;
 			}
 
+			if (editEntryButton instanceof HTMLButtonElement) {
+				editingTimeEntryIds.add(Number(editEntryButton.dataset.editTimeEntryId));
+				await loadTimeTrackingPage();
+				return;
+			}
+
+			if (cancelEditEntryButton instanceof HTMLButtonElement) {
+				editingTimeEntryIds.delete(
+					Number(cancelEditEntryButton.dataset.cancelEditTimeEntryId),
+				);
+				await loadTimeTrackingPage();
+				return;
+			}
+
+			if (startAgainEntryButton instanceof HTMLButtonElement) {
+				await timeApiJson<TimeEntry>("/api/time-entries/start", {
+					method: "POST",
+					body: JSON.stringify({
+						project_id: Number(startAgainEntryButton.dataset.timeEntryProjectId),
+						description:
+							startAgainEntryButton.dataset.timeEntryDescription?.trim() ||
+							null,
+					}),
+				});
+				setStatus("time-status", "Timer started.");
+				await loadTimeTrackingPage();
+				return;
+			}
+
 			if (saveEntryButton instanceof HTMLButtonElement) {
 				const id = Number(saveEntryButton.dataset.saveTimeEntryId);
 				const projectInput = document.querySelector<HTMLSelectElement>(
@@ -5665,6 +5742,7 @@ const attachTimePageEvents = () => {
 								: undefined,
 					}),
 				});
+				editingTimeEntryIds.delete(id);
 				setStatus("time-entry-status", "Entry saved.");
 				await loadTimeTrackingPage();
 				return;
@@ -5673,6 +5751,7 @@ const attachTimePageEvents = () => {
 			if (deleteEntryButton instanceof HTMLButtonElement) {
 				const id = Number(deleteEntryButton.dataset.deleteTimeEntryId);
 				await fetch(`/api/time-entries/${id}`, { method: "DELETE" });
+				editingTimeEntryIds.delete(id);
 				setStatus("time-entry-status", "Entry deleted.");
 				await loadTimeTrackingPage();
 			}
@@ -8519,7 +8598,7 @@ const renderTimePage = () => {
 
 						<div class="card panel">
 							<div class="section-header">
-								<h2>Recent Entries</h2>
+								<h2>Past Entries</h2>
 							</div>
 							<div id="time-status" class="status"></div>
 							<div id="time-entry-results" class="time-entry-list"></div>
