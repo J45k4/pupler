@@ -232,6 +232,22 @@ type TimeReport = {
 	project_totals: TimeReportProjectTotal[];
 };
 
+type TimeQuickAction = {
+	project_id: number;
+	description: string;
+	entry_count: number;
+	latest_started_at: string;
+	total_seconds: number;
+	project?: TimeProject;
+};
+
+type TimeProjectChoice = {
+	project: TimeProject;
+	entry_count: number;
+	total_seconds: number;
+	latest_started_at: string | null;
+};
+
 type RecipeIngredient = {
 	id: number;
 	recipe_id: number;
@@ -289,7 +305,7 @@ let productInfiniteScroll: InfiniteScroll<Product> | null = null;
 let expirationInfiniteScroll: InfiniteScroll<InventoryItem> | null = null;
 let receiptInfiniteScroll: InfiniteScroll<ReceiptTimelineEntry> | null = null;
 let timeTimerInterval: number | null = null;
-const editingTimeEntryIds = new Set<number>();
+let currentTimeProjectChoices: TimeProjectChoice[] = [];
 let receiptBoardState: {
 	groups: Group[];
 	receipts: PurchaseReceipt[];
@@ -317,10 +333,11 @@ const render = (html: string) => {
 	document.body.innerHTML = html;
 };
 
-const renderPage = (content: string) => {
+const renderPage = (content: string, shellClassName = "") => {
+	const shellClasses = ["page-shell", shellClassName].filter(Boolean).join(" ");
 	render(`
 		${renderNavbar(window.location.pathname)}
-		<main class="page-shell">
+		<main class="${shellClasses}">
 			${content}
 		</main>
 	`);
@@ -795,6 +812,17 @@ const formatDateTimeLocalInput = (date = new Date()) =>
 	new Date(date.getTime() - date.getTimezoneOffset() * 60000)
 		.toISOString()
 		.slice(0, 16);
+
+const formatTimestampForDateTimeLocalInput = (value: string) =>
+	formatDateTimeLocalInput(new Date(value));
+
+const parseDateTimeLocalInput = (value: string) => {
+	const date = new Date(value);
+	if (Number.isNaN(date.getTime())) {
+		return null;
+	}
+	return date.toISOString();
+};
 
 const formatMoney = (value: number | null, currency: string) => {
 	if (value === null) {
@@ -1921,9 +1949,13 @@ const fetchTimeProjects = () =>
 	timeApiJson<TimeProject[]>("/api/time-projects?sort=name&order=asc");
 
 const fetchTimeEntries = () =>
-	timeApiJson<TimeEntry[]>(
-		"/api/time-entries?sort=started_at&order=desc&running=false",
-	);
+	timeApiJson<TimeEntry[]>("/api/time-entries?sort=started_at&order=desc");
+
+const createTimeProject = (name: string) =>
+	timeApiJson<TimeProject>("/api/time-projects", {
+		method: "POST",
+		body: JSON.stringify({ name, archived_at: null }),
+	});
 
 const timeRangeQuery = (option: TimeRangeOption) => {
 	const params = new URLSearchParams();
@@ -1966,17 +1998,151 @@ const renderTimeProjectOptions = (
 		)
 		.join("");
 
-const renderTimeTimer = (
+const normalizeTimeDescription = (description: string | null | undefined) =>
+	description?.trim() ?? "";
+
+const normalizeTimeProjectName = (name: string) => name.trim().toLowerCase();
+const NEW_TIME_PROJECT_VALUE = "__new_time_project__";
+
+const buildTimeProjectChoices = (
+	entries: TimeEntry[],
 	projects: TimeProject[],
+): TimeProjectChoice[] => {
+	const choiceByProjectId = new Map<number, TimeProjectChoice>();
+	for (const project of projects) {
+		if (project.archived_at !== null) continue;
+		choiceByProjectId.set(project.id, {
+			project,
+			entry_count: 0,
+			total_seconds: 0,
+			latest_started_at: null,
+		});
+	}
+
+	for (const entry of entries) {
+		const choice = choiceByProjectId.get(entry.project_id);
+		if (!choice) continue;
+		choice.entry_count += 1;
+		choice.total_seconds += timeEntryDurationSeconds(entry);
+		if (
+			choice.latest_started_at === null ||
+			Date.parse(entry.started_at) > Date.parse(choice.latest_started_at)
+		) {
+			choice.latest_started_at = entry.started_at;
+		}
+	}
+
+	return [...choiceByProjectId.values()].sort((first, second) => {
+		if (second.entry_count !== first.entry_count) {
+			return second.entry_count - first.entry_count;
+		}
+		if (second.total_seconds !== first.total_seconds) {
+			return second.total_seconds - first.total_seconds;
+		}
+		const latestDifference =
+			Date.parse(second.latest_started_at ?? "1970-01-01T00:00:00.000Z") -
+			Date.parse(first.latest_started_at ?? "1970-01-01T00:00:00.000Z");
+		if (latestDifference !== 0) return latestDifference;
+		return first.project.name.localeCompare(second.project.name);
+	});
+};
+
+const findTimeProjectChoice = (name: string) => {
+	const normalizedName = normalizeTimeProjectName(name);
+	return currentTimeProjectChoices.find(
+		(choice) => normalizeTimeProjectName(choice.project.name) === normalizedName,
+	);
+};
+
+const findTimeProjectChoiceById = (id: number) =>
+	currentTimeProjectChoices.find((choice) => choice.project.id === id);
+
+const renderTimeProjectSelectOptions = (
+	choices: TimeProjectChoice[],
+	selectedId?: number | null,
+) =>
+	choices
+		.map(
+			(choice) => `
+				<option value="${choice.project.id}" ${choice.project.id === selectedId ? "selected" : ""}>
+					${escapeHtml(choice.project.name)}
+				</option>
+			`,
+		)
+		.join("");
+
+const buildTimeQuickActions = (
+	entries: TimeEntry[],
+	projects: TimeProject[],
+): TimeQuickAction[] => {
+	const projectById = new Map(projects.map((project) => [project.id, project]));
+	const activeProjectIds = new Set(
+		projects
+			.filter((project) => project.archived_at === null)
+			.map((project) => project.id),
+	);
+	const actionByKey = new Map<string, TimeQuickAction>();
+
+	for (const entry of entries) {
+		if (!activeProjectIds.has(entry.project_id)) continue;
+		const description = normalizeTimeDescription(entry.description);
+		const key = `${entry.project_id}\u0000${description}`;
+		const existing = actionByKey.get(key);
+		if (existing) {
+			existing.entry_count += 1;
+			existing.total_seconds += timeEntryDurationSeconds(entry);
+			if (Date.parse(entry.started_at) > Date.parse(existing.latest_started_at)) {
+				existing.latest_started_at = entry.started_at;
+			}
+			continue;
+		}
+		actionByKey.set(key, {
+			project_id: entry.project_id,
+			description,
+			entry_count: 1,
+			latest_started_at: entry.started_at,
+			total_seconds: timeEntryDurationSeconds(entry),
+			project: entry.project ?? projectById.get(entry.project_id),
+		});
+	}
+
+	return [...actionByKey.values()]
+		.sort((first, second) => {
+			if (second.entry_count !== first.entry_count) {
+				return second.entry_count - first.entry_count;
+			}
+			return (
+				Date.parse(second.latest_started_at) -
+				Date.parse(first.latest_started_at)
+			);
+		})
+		.slice(0, 8);
+};
+
+const findPreviousTimeEntryEnd = (
+	entries: TimeEntry[],
 	runningEntry: TimeEntry | null,
+) => {
+	if (!runningEntry) return null;
+	const previousEntry = entries
+		.filter((entry) => entry.id !== runningEntry.id && entry.ended_at !== null)
+		.sort(
+			(first, second) =>
+				Date.parse(second.ended_at ?? "") - Date.parse(first.ended_at ?? ""),
+		)[0];
+	return previousEntry?.ended_at ?? null;
+};
+
+const renderTimeTimer = (
+	runningEntry: TimeEntry | null,
+	previousEndedAt: string | null,
 ) => {
 	const root = document.getElementById("time-timer-panel");
 	if (!root) return;
-	const activeProjects = projects.filter((project) => project.archived_at === null);
 
 	root.innerHTML = `
 		<div class="section-header">
-			<h2>Timer</h2>
+			<h2>Start Timer</h2>
 			${runningEntry ? '<span class="tag">Running</span>' : '<span class="tag tag--neutral">Stopped</span>'}
 		</div>
 		${runningEntry
@@ -1990,24 +2156,93 @@ const renderTimeTimer = (
 						${formatDuration(timeEntryDurationSeconds(runningEntry))}
 					</div>
 					${runningEntry.description ? `<p class="section-copy">${escapeHtml(runningEntry.description)}</p>` : ""}
-					<button class="primary" type="button" id="time-stop-button" data-time-entry-id="${runningEntry.id}">Stop</button>
+					<div class="time-running__actions">
+						<button class="secondary" type="button" data-time-running-edit-open>Edit</button>
+						<button class="primary" type="button" id="time-stop-button" data-time-entry-id="${runningEntry.id}">Stop</button>
+					</div>
+				</div>
+				<div class="time-entry-edit-modal" id="time-running-edit-modal" hidden>
+					<div
+						class="time-entry-edit-modal__backdrop"
+						data-time-running-edit-modal-close
+					></div>
+					<div
+						class="time-entry-edit-modal__dialog card panel"
+						role="dialog"
+						aria-modal="true"
+						aria-labelledby="time-running-edit-modal-title"
+					>
+						<div class="section-header">
+							<h2 id="time-running-edit-modal-title">Edit Timer</h2>
+							<button
+								class="secondary"
+								type="button"
+								aria-label="Close edit timer modal"
+								data-time-running-edit-modal-close
+							>
+								Close
+							</button>
+						</div>
+						<form class="time-running__start-form" id="time-running-start-form" data-time-entry-id="${runningEntry.id}">
+							<label>
+								Project
+								<select id="time-running-project-select" aria-label="Running timer project" required>
+									${renderTimeProjectSelectOptions(currentTimeProjectChoices, runningEntry.project_id)}
+								</select>
+							</label>
+							<label>
+								Description
+								<input
+									id="time-running-description"
+									value="${escapeHtml(runningEntry.description ?? "")}"
+									placeholder="What are you working on?"
+									autocomplete="off"
+								/>
+							</label>
+							<label>
+								Started At
+								<input
+									id="time-running-started-at"
+									type="datetime-local"
+									value="${formatTimestampForDateTimeLocalInput(runningEntry.started_at)}"
+									required
+								/>
+							</label>
+							${previousEndedAt
+								? `<div>
+									<button
+										class="secondary"
+										type="button"
+										data-time-running-previous-ended-at="${escapeHtml(previousEndedAt)}"
+									>
+										Set start to previous end
+									</button>
+									<div class="section-copy">Previous end: ${formatReceiptDateTime(previousEndedAt)}</div>
+								</div>`
+								: ""}
+							<div class="actions">
+								<button class="primary" type="submit">Update Timer</button>
+							</div>
+						</form>
+					</div>
 				</div>
 			`
-			: `
-				<form id="time-entry-start-form">
-					<label>
-						Project
-						<select id="time-entry-project" required ${activeProjects.length ? "" : "disabled"}>
-							${renderTimeProjectOptions(activeProjects)}
-						</select>
-					</label>
-					<label>
-						Description
-						<input id="time-entry-description" placeholder="What are you working on?" autocomplete="off" />
-					</label>
-					<button class="primary" type="submit" ${activeProjects.length ? "" : "disabled"}>Start Timer</button>
-				</form>
-			`}
+			: ""}
+			<form id="time-entry-start-form" class="time-start-form">
+				<label>
+					Project
+					<select id="time-entry-project-select" aria-label="Project">
+						<option value="">Choose or create a project</option>
+						${renderTimeProjectSelectOptions(currentTimeProjectChoices)}
+						<option value="${NEW_TIME_PROJECT_VALUE}">Create new project...</option>
+					</select>
+				</label>
+				<label>
+					Description
+				<input id="time-entry-description" placeholder="What are you working on?" autocomplete="off" />
+			</label>
+			<button class="primary" type="submit">Start Timer</button>
+		</form>
 	`;
 
 	if (timeTimerInterval !== null) {
@@ -2022,6 +2257,44 @@ const renderTimeTimer = (
 			}
 		}, 1000);
 	}
+};
+
+const renderTimeQuickActions = (actions: TimeQuickAction[]) => {
+	const root = document.getElementById("time-quick-actions");
+	if (!root) return;
+	if (!actions.length) {
+		root.innerHTML = '<div class="empty">No repeated timers yet.</div>';
+		return;
+	}
+
+	root.innerHTML = actions
+		.map(
+			(action) => `
+				<div class="time-action-row">
+					<div class="time-action-row__main">
+						<div class="time-entry-row__title">
+							<span class="time-color" style="--time-color: ${escapeHtml(action.project?.color ?? "#2d7c6f")}"></span>
+							<strong>${escapeHtml(action.project?.name ?? "Project")}</strong>
+						</div>
+						<div class="time-entry-row__description">
+							${action.description ? escapeHtml(action.description) : "No description"}
+						</div>
+						<div class="section-copy">
+							${action.entry_count} entr${action.entry_count === 1 ? "y" : "ies"} - ${formatDuration(action.total_seconds)}
+						</div>
+					</div>
+					<button
+						class="secondary"
+						type="button"
+						data-start-time-project-id="${action.project_id}"
+						data-start-time-description="${escapeHtml(action.description)}"
+					>
+						Start
+					</button>
+				</div>
+			`,
+		)
+		.join("");
 };
 
 const renderTimeProjects = (projects: TimeProject[]) => {
@@ -2050,7 +2323,7 @@ const renderTimeProjects = (projects: TimeProject[]) => {
 const renderTimeEntries = (entries: TimeEntry[], projects: TimeProject[]) => {
 	const root = document.getElementById("time-entry-results");
 	if (!root) return;
-	const recentEntries = entries.slice(0, 20);
+	const recentEntries = entries.slice(0, 30);
 	if (!recentEntries.length) {
 		root.innerHTML = '<div class="empty">No time entries yet.</div>';
 		return;
@@ -2058,9 +2331,10 @@ const renderTimeEntries = (entries: TimeEntry[], projects: TimeProject[]) => {
 
 	root.innerHTML = recentEntries
 		.map((entry) => {
-			const startedAt = formatDateTimeLocalInput(new Date(entry.started_at));
+			const description = normalizeTimeDescription(entry.description);
+			const startedAt = formatTimestampForDateTimeLocalInput(entry.started_at);
 			const endedAt = entry.ended_at
-				? formatDateTimeLocalInput(new Date(entry.ended_at))
+				? formatTimestampForDateTimeLocalInput(entry.ended_at)
 				: "";
 			const project =
 				entry.project ?? projects.find((item) => item.id === entry.project_id);
@@ -2069,67 +2343,65 @@ const renderTimeEntries = (entries: TimeEntry[], projects: TimeProject[]) => {
 			const duration = entry.ended_at
 				? formatDuration(timeEntryDurationSeconds(entry))
 				: "Running";
-			const dateRange = entry.ended_at
-				? `${formatReceiptDateTime(entry.started_at)} - ${formatReceiptDateTime(entry.ended_at)}`
-				: `${formatReceiptDateTime(entry.started_at)} - Running`;
-			const description = entry.description ?? "";
-			const isEditing = editingTimeEntryIds.has(entry.id);
-			if (isEditing) {
-				return `
-					<div class="time-entry-card">
-						<div class="time-entry-card__header">
-							<div class="time-entry-card__project">
-								<span class="time-color" style="--time-color: ${escapeHtml(projectColor)}"></span>
-								<strong>${escapeHtml(projectName)}</strong>
-								<span class="tag ${entry.ended_at ? "tag--neutral" : ""}">${duration}</span>
+			return `
+				<div class="time-entry-row ${entry.ended_at ? "" : "time-entry-row--running"}" data-time-entry-row="${entry.id}">
+					<div class="time-entry-row__summary" data-time-entry-summary="${entry.id}">
+						<div class="time-entry-row__main">
+							<div class="time-entry-row__header">
+								<div class="time-entry-row__title">
+									<span class="time-color" style="--time-color: ${escapeHtml(projectColor)}"></span>
+									<strong>${escapeHtml(projectName)}</strong>
+									<span class="tag ${entry.ended_at ? "tag--neutral" : ""}">
+										${duration}
+									</span>
+								</div>
+								<button class="secondary time-entry-row__edit" type="button" data-edit-time-entry-id="${entry.id}">Edit</button>
+							</div>
+							<div class="time-entry-row__description">
+								${description ? escapeHtml(description) : "No description"}
+							</div>
+							<div class="section-copy">
+								${formatReceiptDateTime(entry.started_at)}${entry.ended_at ? ` - ${formatReceiptDateTime(entry.ended_at)}` : ""}
 							</div>
 						</div>
-						<div class="time-entry-card__form">
+						<div class="time-entry-row__actions">
+							<button
+								class="secondary"
+								type="button"
+								data-start-time-project-id="${entry.project_id}"
+								data-start-time-description="${escapeHtml(description)}"
+							>
+								Start Again
+							</button>
+						</div>
+					</div>
+					<form class="time-entry-edit-form" data-time-entry-edit-form="${entry.id}" hidden>
+						<label>
+							Project
 							<select data-time-entry-project="${entry.id}" aria-label="Entry project">
 								${renderTimeProjectOptions(projects, entry.project_id)}
 							</select>
-							<input data-time-entry-description="${entry.id}" value="${escapeHtml(description)}" aria-label="Entry description" />
-							<div class="row">
-								<label>
-									Start
-									<input data-time-entry-started-at="${entry.id}" type="datetime-local" value="${startedAt}" />
-								</label>
-								<label>
-									End
-									<input data-time-entry-ended-at="${entry.id}" type="datetime-local" value="${endedAt}" ${entry.ended_at ? "" : "disabled"} />
-								</label>
-							</div>
-							<div class="actions">
-								<button class="secondary" type="button" data-save-time-entry-id="${entry.id}">Save</button>
-								<button class="secondary" type="button" data-cancel-edit-time-entry-id="${entry.id}">Cancel</button>
-								<button class="secondary" type="button" data-delete-time-entry-id="${entry.id}">Delete</button>
-							</div>
+						</label>
+						<label>
+							Description
+							<input data-time-entry-description="${entry.id}" value="${escapeHtml(entry.description ?? "")}" aria-label="Entry description" />
+						</label>
+						<div class="row">
+							<label>
+								Start
+								<input data-time-entry-started-at="${entry.id}" type="datetime-local" value="${startedAt}" required />
+							</label>
+							<label>
+								End
+								<input data-time-entry-ended-at="${entry.id}" type="datetime-local" value="${endedAt}" />
+							</label>
 						</div>
-						<div class="section-copy">${dateRange}</div>
-					</div>
-				`;
-			}
-			return `
-				<div class="time-entry-card">
-					<div class="time-entry-card__header">
-						<div class="time-entry-card__project">
-							<span class="time-color" style="--time-color: ${escapeHtml(projectColor)}"></span>
-							<strong>${escapeHtml(projectName)}</strong>
-							<span class="tag ${entry.ended_at ? "tag--neutral" : ""}">${duration}</span>
+						<div class="actions">
+							<button class="primary" type="button" data-save-time-entry-id="${entry.id}">Save</button>
+							<button class="secondary" type="button" data-cancel-time-entry-id="${entry.id}">Cancel</button>
+							<button class="secondary" type="button" data-delete-time-entry-id="${entry.id}">Delete</button>
 						</div>
-						<button class="secondary time-entry-card__edit" type="button" data-edit-time-entry-id="${entry.id}">Edit</button>
-					</div>
-					${description ? `<div class="time-entry-card__description">${escapeHtml(description)}</div>` : ""}
-					<div class="section-copy">${dateRange}</div>
-					<button
-						class="secondary time-entry-card__restart"
-						type="button"
-						data-start-again-time-entry-id="${entry.id}"
-						data-time-entry-project-id="${entry.project_id}"
-						data-time-entry-description="${escapeHtml(description)}"
-					>
-						Start Again
-					</button>
+					</form>
 				</div>
 			`;
 		})
@@ -2178,27 +2450,16 @@ const renderTimeReport = (report: TimeReport) => {
 const loadTimeTrackingPage = async () => {
 	try {
 		setStatus("time-status", "Loading time tracking...");
-		const range = getCurrentTimeRangeOption();
-		const [projects, entries, report] = await Promise.all([
+		const [projects, entries] = await Promise.all([
 			fetchTimeProjects(),
 			fetchTimeEntries(),
-			fetchTimeReport(range),
 		]);
 		const runningEntry =
-			entries.find((entry) => entry.ended_at === null) ??
-			report.running_entry ??
-			null;
-		const manualProjectSelect = document.getElementById("time-manual-project");
-		if (manualProjectSelect instanceof HTMLSelectElement) {
-			manualProjectSelect.innerHTML = renderTimeProjectOptions(projects);
-			manualProjectSelect.disabled = !projects.some(
-				(project) => project.archived_at === null,
-			);
-		}
-		renderTimeTimer(projects, runningEntry);
-		renderTimeProjects(projects);
+			entries.find((entry) => entry.ended_at === null) ?? null;
+		currentTimeProjectChoices = buildTimeProjectChoices(entries, projects);
+		renderTimeTimer(runningEntry, findPreviousTimeEntryEnd(entries, runningEntry));
+		renderTimeQuickActions(buildTimeQuickActions(entries, projects));
 		renderTimeEntries(entries, projects);
-		renderTimeReport(report);
 		setStatus("time-status", `Loaded ${entries.length} time entr${entries.length === 1 ? "y" : "ies"}.`);
 	} catch (error) {
 		setStatus(
@@ -2936,14 +3197,16 @@ const renderInventoryTree = (
 			data-drop-id=""
 		>
 			<div class="inventory-tree__toolbar">
-				<label class="inventory-tree__filter">
-					View
-					<select id="inventory-item-mode">
-						<option value="active" ${inventoryItemMode === "active" ? "selected" : ""}>Active</option>
-						<option value="consumed" ${inventoryItemMode === "consumed" ? "selected" : ""}>Consumed</option>
-						<option value="all" ${inventoryItemMode === "all" ? "selected" : ""}>All</option>
-					</select>
-				</label>
+				<div id="inventory-status" class="status"></div>
+				<select
+					id="inventory-item-mode"
+					class="inventory-tree__filter"
+					aria-label="Inventory view"
+				>
+					<option value="active" ${inventoryItemMode === "active" ? "selected" : ""}>Active</option>
+					<option value="consumed" ${inventoryItemMode === "consumed" ? "selected" : ""}>Consumed</option>
+					<option value="all" ${inventoryItemMode === "all" ? "selected" : ""}>All</option>
+				</select>
 				<button
 					class="primary inventory-node__button"
 					type="button"
@@ -5497,121 +5760,85 @@ const attachTimePageEvents = () => {
 	const page = document.getElementById("time-page");
 	if (!page) return;
 
-	document
-		.getElementById("time-range-select")
-		?.addEventListener("change", (event) => {
-			const target = event.target;
-			if (!(target instanceof HTMLSelectElement)) return;
-			const selectedRange = getTimeRangeOption(target.value);
-			target.value = selectedRange.value;
-			const url = new URL(window.location.href);
-			if (selectedRange.value === DEFAULT_TIME_RANGE_VALUE) {
-				url.searchParams.delete("span");
-			} else {
-				url.searchParams.set("span", selectedRange.value);
-			}
-			window.history.replaceState({}, "", `${url.pathname}${url.search}`);
-			void loadTimeTrackingPage();
-		});
+	page.addEventListener("submit", async (event) => {
+		const target = event.target;
+		if (!(target instanceof HTMLFormElement)) return;
+		if (
+			target.id !== "time-entry-start-form" &&
+			target.id !== "time-running-start-form"
+		) {
+			return;
+		}
+		event.preventDefault();
 
-	document
-		.getElementById("time-project-form")
-		?.addEventListener("submit", async (event) => {
-			event.preventDefault();
-			const nameInput = document.getElementById("time-project-name");
-			const colorInput = document.getElementById("time-project-color");
-			if (!(nameInput instanceof HTMLInputElement)) return;
-			const name = nameInput.value.trim();
-			if (!name) {
-				setStatus("time-project-status", "Project name is required.", true);
-				return;
-			}
-			try {
-				await timeApiJson<TimeProject>("/api/time-projects", {
-					method: "POST",
-					body: JSON.stringify({
-						name,
-						color:
-							colorInput instanceof HTMLInputElement && colorInput.value.trim()
-								? colorInput.value.trim()
-								: undefined,
-						archived_at: null,
-					}),
-				});
-				nameInput.value = "";
-				setStatus("time-project-status", `Created ${name}.`);
-				await loadTimeTrackingPage();
-			} catch (error) {
-				setStatus(
-					"time-project-status",
-					error instanceof Error ? error.message : "Failed to create project.",
-					true,
-				);
-			}
-		});
-
-	document
-		.getElementById("time-manual-entry-form")
-		?.addEventListener("submit", async (event) => {
-			event.preventDefault();
-			const projectInput = document.getElementById("time-manual-project");
-			const descriptionInput = document.getElementById("time-manual-description");
-			const startedAtInput = document.getElementById("time-manual-started-at");
-			const endedAtInput = document.getElementById("time-manual-ended-at");
+		if (target.id === "time-running-start-form") {
+			const projectInput = document.getElementById("time-running-project-select");
+			const descriptionInput = document.getElementById("time-running-description");
+			const startInput = document.getElementById("time-running-started-at");
+			const entryId = target.dataset.timeEntryId;
 			if (
 				!(projectInput instanceof HTMLSelectElement) ||
-				!(startedAtInput instanceof HTMLInputElement) ||
-				!(endedAtInput instanceof HTMLInputElement)
+				!(startInput instanceof HTMLInputElement) ||
+				!entryId
 			) {
 				return;
 			}
-			const startedAt = localDateTimeToIso(startedAtInput.value);
-			const endedAt = localDateTimeToIso(endedAtInput.value);
-			if (!startedAt || !endedAt) {
-				setStatus("time-entry-status", "Start and end are required.", true);
+			const startedAt = parseDateTimeLocalInput(startInput.value);
+			const project = findTimeProjectChoiceById(Number(projectInput.value))?.project;
+			if (!project) {
+				setStatus("time-status", "Project is required.", true);
 				return;
 			}
+			if (!startedAt) {
+				setStatus("time-status", "Start time is invalid.", true);
+				return;
+			}
+
 			try {
-				await timeApiJson<TimeEntry>("/api/time-entries", {
-					method: "POST",
+				await timeApiJson<TimeEntry>(`/api/time-entries/${entryId}`, {
+					method: "PATCH",
 					body: JSON.stringify({
-						project_id: Number(projectInput.value),
+						project_id: project.id,
 						description:
 							descriptionInput instanceof HTMLInputElement &&
 							descriptionInput.value.trim()
 								? descriptionInput.value.trim()
 								: null,
 						started_at: startedAt,
-						ended_at: endedAt,
 					}),
 				});
-				if (event.target instanceof HTMLFormElement) event.target.reset();
-				setStatus("time-entry-status", "Added manual entry.");
+				setStatus("time-status", "Running timer updated.");
 				await loadTimeTrackingPage();
 			} catch (error) {
 				setStatus(
-					"time-entry-status",
-					error instanceof Error ? error.message : "Failed to add entry.",
+					"time-status",
+					error instanceof Error
+						? error.message
+						: "Failed to update running timer.",
 					true,
 				);
 			}
-		});
+			return;
+		}
 
-	page.addEventListener("submit", async (event) => {
-		const target = event.target;
-		if (!(target instanceof HTMLFormElement)) return;
-		if (target.id !== "time-entry-start-form") return;
-		event.preventDefault();
-
-		const projectInput = document.getElementById("time-entry-project");
+		const projectInput = document.getElementById("time-entry-project-select");
 		const descriptionInput = document.getElementById("time-entry-description");
 		if (!(projectInput instanceof HTMLSelectElement)) return;
+		if (!projectInput.value || projectInput.value === NEW_TIME_PROJECT_VALUE) {
+			setStatus("time-status", "Project is required.", true);
+			return;
+		}
 
 		try {
+			const project = findTimeProjectChoiceById(Number(projectInput.value))?.project;
+			if (!project) {
+				setStatus("time-status", "Project is required.", true);
+				return;
+			}
 			await timeApiJson<TimeEntry>("/api/time-entries/start", {
 				method: "POST",
 				body: JSON.stringify({
-					project_id: Number(projectInput.value),
+					project_id: project.id,
 					description:
 						descriptionInput instanceof HTMLInputElement &&
 						descriptionInput.value.trim()
@@ -5630,86 +5857,213 @@ const attachTimePageEvents = () => {
 		}
 	});
 
+	const projectModal = document.getElementById("time-project-modal");
+	const projectModalForm = document.getElementById("time-project-modal-form");
+	const projectModalNameInput = document.getElementById("time-project-modal-name");
+
+	const closeTimeProjectModal = () => {
+		if (!(projectModal instanceof HTMLElement)) return;
+		projectModal.hidden = true;
+		document.body.classList.remove("modal-open");
+		if (projectModalForm instanceof HTMLFormElement) projectModalForm.reset();
+		setStatus("time-project-modal-status", "");
+		const projectSelect = document.getElementById("time-entry-project-select");
+		if (
+			projectSelect instanceof HTMLSelectElement &&
+			projectSelect.value === NEW_TIME_PROJECT_VALUE
+		) {
+			projectSelect.value = "";
+		}
+	};
+
+	const openTimeProjectModal = () => {
+		if (!(projectModal instanceof HTMLElement)) return;
+		projectModal.hidden = false;
+		document.body.classList.add("modal-open");
+		setStatus("time-project-modal-status", "");
+		if (projectModalNameInput instanceof HTMLInputElement) {
+			projectModalNameInput.focus();
+		}
+	};
+
+	const closeTimeRunningEditModal = () => {
+		const runningEditModal = document.getElementById("time-running-edit-modal");
+		if (!(runningEditModal instanceof HTMLElement)) return;
+		runningEditModal.hidden = true;
+		document.body.classList.remove("modal-open");
+	};
+
+	const openTimeRunningEditModal = () => {
+		const runningEditModal = document.getElementById("time-running-edit-modal");
+		if (!(runningEditModal instanceof HTMLElement)) return;
+		runningEditModal.hidden = false;
+		document.body.classList.add("modal-open");
+		document.getElementById("time-running-project-select")?.focus();
+	};
+
+	page.addEventListener("change", (event) => {
+		const target = event.target;
+		if (!(target instanceof HTMLSelectElement)) return;
+		if (target.id !== "time-entry-project-select") return;
+		if (target.value !== NEW_TIME_PROJECT_VALUE) {
+			return;
+		}
+		target.value = "";
+		openTimeProjectModal();
+	});
+
+	page.addEventListener("submit", async (event) => {
+		const target = event.target;
+		if (!(target instanceof HTMLFormElement)) return;
+		if (target.id !== "time-project-modal-form") return;
+		event.preventDefault();
+
+		const projectName =
+			projectModalNameInput instanceof HTMLInputElement
+				? projectModalNameInput.value.trim()
+				: "";
+		if (!projectName) {
+			setStatus("time-project-modal-status", "Project name is required.", true);
+			return;
+		}
+
+		try {
+			const project =
+				findTimeProjectChoice(projectName)?.project ??
+				(await createTimeProject(projectName));
+			if (!findTimeProjectChoiceById(project.id)) {
+				currentTimeProjectChoices.push({
+					project,
+					entry_count: 0,
+					total_seconds: 0,
+					latest_started_at: null,
+				});
+			}
+			const projectSelect = document.getElementById("time-entry-project-select");
+			if (projectSelect instanceof HTMLSelectElement) {
+				const existingOption = projectSelect.querySelector<HTMLOptionElement>(
+					`option[value="${project.id}"]`,
+				);
+				if (!existingOption) {
+					const option = document.createElement("option");
+					option.value = String(project.id);
+					option.textContent = project.name;
+					const createOption = projectSelect.querySelector<HTMLOptionElement>(
+						`option[value="${NEW_TIME_PROJECT_VALUE}"]`,
+					);
+					projectSelect.insertBefore(option, createOption);
+				}
+				projectSelect.value = String(project.id);
+			}
+
+			closeTimeProjectModal();
+		} catch (error) {
+			setStatus(
+				"time-project-modal-status",
+				error instanceof Error ? error.message : "Failed to create project.",
+				true,
+			);
+		}
+	});
+
+	page.addEventListener("click", (event) => {
+		const target = event.target;
+		if (!(target instanceof HTMLElement)) return;
+		if (target.closest("[data-time-project-modal-close]")) {
+			closeTimeProjectModal();
+		}
+		if (target.closest("[data-time-running-edit-modal-close]")) {
+			closeTimeRunningEditModal();
+		}
+	});
+
+	document.addEventListener("keydown", (event) => {
+		const runningEditModal = document.getElementById("time-running-edit-modal");
+		if (
+			event.key === "Escape" &&
+			projectModal instanceof HTMLElement &&
+			!projectModal.hidden
+		) {
+			closeTimeProjectModal();
+			return;
+		}
+		if (
+			event.key === "Escape" &&
+			runningEditModal instanceof HTMLElement &&
+			!runningEditModal.hidden
+		) {
+			closeTimeRunningEditModal();
+		}
+	});
+
 	page.addEventListener("click", async (event) => {
 		const target = event.target;
 		if (!(target instanceof HTMLElement)) return;
 
 		const stopButton = target.closest("[data-time-entry-id]");
-		const saveProjectButton = target.closest("[data-save-time-project-id]");
-		const archiveProjectButton = target.closest("[data-archive-time-project-id]");
+		const previousEndButton = target.closest(
+			"[data-time-running-previous-ended-at]",
+		);
+		const startButton = target.closest("[data-start-time-project-id]");
+		const runningEditButton = target.closest("[data-time-running-edit-open]");
 		const editEntryButton = target.closest("[data-edit-time-entry-id]");
-		const cancelEditEntryButton = target.closest("[data-cancel-edit-time-entry-id]");
-		const startAgainEntryButton = target.closest("[data-start-again-time-entry-id]");
+		const cancelEntryButton = target.closest("[data-cancel-time-entry-id]");
 		const saveEntryButton = target.closest("[data-save-time-entry-id]");
 		const deleteEntryButton = target.closest("[data-delete-time-entry-id]");
 
+		if (runningEditButton instanceof HTMLButtonElement) {
+			openTimeRunningEditModal();
+			return;
+		}
+
+		if (editEntryButton instanceof HTMLButtonElement) {
+			const id = editEntryButton.dataset.editTimeEntryId;
+			if (!id) return;
+			document.querySelector<HTMLElement>(`[data-time-entry-summary="${id}"]`)?.setAttribute("hidden", "");
+			document.querySelector<HTMLElement>(`[data-time-entry-edit-form="${id}"]`)?.removeAttribute("hidden");
+			return;
+		}
+
+		if (cancelEntryButton instanceof HTMLButtonElement) {
+			const id = cancelEntryButton.dataset.cancelTimeEntryId;
+			if (!id) return;
+			document.querySelector<HTMLElement>(`[data-time-entry-edit-form="${id}"]`)?.setAttribute("hidden", "");
+			document.querySelector<HTMLElement>(`[data-time-entry-summary="${id}"]`)?.removeAttribute("hidden");
+			return;
+		}
+
 		try {
+			if (previousEndButton instanceof HTMLButtonElement) {
+				const runningForm = document.getElementById("time-running-start-form");
+				const startedAtInput = document.getElementById("time-running-started-at");
+				const entryId =
+					runningForm instanceof HTMLFormElement
+						? runningForm.dataset.timeEntryId
+						: null;
+				const previousEndedAt = previousEndButton.dataset.timeRunningPreviousEndedAt;
+				if (
+					!(startedAtInput instanceof HTMLInputElement) ||
+					!entryId ||
+					!previousEndedAt
+				) {
+					return;
+				}
+				startedAtInput.value = formatTimestampForDateTimeLocalInput(previousEndedAt);
+				await timeApiJson<TimeEntry>(`/api/time-entries/${entryId}`, {
+					method: "PATCH",
+					body: JSON.stringify({ started_at: previousEndedAt }),
+				});
+				setStatus("time-status", "Timer start set to previous end.");
+				await loadTimeTrackingPage();
+				return;
+			}
+
 			if (stopButton instanceof HTMLButtonElement) {
 				await timeApiJson<TimeEntry>(
 					`/api/time-entries/${stopButton.dataset.timeEntryId}/stop`,
 					{ method: "POST", body: JSON.stringify({}) },
 				);
 				setStatus("time-status", "Timer stopped.");
-				await loadTimeTrackingPage();
-				return;
-			}
-
-			if (saveProjectButton instanceof HTMLButtonElement) {
-				const id = Number(saveProjectButton.dataset.saveTimeProjectId);
-				const nameInput = document.querySelector<HTMLInputElement>(
-					`[data-time-project-name="${id}"]`,
-				);
-				const colorInput = document.querySelector<HTMLInputElement>(
-					`[data-time-project-color="${id}"]`,
-				);
-				await timeApiJson<TimeProject>(`/api/time-projects/${id}`, {
-					method: "PATCH",
-					body: JSON.stringify({
-						name: nameInput?.value.trim(),
-						color: colorInput?.value.trim(),
-					}),
-				});
-				setStatus("time-project-status", "Project saved.");
-				await loadTimeTrackingPage();
-				return;
-			}
-
-			if (archiveProjectButton instanceof HTMLButtonElement) {
-				const id = Number(archiveProjectButton.dataset.archiveTimeProjectId);
-				await timeApiJson<TimeProject>(`/api/time-projects/${id}`, {
-					method: "PATCH",
-					body: JSON.stringify({ archived_at: new Date().toISOString() }),
-				});
-				setStatus("time-project-status", "Project archived.");
-				await loadTimeTrackingPage();
-				return;
-			}
-
-			if (editEntryButton instanceof HTMLButtonElement) {
-				editingTimeEntryIds.add(Number(editEntryButton.dataset.editTimeEntryId));
-				await loadTimeTrackingPage();
-				return;
-			}
-
-			if (cancelEditEntryButton instanceof HTMLButtonElement) {
-				editingTimeEntryIds.delete(
-					Number(cancelEditEntryButton.dataset.cancelEditTimeEntryId),
-				);
-				await loadTimeTrackingPage();
-				return;
-			}
-
-			if (startAgainEntryButton instanceof HTMLButtonElement) {
-				await timeApiJson<TimeEntry>("/api/time-entries/start", {
-					method: "POST",
-					body: JSON.stringify({
-						project_id: Number(startAgainEntryButton.dataset.timeEntryProjectId),
-						description:
-							startAgainEntryButton.dataset.timeEntryDescription?.trim() ||
-							null,
-					}),
-				});
-				setStatus("time-status", "Timer started.");
 				await loadTimeTrackingPage();
 				return;
 			}
@@ -5728,31 +6082,50 @@ const attachTimePageEvents = () => {
 				const endedAtInput = document.querySelector<HTMLInputElement>(
 					`[data-time-entry-ended-at="${id}"]`,
 				);
+				const startedAt = startedAtInput
+					? parseDateTimeLocalInput(startedAtInput.value)
+					: null;
+				const endedAt = endedAtInput?.value.trim()
+					? parseDateTimeLocalInput(endedAtInput.value)
+					: null;
+				if (!projectInput || !startedAt || (endedAtInput?.value.trim() && !endedAt)) {
+					setStatus("time-status", "Entry times are invalid.", true);
+					return;
+				}
 				await timeApiJson<TimeEntry>(`/api/time-entries/${id}`, {
 					method: "PATCH",
 					body: JSON.stringify({
-						project_id: projectInput ? Number(projectInput.value) : undefined,
+						project_id: Number(projectInput.value),
 						description: descriptionInput?.value.trim() || null,
-						started_at: startedAtInput
-							? localDateTimeToIso(startedAtInput.value)
-							: undefined,
-						ended_at:
-							endedAtInput && !endedAtInput.disabled
-								? localDateTimeToIso(endedAtInput.value)
-								: undefined,
+						started_at: startedAt,
+						ended_at: endedAt,
 					}),
 				});
-				editingTimeEntryIds.delete(id);
-				setStatus("time-entry-status", "Entry saved.");
+				setStatus("time-status", "Entry saved.");
 				await loadTimeTrackingPage();
 				return;
 			}
 
 			if (deleteEntryButton instanceof HTMLButtonElement) {
 				const id = Number(deleteEntryButton.dataset.deleteTimeEntryId);
-				await fetch(`/api/time-entries/${id}`, { method: "DELETE" });
-				editingTimeEntryIds.delete(id);
-				setStatus("time-entry-status", "Entry deleted.");
+				const response = await fetch(`/api/time-entries/${id}`, { method: "DELETE" });
+				if (!response.ok) {
+					throw new Error("Failed to delete entry.");
+				}
+				setStatus("time-status", "Entry deleted.");
+				await loadTimeTrackingPage();
+				return;
+			}
+
+			if (startButton instanceof HTMLButtonElement) {
+				await timeApiJson<TimeEntry>("/api/time-entries/start", {
+					method: "POST",
+					body: JSON.stringify({
+						project_id: Number(startButton.dataset.startTimeProjectId),
+						description: startButton.dataset.startTimeDescription?.trim() || null,
+					}),
+				});
+				setStatus("time-status", "Timer started.");
 				await loadTimeTrackingPage();
 			}
 		} catch (error) {
@@ -7895,13 +8268,8 @@ const attachInventoryItemDetailEvents = (
 const renderInventoryPage = () => {
 	renderPage(
 		`
-			<section class="workspace workspace--single">
-				<div class="card panel inventory-tree-panel">
-					<div class="section-header section-header--end">
-						<div id="inventory-status" class="status"></div>
-					</div>
-					<div id="inventory-tree-root"></div>
-				</div>
+			<section class="inventory-page">
+				<div id="inventory-tree-root"></div>
 			</section>
 
 			<div class="inventory-container-modal" id="inventory-container-modal" hidden>
@@ -8000,6 +8368,7 @@ const renderInventoryPage = () => {
 				</div>
 			</div>
 		`,
+		"page-shell--wide",
 	);
 
 	attachInventoryPageEvents();
@@ -8295,28 +8664,9 @@ const renderReceiptsPage = () => {
 
 	renderPage(
 		`
-			<section class="workspace workspace--single">
-				<div class="card panel">
-					<div class="section-header">
-						<h2>Receipts</h2>
-						<div class="actions">
-							<button
-								class="secondary"
-								type="button"
-								id="open-group-modal-button"
-							>
-								New group
-							</button>
-							<button
-								class="primary"
-								type="button"
-								id="open-receipt-modal-button"
-							>
-								Add Receipt
-							</button>
-						</div>
-					</div>
-					<div class="toolbar toolbar--wrap">
+			<section class="receipts-page">
+				<div class="receipts-page__controls">
+					<div class="toolbar toolbar--wrap receipts-page__filters">
 						<select
 							id="receipt-group-filter"
 							class="toolbar__select"
@@ -8329,11 +8679,27 @@ const renderReceiptsPage = () => {
 							<input id="receipt-chronological-view" type="checkbox" ${initialReceiptViewMode === "chronological" ? "checked" : ""} />
 							Chronological view
 						</label>
-						<button class="secondary" type="button" id="receipt-refresh-button">Refresh</button>
 					</div>
-					<div id="receipt-status" class="status"></div>
-					<div id="receipt-results" class="results"></div>
+					<div class="actions receipts-page__actions">
+						<button class="secondary" type="button" id="receipt-refresh-button">Refresh</button>
+						<button
+							class="secondary"
+							type="button"
+							id="open-group-modal-button"
+						>
+							New group
+						</button>
+						<button
+							class="primary"
+							type="button"
+							id="open-receipt-modal-button"
+						>
+							Add Receipt
+						</button>
+					</div>
 				</div>
+				<div id="receipt-status" class="status"></div>
+				<div id="receipt-results" class="results"></div>
 			</section>
 
 			<div class="receipt-create-modal" id="receipt-create-modal" hidden>
@@ -8450,6 +8816,7 @@ const renderReceiptsPage = () => {
 				</div>
 			</div>
 		`,
+		"page-shell--wide",
 	);
 
 	attachUploadDropzones(document.body);
@@ -8513,101 +8880,82 @@ const renderShoppingListsPage = () => {
 };
 
 const renderTimePage = () => {
-	const selectedRange = getCurrentTimeRangeOption();
-	const now = new Date();
-	const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-
 	renderPage(
 		`
 			<section id="time-page">
-				<section class="page-heading page-heading--compact">
-					<div>
-						<span class="eyebrow">Time</span>
-						<h1 class="page-title">Time Tracking</h1>
-					</div>
-					<div class="spending-breakdown-controls">
-						<label for="time-range-select">
-							<span>Report span</span>
-							<select id="time-range-select">
-								${renderTimeRangeOptions(selectedRange.value)}
-							</select>
-						</label>
-					</div>
-				</section>
-
 				<section class="workspace time-workspace">
 					<div class="time-sidebar">
-						<div class="card panel" id="time-timer-panel"></div>
+						<section class="time-block" id="time-timer-panel"></section>
 
-						<div class="card panel">
+						<section class="time-block">
 							<div class="section-header">
-								<h2>Projects</h2>
+								<h2>Quick Actions</h2>
 							</div>
-							<form id="time-project-form">
-								<div class="time-project-create">
-									<input id="time-project-name" placeholder="Project name" autocomplete="off" required />
-									<input id="time-project-color" placeholder="#2d7c6f" autocomplete="off" />
-									<button class="primary" type="submit">Add</button>
-								</div>
-							</form>
-							<div id="time-project-status" class="status"></div>
-							<div id="time-project-results" class="time-project-list"></div>
-						</div>
+							<div id="time-quick-actions" class="time-quick-actions"></div>
+						</section>
 					</div>
 
 					<div class="time-main">
-						<div class="card panel">
-							<div class="section-header">
-								<h2>Manual Entry</h2>
-							</div>
-							<form id="time-manual-entry-form">
-								<div class="row">
-									<label>
-										Project
-										<select id="time-manual-project" required></select>
-									</label>
-									<label>
-										Description
-										<input id="time-manual-description" placeholder="Optional note" autocomplete="off" />
-									</label>
-								</div>
-								<div class="row">
-									<label>
-										Start
-										<input id="time-manual-started-at" type="datetime-local" value="${formatDateTimeLocalInput(oneHourAgo)}" required />
-									</label>
-									<label>
-										End
-										<input id="time-manual-ended-at" type="datetime-local" value="${formatDateTimeLocalInput(now)}" required />
-									</label>
-								</div>
-								<div class="actions">
-									<button class="primary" type="submit">Add Entry</button>
-								</div>
-							</form>
-							<div id="time-entry-status" class="status"></div>
-						</div>
-
-						<div class="card panel">
-							<div class="section-header">
-								<h2>${escapeHtml(selectedRange.label)}</h2>
-							</div>
-							<div id="time-report-summary"></div>
-							<div id="time-report-results" class="time-report-list"></div>
-						</div>
-
-						<div class="card panel">
+						<section class="time-block">
 							<div class="section-header">
 								<h2>Past Entries</h2>
+								<div id="time-status" class="status"></div>
 							</div>
-							<div id="time-status" class="status"></div>
 							<div id="time-entry-results" class="time-entry-list"></div>
-						</div>
+						</section>
 					</div>
-				</section>
+					</section>
+
+					<div class="time-project-modal" id="time-project-modal" hidden>
+						<div
+							class="time-project-modal__backdrop"
+							data-time-project-modal-close
+						></div>
+						<div
+							class="time-project-modal__dialog card panel"
+							role="dialog"
+							aria-modal="true"
+							aria-labelledby="time-project-modal-title"
+						>
+							<div class="section-header">
+								<h2 id="time-project-modal-title">New Project</h2>
+								<button
+									class="secondary"
+									type="button"
+									aria-label="Close new project modal"
+									data-time-project-modal-close
+								>
+									Close
+								</button>
+							</div>
+							<form id="time-project-modal-form">
+								<label>
+									Project Name
+									<input
+										id="time-project-modal-name"
+										name="project-name"
+										placeholder="Project name"
+										autocomplete="off"
+										required
+									/>
+								</label>
+								<div class="actions">
+									<button class="primary" type="submit">Create Project</button>
+									<button
+										class="secondary"
+										type="button"
+										data-time-project-modal-close
+									>
+										Cancel
+									</button>
+							</div>
+						</form>
+						<div id="time-project-modal-status" class="status"></div>
+					</div>
+				</div>
 			</section>
-		`,
-	);
+			`,
+		);
 
 	attachTimePageEvents();
 	void loadTimeTrackingPage();
