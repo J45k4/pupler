@@ -329,6 +329,340 @@ export const escapeHtml = (value: string) =>
 		.replaceAll('"', "&quot;")
 		.replaceAll("'", "&#39;");
 
+type SearchSelectOption = {
+	value: string;
+	label: string;
+};
+
+type SearchSelectState = {
+	options: SearchSelectOption[];
+	activeIndex: number;
+};
+
+type SearchSelectItem =
+	| { kind: "option"; option: SearchSelectOption; optionIndex: number }
+	| { kind: "create"; label: string }
+	| { kind: "empty"; label: string };
+
+const searchSelectState = new WeakMap<HTMLElement, SearchSelectState>();
+
+export const renderSearchSelect = (options: {
+	id: string;
+	placeholder?: string;
+	allowCreate?: boolean;
+	createLabelPrefix?: string;
+	required?: boolean;
+}) => {
+	const menuId = `${options.id}-menu`;
+	const valueId = `${options.id}-value`;
+
+	return `
+		<div
+			class="search-select"
+			data-search-select="${escapeHtml(options.id)}"
+			data-search-select-allow-create="${options.allowCreate ? "true" : "false"}"
+			data-search-select-create-label-prefix="${escapeHtml(options.createLabelPrefix ?? "Create")}"
+		>
+			<input
+				id="${escapeHtml(options.id)}"
+				class="search-select__input"
+				data-search-select-input
+				role="combobox"
+				aria-autocomplete="list"
+				aria-expanded="false"
+				aria-controls="${escapeHtml(menuId)}"
+				placeholder="${escapeHtml(options.placeholder ?? "")}"
+				autocomplete="off"
+				${options.required ? "required" : ""}
+			/>
+			<input id="${escapeHtml(valueId)}" type="hidden" data-search-select-value />
+			<div
+				id="${escapeHtml(menuId)}"
+				class="search-select__menu"
+				role="listbox"
+				hidden
+			></div>
+		</div>
+	`;
+};
+
+const normalizeSearchSelectText = (value: string) =>
+	value.trim().toLowerCase();
+
+const getSearchSelectState = (root: HTMLElement) => {
+	let state = searchSelectState.get(root);
+	if (!state) {
+		state = { options: [], activeIndex: 0 };
+		searchSelectState.set(root, state);
+	}
+	return state;
+};
+
+const searchSelectInput = (root: HTMLElement) =>
+	root.querySelector<HTMLInputElement>("[data-search-select-input]");
+
+const searchSelectHiddenInput = (root: HTMLElement) =>
+	root.querySelector<HTMLInputElement>("[data-search-select-value]");
+
+const searchSelectMenu = (root: HTMLElement) =>
+	root.querySelector<HTMLElement>(".search-select__menu");
+
+const searchSelectAllowsCreate = (root: HTMLElement) =>
+	root.dataset.searchSelectAllowCreate === "true";
+
+const searchSelectItems = (root: HTMLElement): SearchSelectItem[] => {
+	const state = getSearchSelectState(root);
+	const input = searchSelectInput(root);
+	const query = input?.value.trim() ?? "";
+	const normalizedQuery = normalizeSearchSelectText(query);
+	const matches = normalizedQuery
+		? state.options.filter((option) =>
+				normalizeSearchSelectText(option.label).includes(normalizedQuery),
+			)
+		: state.options;
+	const items: SearchSelectItem[] = matches.slice(0, 8).map((option) => ({
+		kind: "option",
+		option,
+		optionIndex: state.options.indexOf(option),
+	}));
+	const exactMatch = state.options.some(
+		(option) => normalizeSearchSelectText(option.label) === normalizedQuery,
+	);
+
+	if (query && searchSelectAllowsCreate(root) && !exactMatch) {
+		items.push({ kind: "create", label: query });
+	}
+	if (!items.length) {
+		items.push({
+			kind: "empty",
+			label: query ? "No matches" : "No options",
+		});
+	}
+	return items;
+};
+
+const syncSearchSelectSelectedValue = (root: HTMLElement) => {
+	const input = searchSelectInput(root);
+	const hiddenInput = searchSelectHiddenInput(root);
+	if (!input || !hiddenInput) return;
+	const normalizedValue = normalizeSearchSelectText(input.value);
+	const option = getSearchSelectState(root).options.find(
+		(candidate) => normalizeSearchSelectText(candidate.label) === normalizedValue,
+	);
+	root.dataset.searchSelectSelectedValue = option?.value ?? "";
+	hiddenInput.value = option?.value ?? "";
+};
+
+const closeSearchSelect = (root: HTMLElement) => {
+	const input = searchSelectInput(root);
+	const menu = searchSelectMenu(root);
+	if (menu) menu.hidden = true;
+	if (input) input.setAttribute("aria-expanded", "false");
+};
+
+const renderSearchSelectMenu = (root: HTMLElement) => {
+	const input = searchSelectInput(root);
+	const menu = searchSelectMenu(root);
+	if (!input || !menu) return;
+	const state = getSearchSelectState(root);
+	const items = searchSelectItems(root);
+	const selectableCount = items.filter((item) => item.kind !== "empty").length;
+	state.activeIndex =
+		selectableCount === 0
+			? -1
+			: Math.min(Math.max(state.activeIndex, 0), selectableCount - 1);
+
+	let selectableIndex = 0;
+	menu.innerHTML = items
+		.map((item) => {
+			if (item.kind === "empty") {
+				return `<div class="search-select__empty">${escapeHtml(item.label)}</div>`;
+			}
+
+			const currentIndex = selectableIndex;
+			selectableIndex += 1;
+			const isActive = currentIndex === state.activeIndex;
+			if (item.kind === "create") {
+				const prefix = root.dataset.searchSelectCreateLabelPrefix ?? "Create";
+				return `
+					<button
+						class="search-select__option ${isActive ? "search-select__option--active" : ""}"
+						type="button"
+						role="option"
+						aria-selected="${isActive ? "true" : "false"}"
+						data-search-select-create
+					>
+						<span>${escapeHtml(prefix)}</span>
+						<strong>${escapeHtml(item.label)}</strong>
+					</button>
+				`;
+			}
+
+			return `
+				<button
+					class="search-select__option ${isActive ? "search-select__option--active" : ""}"
+					type="button"
+					role="option"
+					aria-selected="${isActive ? "true" : "false"}"
+					data-search-select-option-index="${item.optionIndex}"
+				>
+					${escapeHtml(item.option.label)}
+				</button>
+			`;
+		})
+		.join("");
+	menu.hidden = false;
+	input.setAttribute("aria-expanded", "true");
+};
+
+const selectSearchSelectOption = (
+	root: HTMLElement,
+	option: SearchSelectOption,
+) => {
+	const input = searchSelectInput(root);
+	const hiddenInput = searchSelectHiddenInput(root);
+	if (!input || !hiddenInput) return;
+	input.value = option.label;
+	hiddenInput.value = option.value;
+	root.dataset.searchSelectSelectedValue = option.value;
+	closeSearchSelect(root);
+};
+
+const selectSearchSelectCreateValue = (root: HTMLElement) => {
+	const input = searchSelectInput(root);
+	const hiddenInput = searchSelectHiddenInput(root);
+	if (!input || !hiddenInput) return;
+	input.value = input.value.trim();
+	hiddenInput.value = "";
+	root.dataset.searchSelectSelectedValue = "";
+	closeSearchSelect(root);
+};
+
+const searchSelectRootForId = (id: string) =>
+	[...document.querySelectorAll<HTMLElement>("[data-search-select]")].find(
+		(root) => root.dataset.searchSelect === id,
+	) ?? null;
+
+const searchSelectRootForTarget = (target: EventTarget | null) =>
+	target instanceof HTMLElement
+		? target.closest<HTMLElement>("[data-search-select]")
+		: null;
+
+const activeSearchSelectItem = (root: HTMLElement) => {
+	const state = getSearchSelectState(root);
+	const items = searchSelectItems(root).filter((item) => item.kind !== "empty");
+	return items[state.activeIndex] ?? null;
+};
+
+export const setSearchSelectOptions = (
+	id: string,
+	options: SearchSelectOption[],
+) => {
+	const root = searchSelectRootForId(id);
+	if (!root) return;
+	getSearchSelectState(root).options = options;
+	syncSearchSelectSelectedValue(root);
+	const menu = searchSelectMenu(root);
+	if (menu && !menu.hidden) {
+		renderSearchSelectMenu(root);
+	}
+};
+
+export const getSearchSelectText = (id: string) => {
+	const root = searchSelectRootForId(id);
+	return root ? (searchSelectInput(root)?.value.trim() ?? "") : "";
+};
+
+const attachSearchSelects = (root: Document | HTMLElement) => {
+	root.addEventListener("focusin", (event) => {
+		const searchRoot = searchSelectRootForTarget(event.target);
+		if (!searchRoot) return;
+		renderSearchSelectMenu(searchRoot);
+	});
+
+	root.addEventListener("input", (event) => {
+		const searchRoot = searchSelectRootForTarget(event.target);
+		if (!searchRoot) return;
+		getSearchSelectState(searchRoot).activeIndex = 0;
+		syncSearchSelectSelectedValue(searchRoot);
+		renderSearchSelectMenu(searchRoot);
+	});
+
+	root.addEventListener("keydown", (event) => {
+		if (!(event.target instanceof HTMLInputElement)) return;
+		const searchRoot = searchSelectRootForTarget(event.target);
+		if (!searchRoot) return;
+		const state = getSearchSelectState(searchRoot);
+		const selectableItems = searchSelectItems(searchRoot).filter(
+			(item) => item.kind !== "empty",
+		);
+		if (event.key === "ArrowDown") {
+			event.preventDefault();
+			state.activeIndex =
+				selectableItems.length === 0
+					? -1
+					: Math.min(state.activeIndex + 1, selectableItems.length - 1);
+			renderSearchSelectMenu(searchRoot);
+			return;
+		}
+		if (event.key === "ArrowUp") {
+			event.preventDefault();
+			state.activeIndex =
+				selectableItems.length === 0
+					? -1
+					: Math.max(state.activeIndex - 1, 0);
+			renderSearchSelectMenu(searchRoot);
+			return;
+		}
+		if (event.key === "Escape") {
+			closeSearchSelect(searchRoot);
+			return;
+		}
+		if (event.key === "Enter") {
+			const item = activeSearchSelectItem(searchRoot);
+			if (!item) return;
+			event.preventDefault();
+			if (item.kind === "create") {
+				selectSearchSelectCreateValue(searchRoot);
+				return;
+			}
+			selectSearchSelectOption(searchRoot, item.option);
+		}
+	});
+
+	root.addEventListener("mousedown", (event) => {
+		const target = event.target;
+		if (!(target instanceof HTMLElement)) return;
+		const searchRoot = searchSelectRootForTarget(target);
+		if (!searchRoot) return;
+		const optionButton = target.closest<HTMLElement>(
+			"[data-search-select-option-index]",
+		);
+		const createButton = target.closest<HTMLElement>("[data-search-select-create]");
+		if (!optionButton && !createButton) return;
+		event.preventDefault();
+		if (createButton) {
+			selectSearchSelectCreateValue(searchRoot);
+			return;
+		}
+		const optionIndex = Number(optionButton?.dataset.searchSelectOptionIndex);
+		const option = getSearchSelectState(searchRoot).options[optionIndex];
+		if (option) {
+			selectSearchSelectOption(searchRoot, option);
+		}
+	});
+
+	root.addEventListener("focusout", (event) => {
+		const searchRoot = searchSelectRootForTarget(event.target);
+		if (!searchRoot) return;
+		window.setTimeout(() => {
+			if (!searchRoot.contains(document.activeElement)) {
+				closeSearchSelect(searchRoot);
+			}
+		});
+	});
+};
+
 const TIME_RANGE_OPTIONS = [
 	{ value: "today", label: "Today" },
 	{ value: "7", label: "Last 7 Days" },
@@ -1355,6 +1689,17 @@ const createTimeProject = (name: string) =>
 		body: JSON.stringify({ name, archived_at: null }),
 	});
 
+const createTimeEntry = (values: {
+	project_id: number;
+	description: string | null;
+	started_at: string;
+	ended_at: string | null;
+}) =>
+	timeApiJson<TimeEntry>("/api/time-entries", {
+		method: "POST",
+		body: JSON.stringify(values),
+	});
+
 const timeRangeQuery = (option: TimeRangeOption) => {
 	const params = new URLSearchParams();
 	const now = new Date();
@@ -1468,6 +1813,25 @@ const renderTimeProjectSelectOptions = (
 			`,
 		)
 		.join("");
+
+const defaultTimeEntryCreateRange = () => {
+	const endedAt = new Date();
+	const startedAt = new Date(endedAt.getTime() - 60 * 60 * 1000);
+	return {
+		startedAt: formatDateTimeLocalInput(startedAt),
+		endedAt: formatDateTimeLocalInput(endedAt),
+	};
+};
+
+const syncTimeEntryCreateProjectOptions = () => {
+	setSearchSelectOptions(
+		"time-entry-create-project",
+		currentTimeProjectChoices.map((choice) => ({
+			value: String(choice.project.id),
+			label: choice.project.name,
+		})),
+	);
+};
 
 const buildTimeQuickActions = (
 	entries: TimeEntry[],
@@ -1855,6 +2219,7 @@ export const loadTimeTrackingPage = async () => {
 		const runningEntry =
 			entries.find((entry) => entry.ended_at === null) ?? null;
 		currentTimeProjectChoices = buildTimeProjectChoices(entries, projects);
+		syncTimeEntryCreateProjectOptions();
 		renderTimeTimer(runningEntry, findPreviousTimeEntryEnd(entries, runningEntry));
 		renderTimeQuickActions(buildTimeQuickActions(entries, projects));
 		renderTimeEntries(entries, projects);
@@ -4363,17 +4728,83 @@ export const attachProductDetailEvents = (productId: number) => {
 export const attachTimePageEvents = () => {
 	const page = document.getElementById("time-page");
 	if (!page) return;
+	attachSearchSelects(page);
 
 	page.addEventListener("submit", async (event) => {
 		const target = event.target;
 		if (!(target instanceof HTMLFormElement)) return;
 		if (
 			target.id !== "time-entry-start-form" &&
-			target.id !== "time-running-start-form"
+			target.id !== "time-running-start-form" &&
+			target.id !== "time-entry-create-form"
 		) {
 			return;
 		}
 		event.preventDefault();
+
+		if (target.id === "time-entry-create-form") {
+			const descriptionInput = document.getElementById(
+				"time-entry-create-description",
+			);
+			const startedAtInput = document.getElementById(
+				"time-entry-create-started-at",
+			);
+			const endedAtInput = document.getElementById("time-entry-create-ended-at");
+			if (
+				!(startedAtInput instanceof HTMLInputElement) ||
+				!(endedAtInput instanceof HTMLInputElement)
+			) {
+				return;
+			}
+			const projectName = getSearchSelectText("time-entry-create-project");
+			const startedAt = parseDateTimeLocalInput(startedAtInput.value);
+			const endedAt = endedAtInput.value.trim()
+				? parseDateTimeLocalInput(endedAtInput.value)
+				: null;
+			if (!projectName) {
+				setStatus("time-entry-create-status", "Project is required.", true);
+				return;
+			}
+			if (!startedAt || (endedAtInput.value.trim() && !endedAt)) {
+				setStatus("time-entry-create-status", "Entry times are invalid.", true);
+				return;
+			}
+
+			try {
+				const project =
+					findTimeProjectChoice(projectName)?.project ??
+					(await createTimeProject(projectName));
+				if (!findTimeProjectChoiceById(project.id)) {
+					currentTimeProjectChoices.push({
+						project,
+						entry_count: 0,
+						total_seconds: 0,
+						latest_started_at: null,
+					});
+					syncTimeEntryCreateProjectOptions();
+				}
+				await createTimeEntry({
+					project_id: project.id,
+					description:
+						descriptionInput instanceof HTMLInputElement &&
+						descriptionInput.value.trim()
+							? descriptionInput.value.trim()
+							: null,
+					started_at: startedAt,
+					ended_at: endedAt,
+				});
+				closeTimeEntryCreateModal();
+				setStatus("time-status", "Entry added.");
+				await loadTimeTrackingPage();
+			} catch (error) {
+				setStatus(
+					"time-entry-create-status",
+					error instanceof Error ? error.message : "Failed to add entry.",
+					true,
+				);
+			}
+			return;
+		}
 
 		if (target.id === "time-running-start-form") {
 			const projectInput = document.getElementById("time-running-project-select");
@@ -4464,6 +4895,8 @@ export const attachTimePageEvents = () => {
 	const projectModal = document.getElementById("time-project-modal");
 	const projectModalForm = document.getElementById("time-project-modal-form");
 	const projectModalNameInput = document.getElementById("time-project-modal-name");
+	const entryCreateModal = document.getElementById("time-entry-create-modal");
+	const entryCreateForm = document.getElementById("time-entry-create-form");
 
 	const closeTimeProjectModal = () => {
 		if (!(projectModal instanceof HTMLElement)) return;
@@ -4489,6 +4922,32 @@ export const attachTimePageEvents = () => {
 			projectModalNameInput.focus();
 		}
 	};
+
+	function closeTimeEntryCreateModal() {
+		if (!(entryCreateModal instanceof HTMLElement)) return;
+		entryCreateModal.hidden = true;
+		document.body.classList.remove("modal-open");
+		if (entryCreateForm instanceof HTMLFormElement) entryCreateForm.reset();
+		setStatus("time-entry-create-status", "");
+	}
+
+	function openTimeEntryCreateModal() {
+		if (!(entryCreateModal instanceof HTMLElement)) return;
+		const startedAtInput = document.getElementById("time-entry-create-started-at");
+		const endedAtInput = document.getElementById("time-entry-create-ended-at");
+		const { startedAt, endedAt } = defaultTimeEntryCreateRange();
+		syncTimeEntryCreateProjectOptions();
+		if (startedAtInput instanceof HTMLInputElement) {
+			startedAtInput.value = startedAt;
+		}
+		if (endedAtInput instanceof HTMLInputElement) {
+			endedAtInput.value = endedAt;
+		}
+		entryCreateModal.hidden = false;
+		document.body.classList.add("modal-open");
+		setStatus("time-entry-create-status", "");
+		document.getElementById("time-entry-create-project")?.focus();
+	}
 
 	const closeTimeRunningEditModal = () => {
 		const runningEditModal = document.getElementById("time-running-edit-modal");
@@ -4559,6 +5018,7 @@ export const attachTimePageEvents = () => {
 				}
 				projectSelect.value = String(project.id);
 			}
+			syncTimeEntryCreateProjectOptions();
 
 			closeTimeProjectModal();
 		} catch (error) {
@@ -4576,6 +5036,9 @@ export const attachTimePageEvents = () => {
 		if (target.closest("[data-time-project-modal-close]")) {
 			closeTimeProjectModal();
 		}
+		if (target.closest("[data-time-entry-create-modal-close]")) {
+			closeTimeEntryCreateModal();
+		}
 		if (target.closest("[data-time-running-edit-modal-close]")) {
 			closeTimeRunningEditModal();
 		}
@@ -4583,12 +5046,21 @@ export const attachTimePageEvents = () => {
 
 	document.addEventListener("keydown", (event) => {
 		const runningEditModal = document.getElementById("time-running-edit-modal");
+		const entryCreateModal = document.getElementById("time-entry-create-modal");
 		if (
 			event.key === "Escape" &&
 			projectModal instanceof HTMLElement &&
 			!projectModal.hidden
 		) {
 			closeTimeProjectModal();
+			return;
+		}
+		if (
+			event.key === "Escape" &&
+			entryCreateModal instanceof HTMLElement &&
+			!entryCreateModal.hidden
+		) {
+			closeTimeEntryCreateModal();
 			return;
 		}
 		if (
@@ -4610,10 +5082,16 @@ export const attachTimePageEvents = () => {
 		);
 		const startButton = target.closest("[data-start-time-project-id]");
 		const runningEditButton = target.closest("[data-time-running-edit-open]");
+		const createEntryButton = target.closest("[data-time-entry-create-open]");
 		const editEntryButton = target.closest("[data-edit-time-entry-id]");
 		const cancelEntryButton = target.closest("[data-cancel-time-entry-id]");
 		const saveEntryButton = target.closest("[data-save-time-entry-id]");
 		const deleteEntryButton = target.closest("[data-delete-time-entry-id]");
+
+		if (createEntryButton instanceof HTMLButtonElement) {
+			openTimeEntryCreateModal();
+			return;
+		}
 
 		if (runningEditButton instanceof HTMLButtonElement) {
 			openTimeRunningEditModal();

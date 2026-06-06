@@ -375,6 +375,61 @@ textarea {
 	color: var(--text);
 }
 
+.search-select {
+	position: relative;
+}
+
+.search-select__menu {
+	position: absolute;
+	z-index: 45;
+	top: calc(100% + 0.35rem);
+	right: 0;
+	left: 0;
+	display: grid;
+	gap: 0.2rem;
+	max-height: 15rem;
+	overflow: auto;
+	padding: 0.35rem;
+	border: 1px solid rgba(81, 56, 36, 0.16);
+	border-radius: 14px;
+	background: rgba(255, 252, 247, 0.98);
+	box-shadow: var(--shadow);
+}
+
+.search-select__menu[hidden] {
+	display: none;
+}
+
+.search-select__option {
+	display: flex;
+	align-items: center;
+	justify-content: flex-start;
+	gap: 0.4rem;
+	width: 100%;
+	padding: 0.7rem 0.75rem;
+	border-radius: 10px;
+	background: transparent;
+	color: var(--text);
+	text-align: left;
+}
+
+.search-select__option:hover,
+.search-select__option--active {
+	transform: none;
+	background: rgba(45, 124, 111, 0.1);
+	color: var(--accent-2);
+}
+
+.search-select__option span {
+	color: var(--muted);
+	font-weight: 600;
+}
+
+.search-select__empty {
+	padding: 0.7rem 0.75rem;
+	color: var(--muted);
+}
+
 textarea {
 	resize: vertical;
 	min-height: 7.5rem;
@@ -1121,6 +1176,7 @@ body.modal-open {
 
 .product-create-modal[hidden],
 .todo-create-modal[hidden],
+.time-entry-create-modal[hidden],
 .time-entry-edit-modal[hidden],
 .time-project-modal[hidden],
 .receipt-create-modal[hidden] {
@@ -1129,6 +1185,7 @@ body.modal-open {
 
 .product-create-modal,
 .todo-create-modal,
+.time-entry-create-modal,
 .time-entry-edit-modal,
 .time-project-modal,
 .receipt-create-modal {
@@ -1142,6 +1199,7 @@ body.modal-open {
 
 .product-create-modal__backdrop,
 .todo-create-modal__backdrop,
+.time-entry-create-modal__backdrop,
 .time-entry-edit-modal__backdrop,
 .time-project-modal__backdrop,
 .receipt-create-modal__backdrop {
@@ -1153,6 +1211,7 @@ body.modal-open {
 
 .product-create-modal__dialog,
 .todo-create-modal__dialog,
+.time-entry-create-modal__dialog,
 .time-entry-edit-modal__dialog,
 .time-project-modal__dialog,
 .receipt-create-modal__dialog {
@@ -2267,6 +2326,7 @@ body.modal-open {
 
 	.product-create-modal,
 	.todo-create-modal,
+	.time-entry-create-modal,
 	.time-entry-edit-modal,
 	.time-project-modal,
 	.receipt-create-modal {
@@ -2289,6 +2349,7 @@ body.modal-open {
 
 	.product-create-modal__dialog,
 	.todo-create-modal__dialog,
+	.time-entry-create-modal__dialog,
 	.time-entry-edit-modal__dialog,
 	.time-project-modal__dialog,
 	.receipt-create-modal__dialog {
@@ -2465,6 +2526,7 @@ body.modal-open {
 	.receipt-modal__dialog,
 	.product-create-modal__dialog,
 	.todo-create-modal__dialog,
+	.time-entry-create-modal__dialog,
 	.time-entry-edit-modal__dialog,
 	.time-project-modal__dialog,
 	.receipt-create-modal__dialog,
