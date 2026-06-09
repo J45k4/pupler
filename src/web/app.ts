@@ -1,10 +1,28 @@
 import { InfiniteScroll } from "./infinite-scroll";
+import { escapeHtml } from "./lib/html";
 import { renderNavbar } from "./navbar";
 import {
-	installLinkInterceptor,
 	navigate,
-	routes,
 } from "./router";
+import {
+	renderProductCategoryInput,
+	renderUnitSelect,
+	setUnitSelectValue,
+} from "./ui/form-fields";
+import {
+	attachUploadDropzones,
+	renderUploadDropzone,
+} from "./ui/upload-dropzone";
+
+export { escapeHtml } from "./lib/html";
+export {
+	renderProductCategoryInput,
+	renderUnitSelect,
+} from "./ui/form-fields";
+export {
+	attachUploadDropzones,
+	renderUploadDropzone,
+} from "./ui/upload-dropzone";
 
 type IngredientSummary = {
 	id: number;
@@ -283,13 +301,13 @@ const render = (html: string) => {
 	document.body.innerHTML = html;
 };
 
-export const renderPage = (content: string, shellClassName = "") => {
-	const shellClasses = ["page-shell", shellClassName].filter(Boolean).join(" ");
+export const renderAppShell = (shellClassName = "") => {
+	const shellClasses = [
+		...new Set(["page-shell", "page-shell--wide", shellClassName].filter(Boolean)),
+	].join(" ");
 	render(`
 		${renderNavbar(window.location.pathname)}
-		<main class="${shellClasses}">
-			${content}
-		</main>
+		<main class="${shellClasses}"></main>
 	`);
 	requestAnimationFrame(() => {
 		const activeLink = document.querySelector<HTMLElement>(
@@ -310,6 +328,18 @@ export const renderPage = (content: string, shellClassName = "") => {
 			window.scrollTo({ left: 0, top: window.scrollY, behavior: "auto" });
 		}
 	});
+
+	const main = document.querySelector<HTMLElement>("main");
+	if (!main) {
+		throw new Error("App shell main element was not rendered.");
+	}
+	return main;
+};
+
+export const renderPage = (content: string, shellClassName = "") => {
+	const main = renderAppShell(shellClassName);
+	main.innerHTML = content;
+	return main;
 };
 
 export const setStatus = (elementId: string, message: string, isError = false) => {
@@ -319,348 +349,6 @@ export const setStatus = (elementId: string, message: string, isError = false) =
 	}
 	status.textContent = message;
 	status.className = isError ? "status error" : "status";
-};
-
-export const escapeHtml = (value: string) =>
-	value
-		.replaceAll("&", "&amp;")
-		.replaceAll("<", "&lt;")
-		.replaceAll(">", "&gt;")
-		.replaceAll('"', "&quot;")
-		.replaceAll("'", "&#39;");
-
-type SearchSelectOption = {
-	value: string;
-	label: string;
-};
-
-type SearchSelectState = {
-	options: SearchSelectOption[];
-	activeIndex: number;
-};
-
-type SearchSelectItem =
-	| { kind: "option"; option: SearchSelectOption; optionIndex: number }
-	| { kind: "create"; label: string }
-	| { kind: "empty"; label: string };
-
-const searchSelectState = new WeakMap<HTMLElement, SearchSelectState>();
-
-export const renderSearchSelect = (options: {
-	id: string;
-	placeholder?: string;
-	allowCreate?: boolean;
-	createLabelPrefix?: string;
-	required?: boolean;
-}) => {
-	const menuId = `${options.id}-menu`;
-	const valueId = `${options.id}-value`;
-
-	return `
-		<div
-			class="search-select"
-			data-search-select="${escapeHtml(options.id)}"
-			data-search-select-allow-create="${options.allowCreate ? "true" : "false"}"
-			data-search-select-create-label-prefix="${escapeHtml(options.createLabelPrefix ?? "Create")}"
-		>
-			<input
-				id="${escapeHtml(options.id)}"
-				class="search-select__input"
-				data-search-select-input
-				role="combobox"
-				aria-autocomplete="list"
-				aria-expanded="false"
-				aria-controls="${escapeHtml(menuId)}"
-				placeholder="${escapeHtml(options.placeholder ?? "")}"
-				autocomplete="off"
-				${options.required ? "required" : ""}
-			/>
-			<input id="${escapeHtml(valueId)}" type="hidden" data-search-select-value />
-			<div
-				id="${escapeHtml(menuId)}"
-				class="search-select__menu"
-				role="listbox"
-				hidden
-			></div>
-		</div>
-	`;
-};
-
-const normalizeSearchSelectText = (value: string) =>
-	value.trim().toLowerCase();
-
-const getSearchSelectState = (root: HTMLElement) => {
-	let state = searchSelectState.get(root);
-	if (!state) {
-		state = { options: [], activeIndex: 0 };
-		searchSelectState.set(root, state);
-	}
-	return state;
-};
-
-const searchSelectInput = (root: HTMLElement) =>
-	root.querySelector<HTMLInputElement>("[data-search-select-input]");
-
-const searchSelectHiddenInput = (root: HTMLElement) =>
-	root.querySelector<HTMLInputElement>("[data-search-select-value]");
-
-const searchSelectMenu = (root: HTMLElement) =>
-	root.querySelector<HTMLElement>(".search-select__menu");
-
-const searchSelectAllowsCreate = (root: HTMLElement) =>
-	root.dataset.searchSelectAllowCreate === "true";
-
-const searchSelectItems = (root: HTMLElement): SearchSelectItem[] => {
-	const state = getSearchSelectState(root);
-	const input = searchSelectInput(root);
-	const query = input?.value.trim() ?? "";
-	const normalizedQuery = normalizeSearchSelectText(query);
-	const matches = normalizedQuery
-		? state.options.filter((option) =>
-				normalizeSearchSelectText(option.label).includes(normalizedQuery),
-			)
-		: state.options;
-	const items: SearchSelectItem[] = matches.slice(0, 8).map((option) => ({
-		kind: "option",
-		option,
-		optionIndex: state.options.indexOf(option),
-	}));
-	const exactMatch = state.options.some(
-		(option) => normalizeSearchSelectText(option.label) === normalizedQuery,
-	);
-
-	if (query && searchSelectAllowsCreate(root) && !exactMatch) {
-		items.push({ kind: "create", label: query });
-	}
-	if (!items.length) {
-		items.push({
-			kind: "empty",
-			label: query ? "No matches" : "No options",
-		});
-	}
-	return items;
-};
-
-const syncSearchSelectSelectedValue = (root: HTMLElement) => {
-	const input = searchSelectInput(root);
-	const hiddenInput = searchSelectHiddenInput(root);
-	if (!input || !hiddenInput) return;
-	const normalizedValue = normalizeSearchSelectText(input.value);
-	const option = getSearchSelectState(root).options.find(
-		(candidate) => normalizeSearchSelectText(candidate.label) === normalizedValue,
-	);
-	root.dataset.searchSelectSelectedValue = option?.value ?? "";
-	hiddenInput.value = option?.value ?? "";
-};
-
-const closeSearchSelect = (root: HTMLElement) => {
-	const input = searchSelectInput(root);
-	const menu = searchSelectMenu(root);
-	if (menu) menu.hidden = true;
-	if (input) input.setAttribute("aria-expanded", "false");
-};
-
-const renderSearchSelectMenu = (root: HTMLElement) => {
-	const input = searchSelectInput(root);
-	const menu = searchSelectMenu(root);
-	if (!input || !menu) return;
-	const state = getSearchSelectState(root);
-	const items = searchSelectItems(root);
-	const selectableCount = items.filter((item) => item.kind !== "empty").length;
-	state.activeIndex =
-		selectableCount === 0
-			? -1
-			: Math.min(Math.max(state.activeIndex, 0), selectableCount - 1);
-
-	let selectableIndex = 0;
-	menu.innerHTML = items
-		.map((item) => {
-			if (item.kind === "empty") {
-				return `<div class="search-select__empty">${escapeHtml(item.label)}</div>`;
-			}
-
-			const currentIndex = selectableIndex;
-			selectableIndex += 1;
-			const isActive = currentIndex === state.activeIndex;
-			if (item.kind === "create") {
-				const prefix = root.dataset.searchSelectCreateLabelPrefix ?? "Create";
-				return `
-					<button
-						class="search-select__option ${isActive ? "search-select__option--active" : ""}"
-						type="button"
-						role="option"
-						aria-selected="${isActive ? "true" : "false"}"
-						data-search-select-create
-					>
-						<span>${escapeHtml(prefix)}</span>
-						<strong>${escapeHtml(item.label)}</strong>
-					</button>
-				`;
-			}
-
-			return `
-				<button
-					class="search-select__option ${isActive ? "search-select__option--active" : ""}"
-					type="button"
-					role="option"
-					aria-selected="${isActive ? "true" : "false"}"
-					data-search-select-option-index="${item.optionIndex}"
-				>
-					${escapeHtml(item.option.label)}
-				</button>
-			`;
-		})
-		.join("");
-	menu.hidden = false;
-	input.setAttribute("aria-expanded", "true");
-};
-
-const selectSearchSelectOption = (
-	root: HTMLElement,
-	option: SearchSelectOption,
-) => {
-	const input = searchSelectInput(root);
-	const hiddenInput = searchSelectHiddenInput(root);
-	if (!input || !hiddenInput) return;
-	input.value = option.label;
-	hiddenInput.value = option.value;
-	root.dataset.searchSelectSelectedValue = option.value;
-	closeSearchSelect(root);
-};
-
-const selectSearchSelectCreateValue = (root: HTMLElement) => {
-	const input = searchSelectInput(root);
-	const hiddenInput = searchSelectHiddenInput(root);
-	if (!input || !hiddenInput) return;
-	input.value = input.value.trim();
-	hiddenInput.value = "";
-	root.dataset.searchSelectSelectedValue = "";
-	closeSearchSelect(root);
-};
-
-const searchSelectRootForId = (id: string) =>
-	[...document.querySelectorAll<HTMLElement>("[data-search-select]")].find(
-		(root) => root.dataset.searchSelect === id,
-	) ?? null;
-
-const searchSelectRootForTarget = (target: EventTarget | null) =>
-	target instanceof HTMLElement
-		? target.closest<HTMLElement>("[data-search-select]")
-		: null;
-
-const activeSearchSelectItem = (root: HTMLElement) => {
-	const state = getSearchSelectState(root);
-	const items = searchSelectItems(root).filter((item) => item.kind !== "empty");
-	return items[state.activeIndex] ?? null;
-};
-
-export const setSearchSelectOptions = (
-	id: string,
-	options: SearchSelectOption[],
-) => {
-	const root = searchSelectRootForId(id);
-	if (!root) return;
-	getSearchSelectState(root).options = options;
-	syncSearchSelectSelectedValue(root);
-	const menu = searchSelectMenu(root);
-	if (menu && !menu.hidden) {
-		renderSearchSelectMenu(root);
-	}
-};
-
-export const getSearchSelectText = (id: string) => {
-	const root = searchSelectRootForId(id);
-	return root ? (searchSelectInput(root)?.value.trim() ?? "") : "";
-};
-
-const attachSearchSelects = (root: Document | HTMLElement) => {
-	root.addEventListener("focusin", (event) => {
-		const searchRoot = searchSelectRootForTarget(event.target);
-		if (!searchRoot) return;
-		renderSearchSelectMenu(searchRoot);
-	});
-
-	root.addEventListener("input", (event) => {
-		const searchRoot = searchSelectRootForTarget(event.target);
-		if (!searchRoot) return;
-		getSearchSelectState(searchRoot).activeIndex = 0;
-		syncSearchSelectSelectedValue(searchRoot);
-		renderSearchSelectMenu(searchRoot);
-	});
-
-	root.addEventListener("keydown", (event) => {
-		if (!(event.target instanceof HTMLInputElement)) return;
-		const searchRoot = searchSelectRootForTarget(event.target);
-		if (!searchRoot) return;
-		const state = getSearchSelectState(searchRoot);
-		const selectableItems = searchSelectItems(searchRoot).filter(
-			(item) => item.kind !== "empty",
-		);
-		if (event.key === "ArrowDown") {
-			event.preventDefault();
-			state.activeIndex =
-				selectableItems.length === 0
-					? -1
-					: Math.min(state.activeIndex + 1, selectableItems.length - 1);
-			renderSearchSelectMenu(searchRoot);
-			return;
-		}
-		if (event.key === "ArrowUp") {
-			event.preventDefault();
-			state.activeIndex =
-				selectableItems.length === 0
-					? -1
-					: Math.max(state.activeIndex - 1, 0);
-			renderSearchSelectMenu(searchRoot);
-			return;
-		}
-		if (event.key === "Escape") {
-			closeSearchSelect(searchRoot);
-			return;
-		}
-		if (event.key === "Enter") {
-			const item = activeSearchSelectItem(searchRoot);
-			if (!item) return;
-			event.preventDefault();
-			if (item.kind === "create") {
-				selectSearchSelectCreateValue(searchRoot);
-				return;
-			}
-			selectSearchSelectOption(searchRoot, item.option);
-		}
-	});
-
-	root.addEventListener("mousedown", (event) => {
-		const target = event.target;
-		if (!(target instanceof HTMLElement)) return;
-		const searchRoot = searchSelectRootForTarget(target);
-		if (!searchRoot) return;
-		const optionButton = target.closest<HTMLElement>(
-			"[data-search-select-option-index]",
-		);
-		const createButton = target.closest<HTMLElement>("[data-search-select-create]");
-		if (!optionButton && !createButton) return;
-		event.preventDefault();
-		if (createButton) {
-			selectSearchSelectCreateValue(searchRoot);
-			return;
-		}
-		const optionIndex = Number(optionButton?.dataset.searchSelectOptionIndex);
-		const option = getSearchSelectState(searchRoot).options[optionIndex];
-		if (option) {
-			selectSearchSelectOption(searchRoot, option);
-		}
-	});
-
-	root.addEventListener("focusout", (event) => {
-		const searchRoot = searchSelectRootForTarget(event.target);
-		if (!searchRoot) return;
-		window.setTimeout(() => {
-			if (!searchRoot.contains(document.activeElement)) {
-				closeSearchSelect(searchRoot);
-			}
-		});
-	});
 };
 
 const TIME_RANGE_OPTIONS = [
@@ -695,325 +383,6 @@ const renderTimeRangeOptions = (selectedValue: string) =>
 			</option>
 		`,
 	).join("");
-
-const UNIT_GROUPS = [
-	{
-		label: "Count",
-		options: [
-			["pcs", "Pieces (pcs)"],
-			["item", "Item"],
-			["pair", "Pair"],
-			["dozen", "Dozen"],
-			["pack", "Pack"],
-			["bag", "Bag"],
-			["box", "Box"],
-			["bottle", "Bottle"],
-			["can", "Can"],
-			["jar", "Jar"],
-			["bunch", "Bunch"],
-			["slice", "Slice"],
-		],
-	},
-	{
-		label: "Weight",
-		options: [
-			["mg", "Milligrams (mg)"],
-			["g", "Grams (g)"],
-			["kg", "Kilograms (kg)"],
-			["oz", "Ounces (oz)"],
-			["lb", "Pounds (lb)"],
-		],
-	},
-	{
-		label: "Volume",
-		options: [
-			["ml", "Milliliters (ml)"],
-			["cl", "Centiliters (cl)"],
-			["dl", "Deciliters (dl)"],
-			["l", "Liters (l)"],
-			["fl oz", "Fluid ounces (fl oz)"],
-			["cup", "Cup"],
-			["pt", "Pint (pt)"],
-			["qt", "Quart (qt)"],
-			["gal", "Gallon (gal)"],
-		],
-	},
-	{
-		label: "Cooking",
-		options: [
-			["tsp", "Teaspoon (tsp)"],
-			["tbsp", "Tablespoon (tbsp)"],
-			["pinch", "Pinch"],
-			["dash", "Dash"],
-		],
-	},
-	{
-		label: "Length",
-		options: [
-			["mm", "Millimeters (mm)"],
-			["cm", "Centimeters (cm)"],
-			["m", "Meters (m)"],
-			["in", "Inches (in)"],
-			["ft", "Feet (ft)"],
-		],
-	},
-] as const;
-
-const KNOWN_UNIT_VALUES = new Set(
-	UNIT_GROUPS.flatMap((group) => group.options.map(([value]) => value)),
-);
-
-const PRODUCT_CATEGORY_OPTIONS = [
-	["food", "Food"],
-	["drink", "Drink"],
-	["household", "Household"],
-	["cleaning", "Cleaning"],
-	["personal care", "Personal Care"],
-	["health", "Health"],
-	["pet", "Pet"],
-	["other", "Other"],
-] as const;
-
-export const renderProductCategoryInput = (options: {
-	id: string;
-	name?: string;
-	label: string;
-	value?: string | null;
-	placeholder?: string;
-	required?: boolean;
-}) => {
-	const listId = `${options.id}-options`;
-
-	return `
-		<label for="${options.id}">
-			${options.label}
-			<input
-				id="${options.id}"
-				${options.name ? `name="${options.name}"` : ""}
-				list="${listId}"
-				value="${escapeHtml(options.value ?? "")}"
-				placeholder="${escapeHtml(options.placeholder ?? "food")}"
-				${options.required ? "required" : ""}
-			/>
-			<datalist id="${listId}">
-				${PRODUCT_CATEGORY_OPTIONS.map(
-					([value, label]) => `
-						<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>
-					`,
-				).join("")}
-			</datalist>
-		</label>
-	`;
-};
-
-const renderUnitSelectOptions = (
-	selectedValue: string | null,
-	placeholderLabel?: string,
-) => {
-	const trimmedSelected = selectedValue?.trim() ?? "";
-	const hasSelectedValue = trimmedSelected.length > 0;
-	const hasKnownSelectedValue = KNOWN_UNIT_VALUES.has(trimmedSelected);
-
-	return `
-		${
-			placeholderLabel
-				? `<option value="" ${hasSelectedValue ? "" : "selected"}>${escapeHtml(placeholderLabel)}</option>`
-				: ""
-		}
-		${
-			hasSelectedValue && !hasKnownSelectedValue
-				? `<option value="${escapeHtml(trimmedSelected)}" selected data-unit-custom="true">${escapeHtml(trimmedSelected)} (Custom)</option>`
-				: ""
-		}
-		${UNIT_GROUPS.map(
-			(group) => `
-				<optgroup label="${escapeHtml(group.label)}">
-					${group.options
-						.map(
-							([value, label]) => `
-								<option value="${escapeHtml(value)}" ${
-									value === trimmedSelected ? "selected" : ""
-								}>
-									${escapeHtml(label)}
-								</option>
-							`,
-						)
-						.join("")}
-				</optgroup>
-			`,
-		).join("")}
-	`;
-};
-
-export const renderUnitSelect = (options: {
-	id: string;
-	name: string;
-	label: string;
-	selectedValue: string | null;
-	placeholderLabel?: string;
-	required?: boolean;
-}) => `
-	<label for="${options.id}">
-		${options.label}
-		<select
-			id="${options.id}"
-			name="${options.name}"
-			${options.required ? "required" : ""}
-		>
-			${renderUnitSelectOptions(
-				options.selectedValue,
-				options.placeholderLabel,
-			)}
-		</select>
-	</label>
-`;
-
-const setUnitSelectValue = (
-	select: HTMLSelectElement,
-	value: string | null,
-	fallbackValue = "",
-) => {
-	for (const option of select.querySelectorAll<HTMLOptionElement>(
-		"option[data-unit-custom]",
-	)) {
-		option.remove();
-	}
-
-	const trimmedValue = value?.trim() ?? "";
-	if (!trimmedValue) {
-		select.value = fallbackValue;
-		return;
-	}
-
-	if (!KNOWN_UNIT_VALUES.has(trimmedValue)) {
-		const customOption = document.createElement("option");
-		customOption.value = trimmedValue;
-		customOption.textContent = `${trimmedValue} (Custom)`;
-		customOption.dataset.unitCustom = "true";
-		select.insertBefore(customOption, select.firstChild);
-	}
-
-	select.value = trimmedValue;
-};
-
-const formatFileSize = (bytes: number) => {
-	if (bytes >= 1024 * 1024) {
-		return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-	}
-	if (bytes >= 1024) {
-		return `${Math.round(bytes / 1024)} KB`;
-	}
-	return `${bytes} B`;
-};
-
-export const renderUploadDropzone = (options: {
-	inputId: string;
-	label: string;
-	emptyText: string;
-	name?: string;
-	multiple?: boolean;
-	submitOnDrop?: boolean;
-}) => `
-	<label
-		class="upload-dropzone"
-		for="${options.inputId}"
-		data-upload-dropzone
-		data-upload-dropzone-empty="${escapeHtml(options.emptyText)}"
-		${options.submitOnDrop ? 'data-upload-dropzone-submit-on-drop="true"' : ""}
-	>
-		<span class="upload-dropzone__label">${options.label}</span>
-		<span class="upload-dropzone__surface">
-			<span class="upload-dropzone__title">${
-				options.multiple ? "Drop image files here" : "Drop an image here"
-			}</span>
-			<span class="upload-dropzone__meta" data-upload-dropzone-meta>${options.emptyText}</span>
-		</span>
-		<input
-			id="${options.inputId}"
-			name="${options.name ?? options.inputId}"
-			class="upload-dropzone__input"
-			type="file"
-			accept="image/*"
-			${options.multiple ? "multiple" : ""}
-		/>
-	</label>
-`;
-
-export const attachUploadDropzones = (root: ParentNode = document) => {
-	for (const dropzone of root.querySelectorAll<HTMLElement>(
-		"[data-upload-dropzone]",
-	)) {
-		const input = dropzone.querySelector<HTMLInputElement>(
-			'input[type="file"]',
-		);
-		const meta = dropzone.querySelector<HTMLElement>(
-			"[data-upload-dropzone-meta]",
-		);
-		const emptyText = dropzone.dataset.uploadDropzoneEmpty ?? "No file selected";
-		const submitOnDrop =
-			dropzone.dataset.uploadDropzoneSubmitOnDrop === "true";
-		if (!input || !meta) {
-			continue;
-		}
-
-		const sync = () => {
-			const files = input.files ? Array.from(input.files) : [];
-			meta.textContent = files.length
-				? files.length === 1
-					? `${files[0]!.name} • ${formatFileSize(files[0]!.size)}`
-					: `${files.length} images selected`
-				: emptyText;
-			dropzone.classList.toggle("upload-dropzone--has-file", files.length > 0);
-		};
-
-		const activate = (event: DragEvent) => {
-			event.preventDefault();
-			dropzone.classList.add("upload-dropzone--active");
-		};
-
-		const deactivate = (event?: DragEvent) => {
-			event?.preventDefault();
-			dropzone.classList.remove("upload-dropzone--active");
-		};
-
-		input.addEventListener("change", sync);
-		input.form?.addEventListener("reset", () => {
-			queueMicrotask(sync);
-		});
-		dropzone.addEventListener("dragenter", activate);
-		dropzone.addEventListener("dragover", activate);
-		dropzone.addEventListener("dragleave", deactivate);
-		dropzone.addEventListener("dragend", deactivate);
-		dropzone.addEventListener("drop", (event) => {
-			event.preventDefault();
-			dropzone.classList.remove("upload-dropzone--active");
-			const files = event.dataTransfer?.files;
-			if (!files?.length) {
-				return;
-			}
-
-			const transfer = new DataTransfer();
-			for (const file of files) {
-				if (file.type.startsWith("image/")) {
-					transfer.items.add(file);
-					if (!input.multiple) {
-						break;
-					}
-				}
-			}
-			if (!transfer.files.length) {
-				return;
-			}
-
-			input.files = transfer.files;
-			input.dispatchEvent(new Event("change", { bubbles: true }));
-			if (submitOnDrop) {
-				queueMicrotask(() => input.form?.requestSubmit());
-			}
-		});
-		sync();
-	}
-};
 
 export const formatShoppingDate = (value: string) =>
 	new Intl.DateTimeFormat(undefined, {
@@ -1814,7 +1183,7 @@ const renderTimeProjectSelectOptions = (
 		)
 		.join("");
 
-const defaultTimeEntryCreateRange = () => {
+export const defaultTimeEntryCreateRange = () => {
 	const endedAt = new Date();
 	const startedAt = new Date(endedAt.getTime() - 60 * 60 * 1000);
 	return {
@@ -1823,14 +1192,51 @@ const defaultTimeEntryCreateRange = () => {
 	};
 };
 
-const syncTimeEntryCreateProjectOptions = () => {
-	setSearchSelectOptions(
-		"time-entry-create-project",
-		currentTimeProjectChoices.map((choice) => ({
-			value: String(choice.project.id),
-			label: choice.project.name,
-		})),
-	);
+export const timeEntryCreateProjectOptions = () =>
+	currentTimeProjectChoices.map((choice) => ({
+		value: String(choice.project.id),
+		label: choice.project.name,
+	}));
+
+export const addTimeEntryFromPage = async (values: {
+	projectName: string;
+	description: string | null;
+	startedAt: string;
+	endedAt: string | null;
+}) => {
+	const projectName = values.projectName.trim();
+	const startedAt = parseDateTimeLocalInput(values.startedAt);
+	const endedAt = values.endedAt?.trim()
+		? parseDateTimeLocalInput(values.endedAt)
+		: null;
+
+	if (!projectName) {
+		throw new Error("Project is required.");
+	}
+	if (!startedAt || (values.endedAt?.trim() && !endedAt)) {
+		throw new Error("Entry times are invalid.");
+	}
+
+	const project =
+		findTimeProjectChoice(projectName)?.project ??
+		(await createTimeProject(projectName));
+	if (!findTimeProjectChoiceById(project.id)) {
+		currentTimeProjectChoices.push({
+			project,
+			entry_count: 0,
+			total_seconds: 0,
+			latest_started_at: null,
+		});
+	}
+
+	await createTimeEntry({
+		project_id: project.id,
+		description: values.description?.trim() || null,
+		started_at: startedAt,
+		ended_at: endedAt,
+	});
+	setStatus("time-status", "Entry added.");
+	await loadTimeTrackingPage();
 };
 
 const buildTimeQuickActions = (
@@ -2219,7 +1625,6 @@ export const loadTimeTrackingPage = async () => {
 		const runningEntry =
 			entries.find((entry) => entry.ended_at === null) ?? null;
 		currentTimeProjectChoices = buildTimeProjectChoices(entries, projects);
-		syncTimeEntryCreateProjectOptions();
 		renderTimeTimer(runningEntry, findPreviousTimeEntryEnd(entries, runningEntry));
 		renderTimeQuickActions(buildTimeQuickActions(entries, projects));
 		renderTimeEntries(entries, projects);
@@ -4728,83 +4133,17 @@ export const attachProductDetailEvents = (productId: number) => {
 export const attachTimePageEvents = () => {
 	const page = document.getElementById("time-page");
 	if (!page) return;
-	attachSearchSelects(page);
 
 	page.addEventListener("submit", async (event) => {
 		const target = event.target;
 		if (!(target instanceof HTMLFormElement)) return;
 		if (
 			target.id !== "time-entry-start-form" &&
-			target.id !== "time-running-start-form" &&
-			target.id !== "time-entry-create-form"
+			target.id !== "time-running-start-form"
 		) {
 			return;
 		}
 		event.preventDefault();
-
-		if (target.id === "time-entry-create-form") {
-			const descriptionInput = document.getElementById(
-				"time-entry-create-description",
-			);
-			const startedAtInput = document.getElementById(
-				"time-entry-create-started-at",
-			);
-			const endedAtInput = document.getElementById("time-entry-create-ended-at");
-			if (
-				!(startedAtInput instanceof HTMLInputElement) ||
-				!(endedAtInput instanceof HTMLInputElement)
-			) {
-				return;
-			}
-			const projectName = getSearchSelectText("time-entry-create-project");
-			const startedAt = parseDateTimeLocalInput(startedAtInput.value);
-			const endedAt = endedAtInput.value.trim()
-				? parseDateTimeLocalInput(endedAtInput.value)
-				: null;
-			if (!projectName) {
-				setStatus("time-entry-create-status", "Project is required.", true);
-				return;
-			}
-			if (!startedAt || (endedAtInput.value.trim() && !endedAt)) {
-				setStatus("time-entry-create-status", "Entry times are invalid.", true);
-				return;
-			}
-
-			try {
-				const project =
-					findTimeProjectChoice(projectName)?.project ??
-					(await createTimeProject(projectName));
-				if (!findTimeProjectChoiceById(project.id)) {
-					currentTimeProjectChoices.push({
-						project,
-						entry_count: 0,
-						total_seconds: 0,
-						latest_started_at: null,
-					});
-					syncTimeEntryCreateProjectOptions();
-				}
-				await createTimeEntry({
-					project_id: project.id,
-					description:
-						descriptionInput instanceof HTMLInputElement &&
-						descriptionInput.value.trim()
-							? descriptionInput.value.trim()
-							: null,
-					started_at: startedAt,
-					ended_at: endedAt,
-				});
-				closeTimeEntryCreateModal();
-				setStatus("time-status", "Entry added.");
-				await loadTimeTrackingPage();
-			} catch (error) {
-				setStatus(
-					"time-entry-create-status",
-					error instanceof Error ? error.message : "Failed to add entry.",
-					true,
-				);
-			}
-			return;
-		}
 
 		if (target.id === "time-running-start-form") {
 			const projectInput = document.getElementById("time-running-project-select");
@@ -4895,8 +4234,6 @@ export const attachTimePageEvents = () => {
 	const projectModal = document.getElementById("time-project-modal");
 	const projectModalForm = document.getElementById("time-project-modal-form");
 	const projectModalNameInput = document.getElementById("time-project-modal-name");
-	const entryCreateModal = document.getElementById("time-entry-create-modal");
-	const entryCreateForm = document.getElementById("time-entry-create-form");
 
 	const closeTimeProjectModal = () => {
 		if (!(projectModal instanceof HTMLElement)) return;
@@ -4922,32 +4259,6 @@ export const attachTimePageEvents = () => {
 			projectModalNameInput.focus();
 		}
 	};
-
-	function closeTimeEntryCreateModal() {
-		if (!(entryCreateModal instanceof HTMLElement)) return;
-		entryCreateModal.hidden = true;
-		document.body.classList.remove("modal-open");
-		if (entryCreateForm instanceof HTMLFormElement) entryCreateForm.reset();
-		setStatus("time-entry-create-status", "");
-	}
-
-	function openTimeEntryCreateModal() {
-		if (!(entryCreateModal instanceof HTMLElement)) return;
-		const startedAtInput = document.getElementById("time-entry-create-started-at");
-		const endedAtInput = document.getElementById("time-entry-create-ended-at");
-		const { startedAt, endedAt } = defaultTimeEntryCreateRange();
-		syncTimeEntryCreateProjectOptions();
-		if (startedAtInput instanceof HTMLInputElement) {
-			startedAtInput.value = startedAt;
-		}
-		if (endedAtInput instanceof HTMLInputElement) {
-			endedAtInput.value = endedAt;
-		}
-		entryCreateModal.hidden = false;
-		document.body.classList.add("modal-open");
-		setStatus("time-entry-create-status", "");
-		document.getElementById("time-entry-create-project")?.focus();
-	}
 
 	const closeTimeRunningEditModal = () => {
 		const runningEditModal = document.getElementById("time-running-edit-modal");
@@ -5018,7 +4329,6 @@ export const attachTimePageEvents = () => {
 				}
 				projectSelect.value = String(project.id);
 			}
-			syncTimeEntryCreateProjectOptions();
 
 			closeTimeProjectModal();
 		} catch (error) {
@@ -5036,9 +4346,6 @@ export const attachTimePageEvents = () => {
 		if (target.closest("[data-time-project-modal-close]")) {
 			closeTimeProjectModal();
 		}
-		if (target.closest("[data-time-entry-create-modal-close]")) {
-			closeTimeEntryCreateModal();
-		}
 		if (target.closest("[data-time-running-edit-modal-close]")) {
 			closeTimeRunningEditModal();
 		}
@@ -5046,21 +4353,12 @@ export const attachTimePageEvents = () => {
 
 	document.addEventListener("keydown", (event) => {
 		const runningEditModal = document.getElementById("time-running-edit-modal");
-		const entryCreateModal = document.getElementById("time-entry-create-modal");
 		if (
 			event.key === "Escape" &&
 			projectModal instanceof HTMLElement &&
 			!projectModal.hidden
 		) {
 			closeTimeProjectModal();
-			return;
-		}
-		if (
-			event.key === "Escape" &&
-			entryCreateModal instanceof HTMLElement &&
-			!entryCreateModal.hidden
-		) {
-			closeTimeEntryCreateModal();
 			return;
 		}
 		if (
@@ -5082,16 +4380,10 @@ export const attachTimePageEvents = () => {
 		);
 		const startButton = target.closest("[data-start-time-project-id]");
 		const runningEditButton = target.closest("[data-time-running-edit-open]");
-		const createEntryButton = target.closest("[data-time-entry-create-open]");
 		const editEntryButton = target.closest("[data-edit-time-entry-id]");
 		const cancelEntryButton = target.closest("[data-cancel-time-entry-id]");
 		const saveEntryButton = target.closest("[data-save-time-entry-id]");
 		const deleteEntryButton = target.closest("[data-delete-time-entry-id]");
-
-		if (createEntryButton instanceof HTMLButtonElement) {
-			openTimeEntryCreateModal();
-			return;
-		}
 
 		if (runningEditButton instanceof HTMLButtonElement) {
 			openTimeRunningEditModal();

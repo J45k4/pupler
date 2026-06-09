@@ -171,7 +171,6 @@ export const renderReceiptsPage = () => {
 				</div>
 			</div>
 		`,
-		"page-shell--wide",
 	);
 
 	attachUploadDropzones(document.body);

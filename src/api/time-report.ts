@@ -109,6 +109,7 @@ export const timeReportRoute = (db: Database) =>
 			const seconds = entryDurationSeconds(entry, period);
 			if (seconds <= 0) continue;
 			totalSeconds += seconds;
+			if (entry.project_id === null || entry.project === null) continue;
 			const existing = totals.get(entry.project_id);
 			if (existing) {
 				existing.total_seconds += seconds;

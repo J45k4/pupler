@@ -292,13 +292,13 @@ model TimeProject {
 
 model TimeEntry {
 	id          Int         @id @default(autoincrement())
-	project_id  Int         @map("project_id")
+	project_id  Int?        @map("project_id")
 	description String?
 	started_at  String      @map("started_at")
 	ended_at    String?     @map("ended_at")
 	created_at  String      @map("created_at")
 	updated_at  String      @map("updated_at")
-	project     TimeProject @relation(fields: [project_id], references: [id])
+	project     TimeProject? @relation(fields: [project_id], references: [id])
 
 	@@index([project_id], map: "idx_time_entries_project_id")
 	@@index([started_at], map: "idx_time_entries_started_at")

@@ -3,7 +3,7 @@ import type { BunRequest } from "bun";
 import {
 	assertKnownFields,
 	empty,
-	expectInteger,
+	expectNullableInteger,
 	expectNullableString,
 	expectNullableTimestamp,
 	expectString,
@@ -64,6 +64,12 @@ const assertChronologicalRange = (
 ) => {
 	if (endedAt !== null && Date.parse(endedAt) <= Date.parse(startedAt)) {
 		throw new HttpError(400, "Field `ended_at` must be after `started_at`");
+	}
+};
+
+const assertProjectBeforeStop = (projectId: number | null | undefined) => {
+	if (projectId === null || projectId === undefined) {
+		throw new HttpError(400, "Project is required before stopping timer");
 	}
 };
 
@@ -136,9 +142,13 @@ const parseCreateValues = (body: JsonObject) => {
 	const now = utcNow();
 	const startedAt = requireBodyField(body, "started_at", expectTimestamp);
 	const endedAt = readOptionalBodyField(body, "ended_at", expectNullableTimestamp) ?? null;
+	const projectId = readOptionalBodyField(body, "project_id", expectNullableInteger) ?? null;
 	assertChronologicalRange(startedAt, endedAt);
+	if (endedAt !== null) {
+		assertProjectBeforeStop(projectId);
+	}
 	return {
-		project_id: requireBodyField(body, "project_id", expectInteger),
+		project_id: projectId,
 		description: normalizeDescription(
 			readOptionalBodyField(body, "description", expectNullableString) ?? null,
 		),
@@ -157,9 +167,13 @@ const parseReplaceValues = (
 	const now = utcNow();
 	const startedAt = requireBodyField(body, "started_at", expectTimestamp);
 	const endedAt = readOptionalBodyField(body, "ended_at", expectNullableTimestamp) ?? null;
+	const projectId = readOptionalBodyField(body, "project_id", expectNullableInteger) ?? null;
 	assertChronologicalRange(startedAt, endedAt);
+	if (endedAt !== null) {
+		assertProjectBeforeStop(projectId);
+	}
 	return {
-		project_id: requireBodyField(body, "project_id", expectInteger),
+		project_id: projectId,
 		description: normalizeDescription(
 			readOptionalBodyField(body, "description", expectNullableString) ?? null,
 		),
@@ -177,7 +191,7 @@ const parsePatchValues = (
 	assertKnownFields(body, WRITABLE_FIELDS);
 	const values: Record<string, unknown> = {};
 
-	const projectId = readOptionalBodyField(body, "project_id", expectInteger);
+	const projectId = readOptionalBodyField(body, "project_id", expectNullableInteger);
 	const description = readOptionalBodyField(
 		body,
 		"description",
@@ -201,6 +215,15 @@ const parsePatchValues = (
 			? (existingRow?.ended_at ?? null)
 			: (values.ended_at as string | null),
 	);
+	const nextEndedAt = values.ended_at === undefined
+		? (existingRow?.ended_at ?? null)
+		: (values.ended_at as string | null);
+	const nextProjectId = values.project_id === undefined
+		? existingRow?.project_id
+		: (values.project_id as number | null);
+	if (nextEndedAt !== null) {
+		assertProjectBeforeStop(nextProjectId);
+	}
 	values.updated_at = utcNow();
 	return values;
 };
@@ -209,7 +232,7 @@ const parseStartValues = (body: JsonObject) => {
 	assertKnownFields(body, START_FIELDS);
 	const startedAt = readOptionalBodyField(body, "started_at", expectTimestamp) ?? utcNow();
 	return {
-		project_id: requireBodyField(body, "project_id", expectInteger),
+		project_id: readOptionalBodyField(body, "project_id", expectNullableInteger) ?? null,
 		description: normalizeDescription(
 			readOptionalBodyField(body, "description", expectNullableString) ?? null,
 		),
@@ -232,6 +255,17 @@ const stopOtherRunningEntries = async (
 	stopAt: string,
 	excludeId?: number,
 ) => {
+	const unassignedRunning = await db.client.timeEntry.findFirst({
+		where: {
+			ended_at: null,
+			project_id: null,
+			...(excludeId === undefined ? {} : { id: { not: excludeId } }),
+		},
+	});
+	if (unassignedRunning) {
+		throw new HttpError(400, "Project is required before stopping timer");
+	}
+
 	const laterRunning = await db.client.timeEntry.findFirst({
 		where: {
 			ended_at: null,
@@ -352,6 +386,7 @@ export const timeEntryStopRoute = (db: Database) =>
 		}
 
 		const endedAt = parseStopValues(await readJsonObject(req));
+		assertProjectBeforeStop(existingRow.project_id);
 		assertChronologicalRange(existingRow.started_at, endedAt);
 		return json(
 			200,

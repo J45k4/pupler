@@ -107,7 +107,6 @@ export const renderInventoryPage = () => {
 				</div>
 			</div>
 		`,
-		"page-shell--wide",
 	);
 
 	attachInventoryPageEvents();

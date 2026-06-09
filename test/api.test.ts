@@ -353,6 +353,80 @@ describe("Pupler API", () => {
 		expect(report.project_totals[0].entry_count).toBe(3);
 	});
 
+	test("starts timers without a project but requires one before stopping", async () => {
+		const routes = createRoutes();
+
+		const projectResponse = await request(routes, "/api/time-projects", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: "Assigned later",
+				color: "#2d7c6f",
+				archived_at: null,
+			}),
+		});
+		const project = await projectResponse.json();
+
+		const startResponse = await request(routes, "/api/time-entries/start", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				description: "Triage",
+				started_at: "2026-05-26T13:00:00.000Z",
+			}),
+		});
+		expect(startResponse.status).toBe(201);
+		const running = await startResponse.json();
+		expect(running.project_id).toBeNull();
+		expect(running.project).toBeNull();
+
+		const stopWithoutProjectResponse = await request(
+			routes,
+			`/api/time-entries/${running.id}/stop`,
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					ended_at: "2026-05-26T14:00:00.000Z",
+				}),
+			},
+			{ id: String(running.id) },
+		);
+		expect(stopWithoutProjectResponse.status).toBe(400);
+
+		const assignResponse = await request(
+			routes,
+			`/api/time-entries/${running.id}`,
+			{
+				method: "PATCH",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					project_id: project.id,
+				}),
+			},
+			{ id: String(running.id) },
+		);
+		expect(assignResponse.status).toBe(200);
+		const assigned = await assignResponse.json();
+		expect(assigned.project_id).toBe(project.id);
+
+		const stopResponse = await request(
+			routes,
+			`/api/time-entries/${running.id}/stop`,
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					ended_at: "2026-05-26T14:00:00.000Z",
+				}),
+			},
+			{ id: String(running.id) },
+		);
+		expect(stopResponse.status).toBe(200);
+		const stopped = await stopResponse.json();
+		expect(stopped.ended_at).toBe("2026-05-26T14:00:00.000Z");
+	});
+
 	test("groups receipts and clears receipt links when a group is deleted", async () => {
 		const routes = createRoutes();
 

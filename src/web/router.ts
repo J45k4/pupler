@@ -1,5 +1,8 @@
 type HandlerResult = void | Promise<void>;
-type Handler = (params: Record<string, string>) => HandlerResult;
+type Handler = (
+	main: HTMLElement,
+	params: Record<string, string>,
+) => HandlerResult;
 
 type MatchResult = {
 	pattern: string;
@@ -8,6 +11,19 @@ type MatchResult = {
 } | null;
 
 let matcher: ReturnType<typeof patternMatcher> | null = null;
+let renderShell = () => {
+	document.body.replaceChildren();
+	const main = document.createElement("main");
+	main.className = "page-shell page-shell--wide";
+	document.body.append(main);
+	return main;
+};
+
+export const setRouteShellRenderer = (
+	renderer: () => HTMLElement,
+) => {
+	renderShell = renderer;
+};
 
 export function patternMatcher(handlers: Record<string, Handler>) {
 	const routes = Object.keys(handlers).sort((a, b) => {
@@ -98,7 +114,8 @@ const handleRoute = async (path: string) => {
 		console.error("No route found for", path);
 		return;
 	}
-	await Promise.resolve(match.handler(match.params) as HandlerResult);
+	const main = renderShell();
+	await Promise.resolve(match.handler(main, match.params) as HandlerResult);
 };
 
 window.addEventListener("popstate", () => {

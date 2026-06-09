@@ -1,4 +1,9 @@
-import { installLinkInterceptor, routes } from "./router";
+import {
+	installLinkInterceptor,
+	routes,
+	setRouteShellRenderer,
+} from "./router";
+import { renderAppShell } from "./app";
 import { renderOverviewPage } from "./pages/overview";
 import { renderSpendingPage } from "./pages/spending";
 import { renderExpirationsPage } from "./pages/expirations";
@@ -20,24 +25,27 @@ import { renderNotFoundPage } from "./pages/not-found";
 
 window.onload = () => {
 	installLinkInterceptor(document.body);
+	setRouteShellRenderer(renderAppShell);
 
 	routes({
 		"/": renderOverviewPage,
 		"/expirations": renderExpirationsPage,
 		"/inventory": renderInventoryPage,
-		"/inventory/containers/:id": renderInventoryContainerDetailPage,
-		"/inventory/items/:id": renderInventoryItemDetailPage,
-		"/groups/:id": renderGroupDetailPage,
+		"/inventory/containers/:id": (_main, params) =>
+			renderInventoryContainerDetailPage(params),
+		"/inventory/items/:id": (_main, params) =>
+			renderInventoryItemDetailPage(params),
+		"/groups/:id": (_main, params) => renderGroupDetailPage(params),
 		"/products": renderProductsPage,
-		"/products/:id": renderProductDetailPage,
+		"/products/:id": (_main, params) => renderProductDetailPage(params),
 		"/receipts": renderReceiptsPage,
-		"/receipts/:id": renderReceiptDetailPage,
+		"/receipts/:id": (_main, params) => renderReceiptDetailPage(params),
 		"/spending": renderSpendingPage,
 		"/shoppinglist": renderShoppingListsPage,
 		"/todos": renderTodosPage,
 		"/time": renderTimePage,
 		"/recipes/new": renderRecipeCreatePage,
-		"/recipes/:id": renderRecipeDetailPage,
+		"/recipes/:id": (_main, params) => renderRecipeDetailPage(params),
 		"/recipes": renderRecipesPage,
 		"/*": renderNotFoundPage,
 	});
