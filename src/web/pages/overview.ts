@@ -10,7 +10,7 @@ export const renderOverviewPage = () => {
 			<section class="dashboard-grid">
 				<div class="card panel dashboard-spending-panel">
 					<div class="section-header">
-						<h2>Spending Last 30 Days</h2>
+						<h2>Spending</h2>
 						<div class="actions">
 							<a class="secondary action-link" href="/spending" data-link>Breakdown</a>
 							<a class="secondary action-link" href="/receipts" data-link>Receipts</a>

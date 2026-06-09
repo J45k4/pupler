@@ -1951,6 +1951,14 @@ const getLast30DaysReceipts = (receipts: PurchaseReceipt[]) => {
 	);
 };
 
+const getYearToDateReceipts = (receipts: PurchaseReceipt[]) => {
+	const now = new Date();
+	const yearStart = new Date(now.getFullYear(), 0, 1);
+	return receipts.filter(
+		(receipt) => new Date(receipt.purchased_at).getTime() >= yearStart.getTime(),
+	);
+};
+
 const getSpendingTotalsByCurrency = (receipts: PurchaseReceipt[]) => {
 	const totals = new Map<string, number>();
 
@@ -1969,6 +1977,41 @@ const getSpendingTotalsByCurrency = (receipts: PurchaseReceipt[]) => {
 	);
 };
 
+const averageSpendingTotalsByCurrency = (
+	totals: Array<[string, number]>,
+	monthCount: number,
+) =>
+	totals.map(([currency, total]) => [
+		currency,
+		Math.round((total / Math.max(1, monthCount)) * 100) / 100,
+	] as [string, number]);
+
+const averageMonthCountForReceipts = (receipts: PurchaseReceipt[]) => {
+	const datedReceipts = receipts
+		.map((receipt) => Date.parse(receipt.purchased_at))
+		.filter((timestamp) => !Number.isNaN(timestamp));
+	if (!datedReceipts.length) {
+		return 1;
+	}
+	const firstReceiptAt = Math.min(...datedReceipts);
+	const elapsedDays = Math.max(
+		1,
+		(Date.now() - firstReceiptAt) / (24 * 60 * 60 * 1000),
+	);
+	return Math.max(1, elapsedDays / (365.2425 / 12));
+};
+
+const renderSpendingTotalValues = (totals: Array<[string, number]>) =>
+	totals.length
+		? totals
+				.map(
+					([currency, total]) => `
+						<strong>${formatMoney(total, currency)}</strong>
+					`,
+				)
+				.join("")
+		: "<strong>-</strong>";
+
 const renderSpendingSummary = (receipts: PurchaseReceipt[]) => {
 	const root = document.getElementById("dashboard-spending-summary");
 	if (!root) {
@@ -1976,42 +2019,46 @@ const renderSpendingSummary = (receipts: PurchaseReceipt[]) => {
 	}
 
 	const recentReceipts = getLast30DaysReceipts(receipts);
-	const totals = getSpendingTotalsByCurrency(recentReceipts);
-	const missingTotalCount = recentReceipts.filter(
+	const yearToDateReceipts = getYearToDateReceipts(receipts);
+	const last30DayTotals = getSpendingTotalsByCurrency(recentReceipts);
+	const yearToDateTotals = getSpendingTotalsByCurrency(yearToDateReceipts);
+	const averageMonthTotals = averageSpendingTotalsByCurrency(
+		getSpendingTotalsByCurrency(receipts),
+		averageMonthCountForReceipts(receipts),
+	);
+	const missingTotalCount = yearToDateReceipts.filter(
 		(receipt) => receipt.total_amount === null,
 	).length;
 
-	if (!recentReceipts.length) {
+	if (!receipts.length) {
 		root.innerHTML =
-			'<div class="empty">No receipts in the last 30 days.</div>';
+			'<div class="empty">No receipts recorded yet.</div>';
 		return;
 	}
 
 	root.innerHTML = `
 		<div class="dashboard-spending-summary">
-			<div class="dashboard-spending-summary__metric">
-				<span>Receipts</span>
-				<strong>${recentReceipts.length}</strong>
+			<div class="dashboard-spending-total">
+				<span>Last 30 Days</span>
+				<div class="dashboard-spending-total__values">
+					${renderSpendingTotalValues(last30DayTotals)}
+				</div>
 			</div>
-			<div class="dashboard-spending-summary__totals">
-				${
-					totals.length
-						? totals
-								.map(
-									([currency, total]) => `
-										<div class="dashboard-spending-total">
-											<span>${escapeHtml(currency)}</span>
-											<strong>${formatMoney(total, currency)}</strong>
-										</div>
-									`,
-								)
-								.join("")
-						: '<div class="empty">No receipt totals recorded.</div>'
-				}
+			<div class="dashboard-spending-total">
+				<span>Average Month Spending</span>
+				<div class="dashboard-spending-total__values">
+					${renderSpendingTotalValues(averageMonthTotals)}
+				</div>
+			</div>
+			<div class="dashboard-spending-total">
+				<span>Year To Date Spending</span>
+				<div class="dashboard-spending-total__values">
+					${renderSpendingTotalValues(yearToDateTotals)}
+				</div>
 			</div>
 			${
 				missingTotalCount
-					? `<div class="section-copy">${missingTotalCount} receipt(s) have no total amount.</div>`
+					? `<div class="section-copy">${missingTotalCount} year-to-date receipt(s) have no total amount.</div>`
 					: ""
 			}
 		</div>
@@ -3511,13 +3558,12 @@ export const loadInventoryPageData = async (statusMessage?: string) => {
 export const loadDashboardSpendingSummary = async () => {
 	try {
 		const receipts = await fetchReceipts();
-		const recentReceipts = getLast30DaysReceipts(receipts);
 		renderSpendingSummary(receipts);
 		setStatus(
 			"dashboard-spending-status",
-			recentReceipts.length
-				? `${recentReceipts.length} receipt(s) in the last 30 days.`
-				: "No receipts in the last 30 days.",
+			receipts.length
+				? `Loaded spending from ${receipts.length} receipt(s).`
+				: "No receipts recorded yet.",
 		);
 	} catch (error) {
 		renderSpendingSummary([]);
