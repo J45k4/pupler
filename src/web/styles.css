@@ -1578,6 +1578,7 @@ body.modal-open {
 .spending-monthly-group {
 	display: grid;
 	gap: 0.75rem;
+	min-width: 0;
 	padding: 0.9rem 0;
 	border-top: 1px solid var(--line);
 }
@@ -2577,6 +2578,22 @@ body.modal-open {
 	.spending-breakdown-header {
 		align-items: stretch;
 		grid-template-columns: 1fr;
+	}
+
+	.spending-monthly-plot {
+		width: 100%;
+		max-width: 100%;
+		grid-template-columns: 3.75rem minmax(38rem, 1fr);
+		overflow-x: auto;
+		padding-bottom: 0.45rem;
+	}
+
+	.spending-monthly-chart {
+		min-width: 38rem;
+	}
+
+	.spending-monthly-axis {
+		width: 3.75rem;
 	}
 
 	.spending-breakdown-row__total {
