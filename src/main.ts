@@ -142,6 +142,8 @@ export const server = (options: ServerOptions = {}) => {
 			"/receipts": index,
 			"/receipts/:id": index,
 			"/spending": index,
+			"/spending/monthly": index,
+			"/spending/items": index,
 			"/shoppinglist": index,
 			"/todos": index,
 			"/time": index,

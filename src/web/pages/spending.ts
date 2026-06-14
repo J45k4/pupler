@@ -98,6 +98,8 @@ const spendingRangeEmptyMessage = (option: SpendingRangeOption) =>
 		? "No receipt items recorded yet."
 		: `No receipt items in the last ${option.value} days.`;
 
+const allTimeSpendingRangeOption = () => getSpendingRangeOption("all");
+
 const attachSpendingBreakdownPageEvents = () => {
 	const rangeSelect = document.getElementById("spending-range-select");
 	if (!(rangeSelect instanceof HTMLSelectElement)) {
@@ -168,6 +170,68 @@ const groupSpendingItemsByProduct = (
 	});
 };
 
+const flattenSpendingItems = (breakdown: SpendingBreakdown) =>
+	breakdown.categories
+		.flatMap((category) =>
+			category.items.map((item) => ({
+				...item,
+				currency: category.currency,
+				category: category.category,
+			})),
+		)
+		.sort(
+			(left, right) =>
+				Date.parse(right.purchased_at) - Date.parse(left.purchased_at) ||
+				left.id - right.id,
+		);
+
+const spendingMonthParts = (purchasedAt: string) => {
+	const date = new Date(purchasedAt);
+	if (Number.isNaN(date.getTime())) {
+		return null;
+	}
+	return {
+		year: date.getFullYear(),
+		month: date.getMonth(),
+	};
+};
+
+const formatSpendingMonth = (month: number) =>
+	new Intl.DateTimeFormat(undefined, {
+		month: "short",
+	}).format(new Date(2000, month, 1));
+
+const niceChartMax = (value: number) => {
+	if (value <= 0) {
+		return 1;
+	}
+	const magnitude = 10 ** Math.floor(Math.log10(value));
+	const normalized = value / magnitude;
+	const nice =
+		normalized <= 1
+			? 1
+			: normalized <= 2.5
+				? 2.5
+				: normalized <= 5
+					? 5
+					: normalized <= 7.5
+						? 7.5
+						: 10;
+	return nice * magnitude;
+};
+
+const formatChartAxisValue = (value: number, currency: string) => {
+	const suffix = currency === "EUR" ? "€" : currency;
+	if (value === 0) {
+		return `0.00 ${suffix}`;
+	}
+	if (value >= 1000) {
+		const thousands = value / 1000;
+		return `${Number.isInteger(thousands) ? thousands.toFixed(0) : thousands.toFixed(1)}k ${suffix}`;
+	}
+	return `${Math.round(value)} ${suffix}`;
+};
+
 const formatSpendingPeriod = (
 	breakdown: SpendingBreakdown,
 	option: SpendingRangeOption,
@@ -186,13 +250,15 @@ const renderSpendingBreakdown = (
 	option: SpendingRangeOption,
 ) => {
 	const summaryRoot = document.getElementById("spending-breakdown-summary");
+	const periodRoot = document.getElementById("spending-breakdown-period");
 	const resultsRoot = document.getElementById("spending-breakdown-results");
-	if (!summaryRoot || !resultsRoot) {
+	if (!summaryRoot || !periodRoot || !resultsRoot) {
 		return;
 	}
 
 	if (!breakdown || breakdown.item_count === 0) {
 		summaryRoot.innerHTML = "";
+		periodRoot.innerHTML = "";
 		resultsRoot.innerHTML = `<div class="empty">${escapeHtml(
 			spendingRangeEmptyMessage(option),
 		)}</div>`;
@@ -216,14 +282,14 @@ const renderSpendingBreakdown = (
 				)
 				.join("")}
 		</div>
-		<div class="section-copy">
-			${formatSpendingPeriod(breakdown, option)}
-			${
-				breakdown.missing_total_count
-					? `, ${breakdown.missing_total_count} item(s) without a line total or unit price`
-					: ""
-			}
-		</div>
+	`;
+	periodRoot.innerHTML = `
+		${formatSpendingPeriod(breakdown, option)}
+		${
+			breakdown.missing_total_count
+				? `, ${breakdown.missing_total_count} item(s) without a line total or unit price`
+				: ""
+		}
 	`;
 
 	const categoriesByCurrency = new Map<string, SpendingCategoryTotal[]>();
@@ -328,6 +394,164 @@ const fetchSpendingBreakdown = async (option: SpendingRangeOption) => {
 	return body as SpendingBreakdown;
 };
 
+const renderMonthlySpendingChart = (breakdown: SpendingBreakdown | null) => {
+	const root = document.getElementById("spending-monthly-chart");
+	if (!root) {
+		return;
+	}
+	if (!breakdown || breakdown.item_count === 0) {
+		root.innerHTML = '<div class="empty">No receipt items recorded yet.</div>';
+		return;
+	}
+
+	const now = new Date();
+	const currentYear = now.getFullYear();
+	const previousYear = currentYear - 1;
+	const months = Array.from({ length: 12 }, (_, index) => index);
+	const monthTotalsByCurrency = new Map<string, Map<string, number>>();
+
+	for (const item of flattenSpendingItems(breakdown)) {
+		const parts = spendingMonthParts(item.purchased_at);
+		if (!parts || item.amount === null) {
+			continue;
+		}
+		if (parts.year !== currentYear && parts.year !== previousYear) {
+			continue;
+		}
+		let monthTotals = monthTotalsByCurrency.get(item.currency);
+		if (!monthTotals) {
+			monthTotals = new Map();
+			monthTotalsByCurrency.set(item.currency, monthTotals);
+		}
+		const key = `${parts.year}-${parts.month}`;
+		monthTotals.set(
+			key,
+			Math.round(((monthTotals.get(key) ?? 0) + item.amount) * 100) / 100,
+		);
+	}
+
+	const currencyGroups = [...monthTotalsByCurrency.entries()]
+		.map(([currency, monthTotals]) => ({
+			currency,
+			months: months.map((month) => ({
+				month,
+				current_total: monthTotals.get(`${currentYear}-${month}`) ?? 0,
+				previous_total: monthTotals.get(`${previousYear}-${month}`) ?? 0,
+			})),
+		}))
+		.filter((group) =>
+			group.months.some(
+				(month) => month.current_total > 0 || month.previous_total > 0,
+			),
+		)
+		.sort((left, right) => left.currency.localeCompare(right.currency));
+
+	root.innerHTML = currencyGroups.length
+		? currencyGroups
+				.map((group) => {
+					const chartMax = niceChartMax(
+						Math.max(
+							...group.months.flatMap((month) => [
+								month.current_total,
+								month.previous_total,
+							]),
+							1,
+						),
+					);
+					const ticks = [chartMax, chartMax * 0.75, chartMax * 0.5, chartMax * 0.25, 0];
+					return `
+						<section class="spending-monthly-group">
+							<div class="section-header section-header--inline">
+								<h3>${escapeHtml(group.currency)}</h3>
+								<div class="spending-monthly-legend">
+									<span><i class="spending-monthly-legend__swatch spending-monthly-legend__swatch--previous"></i>${previousYear}</span>
+									<span><i class="spending-monthly-legend__swatch spending-monthly-legend__swatch--current"></i>${currentYear}</span>
+								</div>
+							</div>
+							<div class="spending-monthly-plot">
+								<div class="spending-monthly-axis" aria-hidden="true">
+									${ticks
+										.map(
+											(tick) =>
+												`<span>${escapeHtml(formatChartAxisValue(tick, group.currency))}</span>`,
+										)
+										.join("")}
+								</div>
+								<div class="spending-monthly-chart">
+									<div class="spending-monthly-gridlines" aria-hidden="true">
+										${ticks.map(() => "<span></span>").join("")}
+									</div>
+									<div class="spending-monthly-columns">
+										${group.months
+											.map((month) => {
+												const previousHeight =
+													month.previous_total > 0
+														? Math.max(
+																2,
+																Math.round((month.previous_total / chartMax) * 100),
+															)
+														: 0;
+												const currentHeight =
+													month.current_total > 0
+														? Math.max(
+																2,
+																Math.round((month.current_total / chartMax) * 100),
+															)
+														: 0;
+												return `
+													<div class="spending-monthly-column">
+														<div class="spending-monthly-column__bars">
+															<div class="spending-monthly-bar spending-monthly-bar--previous" title="${previousYear}: ${escapeHtml(formatMoney(month.previous_total, group.currency))}" style="height: ${previousHeight}%"></div>
+															<div class="spending-monthly-bar spending-monthly-bar--current" title="${currentYear}: ${escapeHtml(formatMoney(month.current_total, group.currency))}" style="height: ${currentHeight}%"></div>
+														</div>
+														<span>${escapeHtml(formatSpendingMonth(month.month))}</span>
+													</div>
+												`;
+											})
+											.join("")}
+									</div>
+												</div>
+							</div>
+						</section>
+					`;
+				})
+				.join("")
+		: '<div class="empty">No monthly totals recorded yet.</div>';
+};
+
+const renderLastSpendingItems = (breakdown: SpendingBreakdown | null) => {
+	const root = document.getElementById("spending-items-results");
+	if (!root) {
+		return;
+	}
+	if (!breakdown || breakdown.item_count === 0) {
+		root.innerHTML = '<div class="empty">No receipt items recorded yet.</div>';
+		return;
+	}
+
+	const items = flattenSpendingItems(breakdown).slice(0, 50);
+	root.innerHTML = `
+		<div class="spending-items-list">
+			${items
+				.map(
+					(item) => `
+						<a class="spending-breakdown-item" href="${item.product_id === null ? `/receipts/${item.receipt_id}` : `/products/${item.product_id}`}" data-link>
+							<div class="spending-breakdown-item__main">
+								<strong>${escapeHtml(item.product_name)}</strong>
+								<span>${escapeHtml(item.store_name)} · ${formatReceiptDateTime(item.purchased_at)}</span>
+							</div>
+							<div class="spending-breakdown-item__meta">
+								<span>${item.quantity} ${escapeHtml(item.unit)} · ${escapeHtml(item.category)}</span>
+								<strong>${formatMoney(item.amount, item.currency)}</strong>
+							</div>
+						</a>
+					`,
+				)
+				.join("")}
+		</div>
+	`;
+};
+
 const loadSpendingBreakdownPage = async (
 	option = getCurrentSpendingRangeOption(),
 ) => {
@@ -362,18 +586,11 @@ export const renderSpendingPage = () => {
 
 	renderPage(
 		`
-			<section class="page-heading page-heading--compact">
-				<div>
-					<span class="eyebrow">Spending</span>
-					<h1 class="page-title">Cost Breakdown</h1>
-				</div>
-				<a class="secondary action-link" href="/" data-link>Back To Overview</a>
-			</section>
-
 			<section class="workspace workspace--single">
-				<div class="card panel spending-breakdown-panel">
-					<div class="section-header">
+				<div class="spending-breakdown-panel">
+					<div class="section-header spending-breakdown-header">
 						<h2 id="spending-breakdown-title">${escapeHtml(selectedRange.label)}</h2>
+						<div id="spending-breakdown-summary"></div>
 						<div class="spending-breakdown-controls">
 							<label for="spending-range-select">
 								<span>Time span</span>
@@ -381,10 +598,11 @@ export const renderSpendingPage = () => {
 									${renderSpendingRangeOptions(selectedRange.value)}
 								</select>
 							</label>
+							<a class="secondary action-link" href="/" data-link>Back To Overview</a>
 							<a class="secondary action-link" href="/receipts" data-link>Receipts</a>
 						</div>
 					</div>
-					<div id="spending-breakdown-summary"></div>
+					<div id="spending-breakdown-period" class="section-copy"></div>
 					<div id="spending-breakdown-results"></div>
 					<div id="spending-breakdown-status" class="status"></div>
 				</div>
@@ -394,4 +612,76 @@ export const renderSpendingPage = () => {
 
 	attachSpendingBreakdownPageEvents();
 	void loadSpendingBreakdownPage(selectedRange);
+};
+
+export const renderSpendingMonthlyPage = () => {
+	renderPage(
+		`
+			<section class="workspace workspace--single">
+				<div class="spending-breakdown-panel">
+					<div class="section-header">
+						<h2>Monthly Spending</h2>
+					</div>
+					<div id="spending-monthly-chart"></div>
+					<div id="spending-monthly-status" class="status"></div>
+				</div>
+			</section>
+		`,
+	);
+
+	setStatus("spending-monthly-status", "Loading monthly spending...");
+	void fetchSpendingBreakdown(allTimeSpendingRangeOption())
+		.then((breakdown) => {
+			renderMonthlySpendingChart(breakdown);
+			setStatus(
+				"spending-monthly-status",
+				breakdown.item_count
+					? `${breakdown.item_count} receipt item(s) across all time.`
+					: "No receipt items recorded yet.",
+			);
+		})
+		.catch((error) => {
+			renderMonthlySpendingChart(null);
+			setStatus(
+				"spending-monthly-status",
+				error instanceof Error ? error.message : "Failed to load monthly spending.",
+				true,
+			);
+		});
+};
+
+export const renderSpendingItemsPage = () => {
+	renderPage(
+		`
+			<section class="workspace workspace--single">
+				<div class="spending-breakdown-panel">
+					<div class="section-header">
+						<h2>Last Items</h2>
+					</div>
+					<div id="spending-items-results"></div>
+					<div id="spending-items-status" class="status"></div>
+				</div>
+			</section>
+		`,
+	);
+
+	setStatus("spending-items-status", "Loading receipt items...");
+	void fetchSpendingBreakdown(allTimeSpendingRangeOption())
+		.then((breakdown) => {
+			renderLastSpendingItems(breakdown);
+			setStatus(
+				"spending-items-status",
+				breakdown.item_count
+					? `${Math.min(50, breakdown.item_count)} of ${breakdown.item_count} receipt item(s).`
+					: "No receipt items recorded yet.",
+			);
+		})
+		.catch((error) => {
+			renderLastSpendingItems(null);
+			setStatus(
+				"spending-items-status",
+				error instanceof Error ? error.message : "Failed to load receipt items.",
+				true,
+			);
+		});
 };

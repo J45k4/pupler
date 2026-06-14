@@ -5,7 +5,11 @@ import {
 } from "./router";
 import { renderAppShell } from "./app";
 import { renderOverviewPage } from "./pages/overview";
-import { renderSpendingPage } from "./pages/spending";
+import {
+	renderSpendingItemsPage,
+	renderSpendingMonthlyPage,
+	renderSpendingPage,
+} from "./pages/spending";
 import { renderExpirationsPage } from "./pages/expirations";
 import { renderRecipesPage } from "./pages/recipes";
 import { renderRecipeDetailPage } from "./pages/recipe-detail";
@@ -41,6 +45,8 @@ window.onload = () => {
 		"/receipts": renderReceiptsPage,
 		"/receipts/:id": (_main, params) => renderReceiptDetailPage(params),
 		"/spending": renderSpendingPage,
+		"/spending/monthly": renderSpendingMonthlyPage,
+		"/spending/items": renderSpendingItemsPage,
 		"/shoppinglist": renderShoppingListsPage,
 		"/todos": renderTodosPage,
 		"/time": renderTimePage,
