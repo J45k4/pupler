@@ -461,12 +461,9 @@ const renderMonthlySpendingChart = (breakdown: SpendingBreakdown | null) => {
 					const ticks = [chartMax, chartMax * 0.75, chartMax * 0.5, chartMax * 0.25, 0];
 					return `
 						<section class="spending-monthly-group">
-							<div class="section-header section-header--inline">
-								<h3>${escapeHtml(group.currency)}</h3>
-								<div class="spending-monthly-legend">
-									<span><i class="spending-monthly-legend__swatch spending-monthly-legend__swatch--previous"></i>${previousYear}</span>
-									<span><i class="spending-monthly-legend__swatch spending-monthly-legend__swatch--current"></i>${currentYear}</span>
-								</div>
+							<div class="spending-monthly-legend">
+								<span><i class="spending-monthly-legend__swatch spending-monthly-legend__swatch--previous"></i>${previousYear}</span>
+								<span><i class="spending-monthly-legend__swatch spending-monthly-legend__swatch--current"></i>${currentYear}</span>
 							</div>
 							<div class="spending-monthly-plot">
 								<div class="spending-monthly-axis" aria-hidden="true">
@@ -510,7 +507,7 @@ const renderMonthlySpendingChart = (breakdown: SpendingBreakdown | null) => {
 											})
 											.join("")}
 									</div>
-												</div>
+								</div>
 							</div>
 						</section>
 					`;
@@ -619,9 +616,6 @@ export const renderSpendingMonthlyPage = () => {
 		`
 			<section class="workspace workspace--single">
 				<div class="spending-breakdown-panel">
-					<div class="section-header">
-						<h2>Monthly Spending</h2>
-					</div>
 					<div id="spending-monthly-chart"></div>
 					<div id="spending-monthly-status" class="status"></div>
 				</div>
