@@ -43,6 +43,10 @@ type SpendingCurrencyTotal = {
 	total: number;
 };
 
+type SpendingMonthlyAverageTotal = SpendingCurrencyTotal & {
+	day_count: number;
+};
+
 type SpendingBreakdown = {
 	period: {
 		from: string | null;
@@ -53,6 +57,7 @@ type SpendingBreakdown = {
 	item_count: number;
 	missing_total_count: number;
 	currency_totals: SpendingCurrencyTotal[];
+	monthly_average_totals: SpendingMonthlyAverageTotal[];
 	categories: SpendingCategoryTotal[];
 };
 
@@ -449,21 +454,38 @@ const renderMonthlySpendingChart = (breakdown: SpendingBreakdown | null) => {
 	root.innerHTML = currencyGroups.length
 		? currencyGroups
 				.map((group) => {
+					const monthlyAverage =
+						breakdown.monthly_average_totals.find(
+							(total) => total.currency === group.currency,
+						)?.total ?? 0;
 					const chartMax = niceChartMax(
 						Math.max(
 							...group.months.flatMap((month) => [
 								month.current_total,
 								month.previous_total,
 							]),
+							monthlyAverage,
 							1,
 						),
 					);
+					const averageLinePosition =
+						monthlyAverage > 0
+							? Math.min(
+									100,
+									Math.round((monthlyAverage / chartMax) * 10000) / 100,
+								)
+							: 0;
 					const ticks = [chartMax, chartMax * 0.75, chartMax * 0.5, chartMax * 0.25, 0];
 					return `
 						<section class="spending-monthly-group">
 							<div class="spending-monthly-legend">
 								<span><i class="spending-monthly-legend__swatch spending-monthly-legend__swatch--previous"></i>${previousYear}</span>
 								<span><i class="spending-monthly-legend__swatch spending-monthly-legend__swatch--current"></i>${currentYear}</span>
+								${
+									monthlyAverage > 0
+										? `<span><i class="spending-monthly-legend__swatch spending-monthly-legend__swatch--average"></i>Avg ${escapeHtml(formatMoney(monthlyAverage, group.currency))}</span>`
+										: ""
+								}
 							</div>
 							<div class="spending-monthly-plot">
 								<div class="spending-monthly-axis" aria-hidden="true">
@@ -478,6 +500,16 @@ const renderMonthlySpendingChart = (breakdown: SpendingBreakdown | null) => {
 									<div class="spending-monthly-gridlines" aria-hidden="true">
 										${ticks.map(() => "<span></span>").join("")}
 									</div>
+									${
+										monthlyAverage > 0
+											? `
+												<div class="spending-monthly-average" aria-hidden="true">
+													<span class="spending-monthly-average__line" style="bottom: ${averageLinePosition}%"></span>
+													<span class="spending-monthly-average__label" style="bottom: ${averageLinePosition}%">${escapeHtml(formatMoney(monthlyAverage, group.currency))}</span>
+												</div>
+											`
+											: ""
+									}
 									<div class="spending-monthly-columns">
 										${group.months
 											.map((month) => {

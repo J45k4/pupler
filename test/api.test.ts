@@ -1699,6 +1699,9 @@ describe("Pupler API", () => {
 		expect(breakdown.currency_totals).toEqual([
 			{ currency: "EUR", total: 5.5 },
 		]);
+		expect(breakdown.monthly_average_totals).toEqual([
+			{ currency: "EUR", total: 167.42, day_count: 1 },
+		]);
 		expect(breakdown.categories).toHaveLength(2);
 		expect(breakdown.categories[0]).toMatchObject(
 			{
@@ -1746,6 +1749,9 @@ describe("Pupler API", () => {
 		expect(allTimeBreakdown.item_count).toBe(4);
 		expect(allTimeBreakdown.currency_totals).toEqual([
 			{ currency: "EUR", total: 104.5 },
+		]);
+		expect(allTimeBreakdown.monthly_average_totals).toEqual([
+			{ currency: "EUR", total: 72.3, day_count: 44 },
 		]);
 
 		const mixedRangeResponse = await request(

@@ -9,6 +9,7 @@ import {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_DAYS = 30;
+const AVERAGE_DAYS_PER_MONTH = 30.44;
 const QUERY_FIELDS = new Set(["days", "from", "to", "range"]);
 
 type SpendingPeriod = {
@@ -39,6 +40,12 @@ type SpendingLineItem = {
 	unit_price: number | null;
 	line_total: number | null;
 	amount: number | null;
+};
+
+type SpendingMonthlyAverageTotal = {
+	currency: string;
+	total: number;
+	day_count: number;
 };
 
 const roundedMoney = (value: number) => Math.round(value * 100) / 100;
@@ -127,6 +134,35 @@ const receiptItemAmount = (item: {
 const bucketKey = (category: string, currency: string) =>
 	`${currency}\u0000${category}`;
 
+const calendarDayIndex = (timestamp: string) => {
+	const date = new Date(timestamp);
+	if (Number.isNaN(date.getTime())) {
+		return null;
+	}
+	return Math.floor(
+		Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / DAY_MS,
+	);
+};
+
+const monthlyAverageTotals = (
+	spendingByCurrency: Map<
+		string,
+		{ firstDay: number; lastDay: number; total: number }
+	>,
+): SpendingMonthlyAverageTotal[] =>
+	[...spendingByCurrency.entries()]
+		.map(([currency, spending]) => {
+			const dayCount = Math.max(1, spending.lastDay - spending.firstDay + 1);
+			return {
+				currency,
+				total: roundedMoney(
+					(spending.total / dayCount) * AVERAGE_DAYS_PER_MONTH,
+				),
+				day_count: dayCount,
+			};
+		})
+		.sort((left, right) => left.currency.localeCompare(right.currency));
+
 export const spendingRoute = (db: Database) =>
 	withErrorHandling(async (req: Request) => {
 		if (req.method !== "GET") {
@@ -170,6 +206,10 @@ export const spendingRoute = (db: Database) =>
 		});
 
 		const buckets = new Map<string, SpendingBucket>();
+		const spendingByCurrency = new Map<
+			string,
+			{ firstDay: number; lastDay: number; total: number }
+		>();
 		let itemCount = 0;
 		let missingTotalCount = 0;
 
@@ -212,6 +252,22 @@ export const spendingRoute = (db: Database) =>
 				continue;
 			}
 			bucket.total += amount;
+
+			const itemDay = calendarDayIndex(item.receipt.purchased_at);
+			if (itemDay !== null) {
+				const spending = spendingByCurrency.get(currency);
+				if (spending) {
+					spending.firstDay = Math.min(spending.firstDay, itemDay);
+					spending.lastDay = Math.max(spending.lastDay, itemDay);
+					spending.total += amount;
+				} else {
+					spendingByCurrency.set(currency, {
+						firstDay: itemDay,
+						lastDay: itemDay,
+						total: amount,
+					});
+				}
+			}
 		}
 
 		const categories = [...buckets.values()]
@@ -244,6 +300,7 @@ export const spendingRoute = (db: Database) =>
 					total: roundedMoney(total),
 				}))
 				.sort((left, right) => left.currency.localeCompare(right.currency)),
+			monthly_average_totals: monthlyAverageTotals(spendingByCurrency),
 			categories,
 		});
 	});

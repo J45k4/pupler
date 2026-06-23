@@ -93,6 +93,20 @@ type PurchaseReceiptItem = {
 	created_at: string;
 };
 
+type SpendingCurrencyTotal = {
+	currency: string;
+	total: number;
+};
+
+type SpendingMonthlyAverageTotal = SpendingCurrencyTotal & {
+	day_count: number;
+};
+
+type SpendingBreakdown = {
+	item_count: number;
+	monthly_average_totals: SpendingMonthlyAverageTotal[];
+};
+
 type InventoryItemImage = {
 	id: number;
 	inventory_item_id: number;
@@ -1977,30 +1991,6 @@ const getSpendingTotalsByCurrency = (receipts: PurchaseReceipt[]) => {
 	);
 };
 
-const averageSpendingTotalsByCurrency = (
-	totals: Array<[string, number]>,
-	monthCount: number,
-) =>
-	totals.map(([currency, total]) => [
-		currency,
-		Math.round((total / Math.max(1, monthCount)) * 100) / 100,
-	] as [string, number]);
-
-const averageMonthCountForReceipts = (receipts: PurchaseReceipt[]) => {
-	const datedReceipts = receipts
-		.map((receipt) => Date.parse(receipt.purchased_at))
-		.filter((timestamp) => !Number.isNaN(timestamp));
-	if (!datedReceipts.length) {
-		return 1;
-	}
-	const firstReceiptAt = Math.min(...datedReceipts);
-	const elapsedDays = Math.max(
-		1,
-		(Date.now() - firstReceiptAt) / (24 * 60 * 60 * 1000),
-	);
-	return Math.max(1, elapsedDays / (365.2425 / 12));
-};
-
 const renderSpendingTotalValues = (totals: Array<[string, number]>) =>
 	totals.length
 		? totals
@@ -2012,7 +2002,10 @@ const renderSpendingTotalValues = (totals: Array<[string, number]>) =>
 				.join("")
 		: "<strong>-</strong>";
 
-const renderSpendingSummary = (receipts: PurchaseReceipt[]) => {
+const renderSpendingSummary = (
+	receipts: PurchaseReceipt[],
+	spendingBreakdown?: SpendingBreakdown,
+) => {
 	const root = document.getElementById("dashboard-spending-summary");
 	if (!root) {
 		return;
@@ -2022,10 +2015,10 @@ const renderSpendingSummary = (receipts: PurchaseReceipt[]) => {
 	const yearToDateReceipts = getYearToDateReceipts(receipts);
 	const last30DayTotals = getSpendingTotalsByCurrency(recentReceipts);
 	const yearToDateTotals = getSpendingTotalsByCurrency(yearToDateReceipts);
-	const averageMonthTotals = averageSpendingTotalsByCurrency(
-		getSpendingTotalsByCurrency(receipts),
-		averageMonthCountForReceipts(receipts),
-	);
+	const averageMonthTotals =
+		spendingBreakdown?.monthly_average_totals.map(
+			(total) => [total.currency, total.total] as [string, number],
+		) ?? [];
 	const missingTotalCount = yearToDateReceipts.filter(
 		(receipt) => receipt.total_amount === null,
 	).length;
@@ -3219,6 +3212,23 @@ export const fetchReceipts = async (groupFilter = "all") => {
 	return body as PurchaseReceipt[];
 };
 
+const fetchGlobalSpendingBreakdown = async () => {
+	const response = await fetch("/api/spending?range=all");
+	const body = (await response.json()) as
+		| SpendingBreakdown
+		| { error?: string };
+
+	if (!response.ok) {
+		throw new Error(
+			"error" in body
+				? (body.error ?? "Failed to load spending")
+				: "Failed to load spending",
+		);
+	}
+
+	return body as SpendingBreakdown;
+};
+
 export const fetchReceipt = async (receiptId: number) => {
 	const response = await fetch(`/api/receipts/${receiptId}`);
 	const body = (await response.json()) as
@@ -3557,8 +3567,11 @@ export const loadInventoryPageData = async (statusMessage?: string) => {
 
 export const loadDashboardSpendingSummary = async () => {
 	try {
-		const receipts = await fetchReceipts();
-		renderSpendingSummary(receipts);
+		const [receipts, spendingBreakdown] = await Promise.all([
+			fetchReceipts(),
+			fetchGlobalSpendingBreakdown(),
+		]);
+		renderSpendingSummary(receipts, spendingBreakdown);
 		setStatus(
 			"dashboard-spending-status",
 			receipts.length
