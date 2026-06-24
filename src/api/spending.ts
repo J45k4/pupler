@@ -147,12 +147,14 @@ const calendarDayIndex = (timestamp: string) => {
 const monthlyAverageTotals = (
 	spendingByCurrency: Map<
 		string,
-		{ firstDay: number; lastDay: number; total: number }
+		{ firstDay: number; total: number }
 	>,
+	averageEndDay: number | null,
 ): SpendingMonthlyAverageTotal[] =>
 	[...spendingByCurrency.entries()]
 		.map(([currency, spending]) => {
-			const dayCount = Math.max(1, spending.lastDay - spending.firstDay + 1);
+			const endDay = averageEndDay ?? spending.firstDay;
+			const dayCount = Math.max(1, endDay - spending.firstDay + 1);
 			return {
 				currency,
 				total: roundedMoney(
@@ -208,8 +210,9 @@ export const spendingRoute = (db: Database) =>
 		const buckets = new Map<string, SpendingBucket>();
 		const spendingByCurrency = new Map<
 			string,
-			{ firstDay: number; lastDay: number; total: number }
+			{ firstDay: number; total: number }
 		>();
+		const averageEndDay = calendarDayIndex(period.to);
 		let itemCount = 0;
 		let missingTotalCount = 0;
 
@@ -258,12 +261,10 @@ export const spendingRoute = (db: Database) =>
 				const spending = spendingByCurrency.get(currency);
 				if (spending) {
 					spending.firstDay = Math.min(spending.firstDay, itemDay);
-					spending.lastDay = Math.max(spending.lastDay, itemDay);
 					spending.total += amount;
 				} else {
 					spendingByCurrency.set(currency, {
 						firstDay: itemDay,
-						lastDay: itemDay,
 						total: amount,
 					});
 				}
@@ -300,7 +301,10 @@ export const spendingRoute = (db: Database) =>
 					total: roundedMoney(total),
 				}))
 				.sort((left, right) => left.currency.localeCompare(right.currency)),
-			monthly_average_totals: monthlyAverageTotals(spendingByCurrency),
+			monthly_average_totals: monthlyAverageTotals(
+				spendingByCurrency,
+				averageEndDay,
+			),
 			categories,
 		});
 	});
