@@ -128,6 +128,16 @@ export class SearchSelect extends UiComponent<HTMLDivElement> {
 		return this;
 	}
 
+	public setValue(value: string | null | undefined) {
+		if (!value) return this.clear();
+		const option = getSearchSelectState(this.root).options.find(
+			(candidate) => candidate.value === value,
+		);
+		if (!option) return this.clear();
+		selectSearchSelectOption(this.root, option);
+		return this;
+	}
+
 	public get text() {
 		return this.input.value.trim();
 	}

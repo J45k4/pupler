@@ -575,13 +575,16 @@ class TimeActions {
 	public async updateRunningTimer(
 		entry: TimeEntry,
 		values: {
-			projectId: number | null;
+			projectName: string;
 			description: string | null;
 			startedAt: string;
 		},
 	) {
+		const project = values.projectName.trim()
+			? await this.ensureProject(values.projectName)
+			: null;
 		const updated = await timeApi.updateEntry(entry.id, {
-			project_id: values.projectId,
+			project_id: project?.id ?? null,
 			description: values.description,
 			started_at: values.startedAt,
 		});
@@ -791,11 +794,17 @@ const createRunningEditModal = (
 	const form = document.createElement("form");
 	form.className = "time-running__start-form";
 
-	const projectSelect = selectProject(
-		context.store.get().projects,
-		runningEntry.project_id,
-	);
-	projectSelect.setAttribute("aria-label", "Running timer project");
+	const projectSelect = new SearchSelect({
+		placeholder: "Type or choose a project",
+		allowCreate: true,
+		createLabelPrefix: "Create project",
+	});
+	projectSelect
+		.setOptions(choiceOptions(context.store.get().choices))
+		.setValue(
+			runningEntry.project_id === null ? null : String(runningEntry.project_id),
+		);
+	projectSelect.root.setAttribute("aria-label", "Running timer project");
 
 	const description = document.createElement("input");
 	description.value = runningEntry.description ?? "";
@@ -808,7 +817,7 @@ const createRunningEditModal = (
 	startedAt.required = true;
 
 	form.append(
-		field("Project (optional)", projectSelect),
+		field("Project (optional)", projectSelect.root),
 		field("Description", description),
 		field("Started At", startedAt),
 	);
@@ -880,7 +889,7 @@ const createRunningEditModal = (
 		}
 		try {
 			await context.actions.updateRunningTimer(runningEntry, {
-				projectId: projectSelect.value ? Number(projectSelect.value) : null,
+				projectName: projectSelect.text,
 				description: description.value.trim() || null,
 				startedAt: startedAtValue,
 			});
