@@ -21,7 +21,7 @@ import { renderInventoryItemDetailPage } from "./pages/inventory-item-detail";
 import { renderInventoryContainerDetailPage } from "./pages/inventory-container-detail";
 import { renderReceiptsPage } from "./pages/receipts";
 import { renderShoppingListsPage } from "./pages/shopping-lists";
-import { renderTimePage } from "./pages/time";
+import { renderTimeOverviewPage, renderTimePage } from "./pages/time";
 import { renderTodosPage } from "./pages/todos";
 import { renderGroupDetailPage } from "./pages/group-detail";
 import { renderReceiptDetailPage } from "./pages/receipt-detail";
@@ -50,6 +50,7 @@ window.onload = () => {
 		"/shoppinglist": renderShoppingListsPage,
 		"/todos": renderTodosPage,
 		"/time": renderTimePage,
+		"/time/overview": renderTimeOverviewPage,
 		"/recipes/new": renderRecipeCreatePage,
 		"/recipes/:id": (_main, params) => renderRecipeDetailPage(params),
 		"/recipes": renderRecipesPage,

@@ -130,6 +130,13 @@ describe("Pupler API e2e", () => {
 			"text/html",
 		);
 		expect(timePage.body).toContain("<title>Pupler</title>");
+
+		const timeOverviewPage = await server.call<string>("/time/overview");
+		expect(timeOverviewPage.response.status).toBe(200);
+		expect(timeOverviewPage.response.headers.get("content-type")).toContain(
+			"text/html",
+		);
+		expect(timeOverviewPage.body).toContain("<title>Pupler</title>");
 	});
 
 	test("serves the app shell for receipt pages", async () => {

@@ -25,7 +25,15 @@ export const primaryNavItems: NavItem[] = [
 	{ href: "/receipts", label: "Receipts", mobileLabel: "Receipts" },
 	{ href: "/shoppinglist", label: "Shoppinglist", mobileLabel: "Shopping" },
 	{ href: "/todos", label: "Todos", mobileLabel: "Todos" },
-	{ href: "/time", label: "Time", mobileLabel: "Time" },
+	{
+		href: "/time",
+		label: "Time",
+		mobileLabel: "Time",
+		children: [
+			{ href: "/time", label: "Timer" },
+			{ href: "/time/overview", label: "Overview" },
+		],
+	},
 	{ href: "/recipes", label: "Recipes", mobileLabel: "Recipes" },
 ];
 

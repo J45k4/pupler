@@ -37,12 +37,41 @@ type TimeQuickAction = {
 	project?: TimeProject;
 };
 
+type TimeReportProjectTotal = {
+	project_id: number;
+	project_name: string;
+	project_color: string;
+	total_seconds: number;
+	entry_count: number;
+};
+
+type TimeReport = {
+	period: {
+		from: string | null;
+		to: string;
+		range: "custom" | "all";
+	};
+	total_seconds: number;
+	project_totals: TimeReportProjectTotal[];
+};
+
 type TimePageState = {
 	projects: TimeProject[];
 	entries: TimeEntry[];
 	choices: TimeProjectChoice[];
 	runningEntry: TimeEntry | null;
 };
+
+const TIME_OVERVIEW_SPANS = [
+	{ value: "this-week", label: "This Week" },
+	{ value: "last-2-weeks", label: "Last 2 Weeks" },
+	{ value: "last-30-days", label: "Last 30 Days" },
+	{ value: "ytd", label: "YTD" },
+] as const;
+
+type TimeOverviewSpan = (typeof TIME_OVERVIEW_SPANS)[number];
+
+const DEFAULT_TIME_OVERVIEW_SPAN = "this-week";
 
 const field = (label: string, control: HTMLElement) => {
 	const labelComponent = new Label({ text: label });
@@ -108,6 +137,11 @@ const timeApi = {
 
 	fetchEntries: () =>
 		timeApiJson<TimeEntry[]>("/api/time-entries?sort=started_at&order=desc"),
+
+	fetchReport: (from: string, to: string) => {
+		const query = new URLSearchParams({ from, to });
+		return timeApiJson<TimeReport>(`/api/time-report?${query.toString()}`);
+	},
 
 	createProject: (name: string) =>
 		timeApiJson<TimeProject>("/api/time-projects", {
@@ -198,6 +232,60 @@ const formatTimestampForDateTimeLocalInput = (value: string) =>
 const parseDateTimeLocalInput = (value: string) => {
 	const date = new Date(value);
 	return Number.isNaN(date.getTime()) ? null : date.toISOString();
+};
+
+const startOfLocalDay = (date: Date) =>
+	new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+const startOfLocalWeek = (date: Date) => {
+	const start = startOfLocalDay(date);
+	const mondayOffset = (start.getDay() + 6) % 7;
+	start.setDate(start.getDate() - mondayOffset);
+	return start;
+};
+
+const getTimeOverviewSpan = (
+	value: string | null | undefined,
+): TimeOverviewSpan =>
+	TIME_OVERVIEW_SPANS.find((span) => span.value === value) ??
+	TIME_OVERVIEW_SPANS.find(
+		(span) => span.value === DEFAULT_TIME_OVERVIEW_SPAN,
+	)!;
+
+const getCurrentTimeOverviewSpan = () =>
+	getTimeOverviewSpan(new URLSearchParams(window.location.search).get("span"));
+
+const getTimeOverviewPeriod = (span: TimeOverviewSpan) => {
+	const to = new Date();
+	const from = (() => {
+		switch (span.value) {
+			case "this-week":
+				return startOfLocalWeek(to);
+			case "last-2-weeks": {
+				const date = startOfLocalDay(to);
+				date.setDate(date.getDate() - 13);
+				return date;
+			}
+			case "last-30-days": {
+				const date = startOfLocalDay(to);
+				date.setDate(date.getDate() - 29);
+				return date;
+			}
+			case "ytd":
+				return new Date(to.getFullYear(), 0, 1);
+		}
+	})();
+	return { from: from.toISOString(), to: to.toISOString() };
+};
+
+const updateTimeOverviewSpanUrl = (span: TimeOverviewSpan) => {
+	const url = new URL(window.location.href);
+	if (span.value === DEFAULT_TIME_OVERVIEW_SPAN) {
+		url.searchParams.delete("span");
+	} else {
+		url.searchParams.set("span", span.value);
+	}
+	window.history.replaceState({}, "", `${url.pathname}${url.search}`);
 };
 
 const defaultTimeEntryRange = () => {
@@ -1401,6 +1489,119 @@ const createTimeEntriesList = (context: TimePageContext) => {
 	});
 };
 
+const renderTimeOverviewSpanOptions = (selectedValue: string) =>
+	TIME_OVERVIEW_SPANS.map((span) => {
+		const option = document.createElement("option");
+		option.value = span.value;
+		option.textContent = span.label;
+		option.selected = span.value === selectedValue;
+		return option;
+	});
+
+const formatTimeOverviewPeriod = (report: TimeReport) => {
+	if (report.period.from === null) {
+		return `Through ${formatDateTime(report.period.to)}`;
+	}
+	return `${formatDateTime(report.period.from)} - ${formatDateTime(report.period.to)}`;
+};
+
+const createTimeOverviewPie = (report: TimeReport) => {
+	const pie = div("time-overview-pie");
+	const total = report.project_totals.reduce(
+		(sum, project) => sum + project.total_seconds,
+		0,
+	);
+	if (total <= 0) {
+		pie.classList.add("time-overview-pie--empty");
+		pie.setAttribute("aria-label", "No project time in this span");
+		return pie;
+	}
+
+	let cursor = 0;
+	const segments = report.project_totals.map((project) => {
+		const start = cursor;
+		const end = cursor + (project.total_seconds / total) * 100;
+		cursor = end;
+		return `${project.project_color} ${start.toFixed(3)}% ${end.toFixed(3)}%`;
+	});
+	pie.style.background = `conic-gradient(${segments.join(", ")})`;
+	pie.setAttribute("aria-label", "Project time usage pie chart");
+	return pie;
+};
+
+const createTimeOverviewSummary = (report: TimeReport) => {
+	const summary = div("time-report-summary time-overview-summary");
+	const total = div();
+	total.append(text("span", "Total Time"), text("strong", formatDuration(report.total_seconds)));
+	const projects = div();
+	projects.append(
+		text("span", "Projects"),
+		text("strong", String(report.project_totals.length)),
+	);
+	const period = div();
+	period.append(text("span", "Span"), text("strong", formatTimeOverviewPeriod(report)));
+	summary.append(total, projects, period);
+	return summary;
+};
+
+const createTimeOverviewProjectList = (report: TimeReport) => {
+	const list = div("time-report-list time-overview-list");
+	const projectTotal = report.project_totals.reduce(
+		(sum, project) => sum + project.total_seconds,
+		0,
+	);
+	if (!report.project_totals.length) {
+		const empty = div("empty");
+		empty.textContent = "No tracked project time in this span.";
+		list.append(empty);
+		return list;
+	}
+
+	for (const project of report.project_totals) {
+		const row = div("time-report-row time-overview-row");
+		const main = div("time-overview-row__main");
+		const title = div("time-entry-row__title");
+		title.append(
+			timeColor(project.project_color),
+			text("strong", project.project_name),
+		);
+		const meta = text(
+			"span",
+			`${project.entry_count} entr${project.entry_count === 1 ? "y" : "ies"}`,
+		);
+		meta.className = "section-copy";
+		const percent =
+			projectTotal > 0 ? Math.round((project.total_seconds / projectTotal) * 100) : 0;
+		main.append(title, meta);
+		const total = div("time-overview-row__total");
+		total.append(
+			text("strong", formatDuration(project.total_seconds)),
+			text("span", `${percent}%`),
+		);
+		row.append(main, total);
+		list.append(row);
+	}
+
+	return list;
+};
+
+const renderTimeOverviewReport = (
+	report: TimeReport | null,
+	resultsRoot: HTMLElement,
+) => {
+	resultsRoot.replaceChildren();
+	if (!report) {
+		const empty = div("empty");
+		empty.textContent = "Choose a span to load time usage.";
+		resultsRoot.append(empty);
+		return;
+	}
+
+	const chartPanel = div("time-overview-chart");
+	chartPanel.append(createTimeOverviewPie(report), createTimeOverviewProjectList(report));
+	resultsRoot.append(createTimeOverviewSummary(report), chartPanel);
+};
+
 export const renderTimePage = (page: HTMLElement) => {
 	const status = div("status");
 	const store = new TimeStore(
@@ -1446,4 +1647,50 @@ export const renderTimePage = (page: HTMLElement) => {
 	page.append(workspace, entryCreateModal.root);
 
 	void actions.loadInitial();
+};
+
+export const renderTimeOverviewPage = (page: HTMLElement) => {
+	const selectedSpan = getCurrentTimeOverviewSpan();
+	const header = div("section-header");
+	header.append(text("h2", "Time Overview"));
+
+	const controls = div("spending-breakdown-controls time-overview-controls");
+	const spanSelect = document.createElement("select");
+	spanSelect.id = "time-overview-span-select";
+	spanSelect.append(...renderTimeOverviewSpanOptions(selectedSpan.value));
+	const spanLabel = field("Span", spanSelect);
+	controls.append(spanLabel);
+
+	const status = div("status");
+	const results = div("time-overview-results");
+	const pageBlock = document.createElement("section");
+	pageBlock.className = "time-block";
+	pageBlock.append(header, controls, status, results);
+	page.append(pageBlock);
+
+	const load = async (span: TimeOverviewSpan) => {
+		setStatus(status, "Loading time overview...");
+		renderTimeOverviewReport(null, results);
+		try {
+			const period = getTimeOverviewPeriod(span);
+			const report = await timeApi.fetchReport(period.from, period.to);
+			renderTimeOverviewReport(report, results);
+			setStatus(status, `Loaded ${span.label.toLowerCase()} time usage.`);
+		} catch (error) {
+			setStatus(
+				status,
+				error instanceof Error ? error.message : "Failed to load time overview.",
+				true,
+			);
+		}
+	};
+
+	spanSelect.addEventListener("change", () => {
+		const span = getTimeOverviewSpan(spanSelect.value);
+		spanSelect.value = span.value;
+		updateTimeOverviewSpanUrl(span);
+		void load(span);
+	});
+
+	void load(selectedSpan);
 };

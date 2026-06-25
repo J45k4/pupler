@@ -147,6 +147,7 @@ export const server = (options: ServerOptions = {}) => {
 			"/shoppinglist": index,
 			"/todos": index,
 			"/time": index,
+			"/time/overview": index,
 			"/recipes": index,
 			"/recipes/new": index,
 			"/recipes/:id": index,

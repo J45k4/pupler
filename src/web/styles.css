@@ -2541,6 +2541,65 @@ body.modal-open {
 	border-bottom: 0;
 }
 
+.time-overview-controls {
+	margin-bottom: 1rem;
+}
+
+.time-overview-controls label {
+	max-width: 16rem;
+}
+
+.time-overview-results {
+	display: grid;
+	gap: 1.25rem;
+}
+
+.time-overview-chart {
+	display: grid;
+	grid-template-columns: minmax(12rem, 16rem) minmax(0, 1fr);
+	align-items: center;
+	gap: 1.5rem;
+}
+
+.time-overview-pie {
+	width: min(100%, 16rem);
+	aspect-ratio: 1;
+	border: 1px solid var(--line);
+	border-radius: 50%;
+	background: var(--line);
+	box-shadow: inset 0 0 0 1.2rem rgba(255, 255, 255, 0.64);
+}
+
+.time-overview-pie--empty {
+	background:
+		repeating-conic-gradient(
+			from 0deg,
+			rgba(81, 56, 36, 0.1) 0deg 16deg,
+			rgba(255, 255, 255, 0.7) 16deg 32deg
+		);
+}
+
+.time-overview-summary {
+	margin-bottom: 0;
+}
+
+.time-overview-row__main,
+.time-overview-row__total {
+	display: grid;
+	gap: 0.25rem;
+	min-width: 0;
+}
+
+.time-overview-row__total {
+	justify-items: end;
+	text-align: right;
+}
+
+.time-overview-row__total span {
+	color: var(--muted);
+	font-size: 0.85rem;
+}
+
 @media (max-width: 860px) {
 	.site-header__inner,
 	.dashboard-grid,
@@ -2587,6 +2646,14 @@ body.modal-open {
 	.time-report-summary {
 		align-items: stretch;
 		flex-direction: column;
+	}
+
+	.time-overview-chart {
+		grid-template-columns: 1fr;
+	}
+
+	.time-overview-pie {
+		justify-self: center;
 	}
 
 	.shoppinglist-input {
