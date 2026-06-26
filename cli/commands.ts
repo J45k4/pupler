@@ -311,6 +311,24 @@ const RESOURCES: ResourceConfig[] = [
 		},
 	},
 	{
+		command: "users",
+		path: "/api/users",
+		fields: {
+			name: { type: "string" },
+			username: { type: "string", nullable: true },
+			email: { type: "string", nullable: true },
+			password_hash: { type: "string", nullable: true },
+		},
+		queryFields: {
+			id: { type: "integer" },
+			name: { type: "string", nullable: true },
+			username: { type: "string", nullable: true },
+			email: { type: "string", nullable: true },
+			created_at: { type: "timestamp" },
+			updated_at: { type: "timestamp" },
+		},
+	},
+	{
 		command: "time-projects",
 		path: "/api/time-projects",
 		fields: {
@@ -331,14 +349,16 @@ const RESOURCES: ResourceConfig[] = [
 		command: "time-entries",
 		path: "/api/time-entries",
 		fields: {
-			project_id: { type: "integer" },
+			user_id: { type: "integer", nullable: true },
+			project_id: { type: "integer", nullable: true },
 			description: { type: "string", nullable: true },
 			started_at: { type: "timestamp" },
 			ended_at: { type: "timestamp", nullable: true },
 		},
 		queryFields: {
 			id: { type: "integer" },
-			project_id: { type: "integer" },
+			user_id: { type: "integer", nullable: true },
+			project_id: { type: "integer", nullable: true },
 			description: { type: "string", nullable: true },
 			started_at: { type: "timestamp", nullable: true },
 			ended_at: { type: "timestamp", nullable: true },
@@ -816,7 +836,8 @@ const runPictureCommand = async (
 
 const buildTimeEntryStartPayload = (flags: Record<string, FlagValue>) => {
 	const allowedFields: Record<string, FieldSpec> = {
-		project_id: { type: "integer" },
+		user_id: { type: "integer", nullable: true },
+		project_id: { type: "integer", nullable: true },
 		description: { type: "string", nullable: true },
 		started_at: { type: "timestamp" },
 	};
@@ -828,10 +849,6 @@ const buildTimeEntryStartPayload = (flags: Record<string, FlagValue>) => {
 			throw new CliError(`Unknown flag \`--${toFlagName(key)}\` for \`time-entries start\``);
 		}
 		payload[key] = parseFieldValue(key, field, value);
-	}
-
-	if (payload.project_id === undefined) {
-		throw new CliError("Flag `--project-id` is required");
 	}
 
 	return payload;

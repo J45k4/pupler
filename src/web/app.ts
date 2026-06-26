@@ -1,4 +1,8 @@
 import { InfiniteScroll } from "./infinite-scroll";
+import {
+	getCurrentUser,
+	logout,
+} from "./auth";
 import { escapeHtml } from "./lib/html";
 import { renderNavbar } from "./navbar";
 import {
@@ -184,14 +188,22 @@ type TimeProject = {
 	updated_at: string;
 };
 
+type UserSummary = {
+	id: number;
+	name: string;
+	email: string | null;
+};
+
 type TimeEntry = {
 	id: number;
-	project_id: number;
+	user_id: number | null;
+	project_id: number | null;
 	description: string | null;
 	started_at: string;
 	ended_at: string | null;
 	created_at: string;
 	updated_at: string;
+	user?: UserSummary | null;
 	project?: TimeProject;
 };
 
@@ -320,9 +332,19 @@ export const renderAppShell = (shellClassName = "") => {
 		...new Set(["page-shell", "page-shell--wide", shellClassName].filter(Boolean)),
 	].join(" ");
 	render(`
-		${renderNavbar(window.location.pathname)}
+		${renderNavbar(window.location.pathname, getCurrentUser())}
 		<main class="${shellClasses}"></main>
 	`);
+	document
+		.querySelector(".account-menu__logout")
+		?.addEventListener("click", async () => {
+			try {
+				await logout();
+				navigate("/login");
+			} catch (error) {
+				console.error(error);
+			}
+		});
 	requestAnimationFrame(() => {
 		const activeLink = document.querySelector<HTMLElement>(
 			".navbar__link--active",

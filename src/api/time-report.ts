@@ -1,17 +1,19 @@
 import {
 	HttpError,
 	json,
+	parseIntegerQuery,
 	parseTimestampQuery,
 	withErrorHandling,
 	type Database,
 } from "./core";
 
-const QUERY_FIELDS = new Set(["from", "to", "range"]);
+const QUERY_FIELDS = new Set(["from", "to", "range", "user_id"]);
 
 type TimeReportPeriod = {
 	from: string | null;
 	to: string;
 	range: "custom" | "all";
+	user_id: number | null | undefined;
 };
 
 type TimeReportProjectTotal = {
@@ -35,6 +37,12 @@ const parseTimeReportQuery = (url: URL): TimeReportPeriod => {
 		: new Date().toISOString();
 	const rangeParam = url.searchParams.get("range");
 	const fromParam = url.searchParams.get("from");
+	const userIdParam = url.searchParams.get("user_id");
+	const user_id = userIdParam === null
+		? undefined
+		: userIdParam === "null"
+			? null
+			: parseIntegerQuery("user_id", userIdParam);
 
 	if (rangeParam !== null && rangeParam !== "all") {
 		throw new HttpError(400, "Query parameter `range` must be `all`");
@@ -43,7 +51,7 @@ const parseTimeReportQuery = (url: URL): TimeReportPeriod => {
 		if (fromParam !== null) {
 			throw new HttpError(400, "Use `range=all` without `from`");
 		}
-		return { from: null, to, range: "all" };
+		return { from: null, to, range: "all", user_id };
 	}
 
 	const from = fromParam ? parseTimestampQuery("from", fromParam) : null;
@@ -51,7 +59,7 @@ const parseTimeReportQuery = (url: URL): TimeReportPeriod => {
 		throw new HttpError(400, "Query parameter `from` must be before `to`");
 	}
 
-	return { from, to, range: "custom" };
+	return { from, to, range: "custom", user_id };
 };
 
 const entryDurationSeconds = (
@@ -79,6 +87,7 @@ export const timeReportRoute = (db: Database) =>
 		const period = parseTimeReportQuery(url);
 		const entries = await db.client.timeEntry.findMany({
 			where: {
+				...(period.user_id === undefined ? {} : { user_id: period.user_id }),
 				started_at: { lte: period.to },
 				...(period.from === null
 					? {}
@@ -90,6 +99,13 @@ export const timeReportRoute = (db: Database) =>
 						}),
 			},
 			include: {
+				user: {
+					select: {
+						id: true,
+						name: true,
+						email: true,
+					},
+				},
 				project: {
 					select: {
 						id: true,

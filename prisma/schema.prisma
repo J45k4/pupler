@@ -276,6 +276,34 @@ model Todo {
 	@@map("todos")
 }
 
+model User {
+	id            Int           @id @default(autoincrement())
+	name          String
+	username      String?       @unique
+	email         String?
+	password_hash String?       @map("password_hash")
+	created_at    String        @map("created_at")
+	updated_at    String        @map("updated_at")
+	time_entries  TimeEntry[]
+	sessions      UserSession[]
+
+	@@map("users")
+}
+
+model UserSession {
+	id             Int    @id @default(autoincrement())
+	user_id        Int    @map("user_id")
+	token_hash     String @unique @map("token_hash")
+	expires_at     String @map("expires_at")
+	created_at     String @map("created_at")
+	last_seen_at   String? @map("last_seen_at")
+	user           User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+	@@index([user_id], map: "idx_user_sessions_user_id")
+	@@index([expires_at], map: "idx_user_sessions_expires_at")
+	@@map("user_sessions")
+}
+
 model TimeProject {
 	id           Int         @id @default(autoincrement())
 	name         String
@@ -291,15 +319,18 @@ model TimeProject {
 }
 
 model TimeEntry {
-	id          Int         @id @default(autoincrement())
-	project_id  Int?        @map("project_id")
+	id          Int          @id @default(autoincrement())
+	user_id     Int?         @map("user_id")
+	project_id  Int?         @map("project_id")
 	description String?
-	started_at  String      @map("started_at")
-	ended_at    String?     @map("ended_at")
-	created_at  String      @map("created_at")
-	updated_at  String      @map("updated_at")
+	started_at  String       @map("started_at")
+	ended_at    String?      @map("ended_at")
+	created_at  String       @map("created_at")
+	updated_at  String       @map("updated_at")
+	user        User?        @relation(fields: [user_id], references: [id], onDelete: SetNull)
 	project     TimeProject? @relation(fields: [project_id], references: [id])
 
+	@@index([user_id], map: "idx_time_entries_user_id")
 	@@index([project_id], map: "idx_time_entries_project_id")
 	@@index([started_at], map: "idx_time_entries_started_at")
 	@@index([ended_at], map: "idx_time_entries_ended_at")

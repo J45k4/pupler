@@ -152,8 +152,61 @@ describe("Pupler CLI", () => {
 		expect(listedBody[0]?.id).toBe(createdBody.id);
 	});
 
+	test("creates and lists users as JSON", async () => {
+		const server = await startServer();
+
+		const created = await runCli(
+			[
+				"users",
+				"create",
+				"--json",
+				"--name",
+				"Alice",
+				"--username",
+				"alice",
+				"--email",
+				"alice@example.com",
+				"--password-hash",
+				"hashed-password",
+			],
+			{ baseUrl: server.baseUrl },
+		);
+		expect(created.exitCode).toBe(0);
+		const createdBody = JSON.parse(created.stdout) as {
+			email: string | null;
+			id: number;
+			name: string;
+			password_hash?: string;
+			username: string | null;
+		};
+		expect(createdBody.name).toBe("Alice");
+		expect(createdBody.username).toBe("alice");
+		expect(createdBody.email).toBe("alice@example.com");
+		expect(createdBody.password_hash).toBeUndefined();
+
+		const listed = await runCli(
+			["users", "list", "--json", "--username", "alice"],
+			{ baseUrl: server.baseUrl },
+		);
+		expect(listed.exitCode).toBe(0);
+		const listedBody = JSON.parse(listed.stdout) as Array<{ id: number }>;
+		expect(listedBody).toHaveLength(1);
+		expect(listedBody[0]?.id).toBe(createdBody.id);
+	});
+
 	test("creates time projects and starts/stops time entries", async () => {
 		const server = await startServer();
+
+		const user = await runCli(
+			["users", "create", "--json", "--name", "Alice"],
+			{ baseUrl: server.baseUrl },
+		);
+		expect(user.exitCode).toBe(0);
+		const userBody = JSON.parse(user.stdout) as {
+			id: number;
+			name: string;
+		};
+		expect(userBody.name).toBe("Alice");
 
 		const project = await runCli(
 			[
@@ -181,6 +234,8 @@ describe("Pupler CLI", () => {
 				"time-entries",
 				"start",
 				"--json",
+				"--user-id",
+				String(userBody.id),
 				"--project-id",
 				String(projectBody.id),
 				"--description",
@@ -194,8 +249,10 @@ describe("Pupler CLI", () => {
 		const startedBody = JSON.parse(started.stdout) as {
 			id: number;
 			ended_at: string | null;
+			user_id: number | null;
 		};
 		expect(startedBody.ended_at).toBeNull();
+		expect(startedBody.user_id).toBe(userBody.id);
 
 		const stopped = await runCli(
 			[
@@ -219,6 +276,8 @@ describe("Pupler CLI", () => {
 				"time-entries",
 				"list",
 				"--json",
+				"--user-id",
+				String(userBody.id),
 				"--project-id",
 				String(projectBody.id),
 			],

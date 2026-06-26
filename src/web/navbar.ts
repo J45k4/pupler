@@ -8,6 +8,19 @@ type NavItem = {
 	}>;
 };
 
+type NavbarUser = {
+	name: string;
+	username: string | null;
+};
+
+const escapeHtml = (value: string) =>
+	value
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;")
+		.replace(/"/g, "&quot;")
+		.replace(/'/g, "&#39;");
+
 export const primaryNavItems: NavItem[] = [
 	{ href: "/", label: "Overview", mobileLabel: "Home" },
 	{ href: "/products", label: "Products", mobileLabel: "Products" },
@@ -34,7 +47,26 @@ const isActiveNavHref = (currentPath: string, href: string) =>
 		? currentPath === href
 		: currentPath === href || currentPath.startsWith(`${href}/`);
 
-export const renderNavbar = (currentPath: string) => {
+const renderAccountMenu = (user: NavbarUser | null) => {
+	if (!user) {
+		return `<a class="account-login" href="/login" data-link>Login</a>`;
+	}
+
+	const label = escapeHtml(user.username ?? user.name);
+	return `
+		<div class="account-menu">
+			<button class="account-menu__trigger" type="button" aria-haspopup="true">
+				${label}
+			</button>
+			<div class="account-menu__dropdown">
+				<div class="account-menu__username">${label}</div>
+				<button class="account-menu__logout" type="button">Logout</button>
+			</div>
+		</div>
+	`;
+};
+
+export const renderNavbar = (currentPath: string, user: NavbarUser | null = null) => {
 	return `
 		<header class="site-header">
 			<div class="site-header__inner">
@@ -75,6 +107,7 @@ export const renderNavbar = (currentPath: string) => {
 							})
 							.join("")}
 					</nav>
+					${renderAccountMenu(user)}
 			</div>
 		</header>
 	`;

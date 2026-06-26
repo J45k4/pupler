@@ -30,6 +30,7 @@ const DEFAULT_SORT = [
 ];
 const SORT_FIELDS = [
 	"id",
+	"user_id",
 	"project_id",
 	"description",
 	"started_at",
@@ -37,11 +38,18 @@ const SORT_FIELDS = [
 	"created_at",
 	"updated_at",
 ];
-const WRITABLE_FIELDS = ["project_id", "description", "started_at", "ended_at"];
-const START_FIELDS = ["project_id", "description", "started_at"];
+const WRITABLE_FIELDS = ["user_id", "project_id", "description", "started_at", "ended_at"];
+const START_FIELDS = ["user_id", "project_id", "description", "started_at"];
 const STOP_FIELDS = ["ended_at"];
 
 const ENTRY_INCLUDE = {
+	user: {
+		select: {
+			id: true,
+			name: true,
+			email: true,
+		},
+	},
 	project: {
 		select: {
 			id: true,
@@ -96,8 +104,9 @@ const parseFilters = (url: URL) => {
 		if (key === "sort" || key === "order") continue;
 		switch (key) {
 			case "id":
+			case "user_id":
 			case "project_id":
-				where[key] = parseIntegerQuery(key, value);
+				where[key] = value === "null" ? null : parseIntegerQuery(key, value);
 				break;
 			case "description":
 				where.description = value === "null" ? null : { contains: value };
@@ -142,12 +151,14 @@ const parseCreateValues = (body: JsonObject) => {
 	const now = utcNow();
 	const startedAt = requireBodyField(body, "started_at", expectTimestamp);
 	const endedAt = readOptionalBodyField(body, "ended_at", expectNullableTimestamp) ?? null;
+	const userId = readOptionalBodyField(body, "user_id", expectNullableInteger) ?? null;
 	const projectId = readOptionalBodyField(body, "project_id", expectNullableInteger) ?? null;
 	assertChronologicalRange(startedAt, endedAt);
 	if (endedAt !== null) {
 		assertProjectBeforeStop(projectId);
 	}
 	return {
+		user_id: userId,
 		project_id: projectId,
 		description: normalizeDescription(
 			readOptionalBodyField(body, "description", expectNullableString) ?? null,
@@ -167,12 +178,14 @@ const parseReplaceValues = (
 	const now = utcNow();
 	const startedAt = requireBodyField(body, "started_at", expectTimestamp);
 	const endedAt = readOptionalBodyField(body, "ended_at", expectNullableTimestamp) ?? null;
+	const userId = readOptionalBodyField(body, "user_id", expectNullableInteger) ?? null;
 	const projectId = readOptionalBodyField(body, "project_id", expectNullableInteger) ?? null;
 	assertChronologicalRange(startedAt, endedAt);
 	if (endedAt !== null) {
 		assertProjectBeforeStop(projectId);
 	}
 	return {
+		user_id: userId,
 		project_id: projectId,
 		description: normalizeDescription(
 			readOptionalBodyField(body, "description", expectNullableString) ?? null,
@@ -191,6 +204,7 @@ const parsePatchValues = (
 	assertKnownFields(body, WRITABLE_FIELDS);
 	const values: Record<string, unknown> = {};
 
+	const userId = readOptionalBodyField(body, "user_id", expectNullableInteger);
 	const projectId = readOptionalBodyField(body, "project_id", expectNullableInteger);
 	const description = readOptionalBodyField(
 		body,
@@ -200,6 +214,7 @@ const parsePatchValues = (
 	const startedAt = readOptionalBodyField(body, "started_at", expectTimestamp);
 	const endedAt = readOptionalBodyField(body, "ended_at", expectNullableTimestamp);
 
+	if (userId !== undefined) values.user_id = userId;
 	if (projectId !== undefined) values.project_id = projectId;
 	if (description !== undefined) values.description = normalizeDescription(description);
 	if (startedAt !== undefined) values.started_at = startedAt;
@@ -232,6 +247,7 @@ const parseStartValues = (body: JsonObject) => {
 	assertKnownFields(body, START_FIELDS);
 	const startedAt = readOptionalBodyField(body, "started_at", expectTimestamp) ?? utcNow();
 	return {
+		user_id: readOptionalBodyField(body, "user_id", expectNullableInteger) ?? null,
 		project_id: readOptionalBodyField(body, "project_id", expectNullableInteger) ?? null,
 		description: normalizeDescription(
 			readOptionalBodyField(body, "description", expectNullableString) ?? null,
@@ -253,11 +269,13 @@ const parseStopValues = (body: JsonObject) => {
 const stopOtherRunningEntries = async (
 	db: Database,
 	stopAt: string,
+	userId: number | null,
 	excludeId?: number,
 ) => {
 	const unassignedRunning = await db.client.timeEntry.findFirst({
 		where: {
 			ended_at: null,
+			user_id: userId,
 			project_id: null,
 			...(excludeId === undefined ? {} : { id: { not: excludeId } }),
 		},
@@ -269,6 +287,7 @@ const stopOtherRunningEntries = async (
 	const laterRunning = await db.client.timeEntry.findFirst({
 		where: {
 			ended_at: null,
+			user_id: userId,
 			...(excludeId === undefined ? {} : { id: { not: excludeId } }),
 			started_at: { gt: stopAt },
 		},
@@ -283,6 +302,7 @@ const stopOtherRunningEntries = async (
 	await db.client.timeEntry.updateMany({
 		where: {
 			ended_at: null,
+			user_id: userId,
 			...(excludeId === undefined ? {} : { id: { not: excludeId } }),
 		},
 		data: {
@@ -294,7 +314,7 @@ const stopOtherRunningEntries = async (
 
 const createEntry = async (db: Database, values: ReturnType<typeof parseCreateValues>) => {
 	if (values.ended_at === null) {
-		await stopOtherRunningEntries(db, values.started_at);
+		await stopOtherRunningEntries(db, values.started_at, values.user_id);
 	}
 	return db.client.timeEntry.create({ data: values, include: ENTRY_INCLUDE });
 };
@@ -303,12 +323,19 @@ const updateEntry = async (
 	db: Database,
 	id: number,
 	values: Record<string, unknown>,
+	existingRow: Awaited<ReturnType<typeof fetchTimeEntry>>,
 ) => {
 	const startedAt = typeof values.started_at === "string"
 		? values.started_at
-		: (await db.client.timeEntry.findUnique({ where: { id } }))?.started_at;
-	if (values.ended_at === null && startedAt) {
-		await stopOtherRunningEntries(db, startedAt, id);
+		: existingRow?.started_at;
+	const nextEndedAt = values.ended_at === undefined
+		? (existingRow?.ended_at ?? null)
+		: (values.ended_at as string | null);
+	const nextUserId = values.user_id === undefined
+		? (existingRow?.user_id ?? null)
+		: (values.user_id as number | null);
+	if (nextEndedAt === null && startedAt) {
+		await stopOtherRunningEntries(db, startedAt, nextUserId, id);
 	}
 	return db.client.timeEntry.update({
 		where: { id },
@@ -346,13 +373,23 @@ export const timeEntryDetailRoute = (db: Database) =>
 		if (req.method === "PUT") {
 			return json(
 				200,
-				await updateEntry(db, id, parseReplaceValues(await readJsonObject(req), existingRow)),
+				await updateEntry(
+					db,
+					id,
+					parseReplaceValues(await readJsonObject(req), existingRow),
+					existingRow,
+				),
 			);
 		}
 		if (req.method === "PATCH") {
 			return json(
 				200,
-				await updateEntry(db, id, parsePatchValues(await readJsonObject(req), existingRow)),
+				await updateEntry(
+					db,
+					id,
+					parsePatchValues(await readJsonObject(req), existingRow),
+					existingRow,
+				),
 			);
 		}
 		if (req.method === "DELETE") {
