@@ -1,4 +1,7 @@
 import {
+	authLoginRoute,
+	authLogoutRoute,
+	authSessionRoute,
 	ingredientDetailRoute,
 	ingredientsCollectionRoute,
 	groupDetailRoute,
@@ -40,6 +43,8 @@ import {
 	timeReportRoute,
 	todoDetailRoute,
 	todosCollectionRoute,
+	userDetailRoute,
+	usersCollectionRoute,
 } from "./api";
 import { deriveFilesPath } from "./api/core";
 
@@ -85,6 +90,9 @@ export const server = (options: ServerOptions = {}) => {
 	return Bun.serve({
 		port,
 		routes: {
+			"/api/auth/login": authLoginRoute(db),
+			"/api/auth/logout": authLogoutRoute(db),
+			"/api/auth/session": authSessionRoute(db),
 			"/api/groups": groupsCollectionRoute(db),
 			"/api/groups/:id": groupDetailRoute(db),
 			"/api/ingredients": ingredientsCollectionRoute(db),
@@ -117,6 +125,8 @@ export const server = (options: ServerOptions = {}) => {
 			"/api/shopping-list-items/:id": shoppingListItemDetailRoute(db),
 			"/api/todos": todosCollectionRoute(db),
 			"/api/todos/:id": todoDetailRoute(db),
+			"/api/users": usersCollectionRoute(db),
+			"/api/users/:id": userDetailRoute(db),
 			"/api/time-projects": timeProjectsCollectionRoute(db),
 			"/api/time-projects/:id": timeProjectDetailRoute(db),
 			"/api/time-entries": timeEntriesCollectionRoute(db),
@@ -132,6 +142,7 @@ export const server = (options: ServerOptions = {}) => {
 				{ status: 404 },
 			),
 			"/": index,
+			"/login": index,
 			"/expirations": index,
 			"/inventory": index,
 			"/inventory/containers/:id": index,

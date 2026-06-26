@@ -5,6 +5,13 @@ export {
 	openDatabase,
 } from "./core";
 export {
+	authLoginRoute,
+	authLogoutRoute,
+	authSessionRoute,
+	requireAuthenticatedUser,
+	resolveAuthenticatedUser,
+} from "./auth";
+export {
 	groupDetailRoute,
 	groupsCollectionRoute,
 } from "./groups";
@@ -62,6 +69,10 @@ export {
 	todoDetailRoute,
 	todosCollectionRoute,
 } from "./todos";
+export {
+	userDetailRoute,
+	usersCollectionRoute,
+} from "./users";
 export {
 	timeProjectDetailRoute,
 	timeProjectsCollectionRoute,

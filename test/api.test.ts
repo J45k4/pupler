@@ -4,6 +4,9 @@ import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 
 import {
+	authLoginRoute,
+	authLogoutRoute,
+	authSessionRoute,
 	closeDatabase,
 	groupDetailRoute,
 	groupsCollectionRoute,
@@ -44,6 +47,8 @@ import {
 	timeReportRoute,
 	todoDetailRoute,
 	todosCollectionRoute,
+	userDetailRoute,
+	usersCollectionRoute,
 } from "../src/api";
 import {
 	resolveDatabasePath,
@@ -81,6 +86,9 @@ const createRoutes = () => {
 		db,
 		filesPath: db.filesPath,
 		handlers: {
+			"/api/auth/login": authLoginRoute(db),
+			"/api/auth/logout": authLogoutRoute(db),
+			"/api/auth/session": authSessionRoute(db),
 			"/api/groups": groupsCollectionRoute(db),
 			"/api/groups/:id": groupDetailRoute(db),
 			"/api/ingredients": ingredientsCollectionRoute(db),
@@ -111,6 +119,8 @@ const createRoutes = () => {
 			"/api/shopping-list-items/:id": shoppingListItemDetailRoute(db),
 			"/api/todos": todosCollectionRoute(db),
 			"/api/todos/:id": todoDetailRoute(db),
+			"/api/users": usersCollectionRoute(db),
+			"/api/users/:id": userDetailRoute(db),
 			"/api/time-projects": timeProjectsCollectionRoute(db),
 			"/api/time-projects/:id": timeProjectDetailRoute(db),
 			"/api/time-entries": timeEntriesCollectionRoute(db),
@@ -136,6 +146,8 @@ const request = async (
 		? "/api/products/:id/picture"
 		: pathname.match(/^\/api\/receipts\/\d+\/picture$/)
 			? "/api/receipts/:id/picture"
+			: pathname.match(/^\/api\/auth\/(login|logout|session)$/)
+				? pathname
 			: pathname.match(/^\/api\/time-entries\/start$/)
 				? "/api/time-entries/start"
 				: pathname.match(/^\/api\/time-entries\/\d+\/stop$/)
@@ -237,8 +249,146 @@ describe("Pupler API", () => {
 		expect(missingResponse.status).toBe(404);
 	});
 
+	test("creates, updates, lists, and deletes users", async () => {
+		const routes = createRoutes();
+
+		const createResponse = await request(routes, "/api/users", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: " Alice ",
+				username: " alice ",
+				email: " alice@example.com ",
+				password_hash: " hashed-password ",
+			}),
+		});
+		expect(createResponse.status).toBe(201);
+		const created = await createResponse.json();
+		expect(created.name).toBe("Alice");
+		expect(created.username).toBe("alice");
+		expect(created.email).toBe("alice@example.com");
+		expect(created.password_hash).toBeUndefined();
+
+		const listResponse = await request(routes, "/api/users?username=alice");
+		expect(listResponse.status).toBe(200);
+		const listed = await listResponse.json();
+		expect(listed).toHaveLength(1);
+		expect(listed[0].id).toBe(created.id);
+		expect(listed[0].password_hash).toBeUndefined();
+
+		const updateResponse = await request(
+			routes,
+			`/api/users/${created.id}`,
+			{
+				method: "PATCH",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					email: null,
+					password_hash: "replacement-hash",
+				}),
+			},
+			{ id: String(created.id) },
+		);
+		expect(updateResponse.status).toBe(200);
+		const updated = await updateResponse.json();
+		expect(updated.email).toBeNull();
+		expect(updated.password_hash).toBeUndefined();
+
+		const deleteResponse = await request(
+			routes,
+			`/api/users/${created.id}`,
+			{ method: "DELETE" },
+			{ id: String(created.id) },
+		);
+		expect(deleteResponse.status).toBe(204);
+
+		const missingResponse = await request(
+			routes,
+			`/api/users/${created.id}`,
+			{},
+			{ id: String(created.id) },
+		);
+		expect(missingResponse.status).toBe(404);
+	});
+
+	test("authenticates users with server-managed cookie sessions", async () => {
+		const routes = createRoutes();
+		const passwordHash = await Bun.password.hash("correct horse battery staple");
+
+		const createResponse = await request(routes, "/api/users", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: "Alice",
+				username: "alice",
+				password_hash: passwordHash,
+			}),
+		});
+		expect(createResponse.status).toBe(201);
+		const created = await createResponse.json();
+
+		const badLoginResponse = await request(routes, "/api/auth/login", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				username: "alice",
+				password: "wrong",
+			}),
+		});
+		expect(badLoginResponse.status).toBe(401);
+
+		const loginResponse = await request(routes, "/api/auth/login", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				username: "alice",
+				password: "correct horse battery staple",
+			}),
+		});
+		expect(loginResponse.status).toBe(200);
+		const cookie = loginResponse.headers.get("set-cookie");
+		expect(cookie).toContain("pupler_session=");
+		expect(cookie).toContain("HttpOnly");
+		expect(cookie).toContain("SameSite=Lax");
+		const loginBody = await loginResponse.json();
+		expect(loginBody.user.id).toBe(created.id);
+		expect(loginBody.user.username).toBe("alice");
+		expect(loginBody.user.password_hash).toBeUndefined();
+
+		const sessionCookie = cookie?.split(";")[0] ?? "";
+		const sessionResponse = await request(routes, "/api/auth/session", {
+			headers: { Cookie: sessionCookie },
+		});
+		expect(sessionResponse.status).toBe(200);
+		const sessionBody = await sessionResponse.json();
+		expect(sessionBody.user.id).toBe(created.id);
+
+		const logoutResponse = await request(routes, "/api/auth/logout", {
+			method: "POST",
+			headers: { Cookie: sessionCookie },
+		});
+		expect(logoutResponse.status).toBe(204);
+		expect(logoutResponse.headers.get("set-cookie")).toContain("Max-Age=0");
+
+		const expiredSessionResponse = await request(routes, "/api/auth/session", {
+			headers: { Cookie: sessionCookie },
+		});
+		expect(expiredSessionResponse.status).toBe(401);
+	});
+
 	test("tracks time projects, timers, entries, and report totals", async () => {
 		const routes = createRoutes();
+
+		const userResponse = await request(routes, "/api/users", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: "Alice",
+				email: "alice@example.com",
+			}),
+		});
+		expect(userResponse.status).toBe(201);
+		const user = await userResponse.json();
 
 		const projectResponse = await request(routes, "/api/time-projects", {
 			method: "POST",
@@ -257,6 +407,7 @@ describe("Pupler API", () => {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
+				user_id: user.id,
 				project_id: project.id,
 				description: "Planning",
 				started_at: "2026-05-26T08:00:00.000Z",
@@ -265,6 +416,11 @@ describe("Pupler API", () => {
 		});
 		expect(manualEntryResponse.status).toBe(201);
 		const manualEntry = await manualEntryResponse.json();
+		expect(manualEntry.user).toEqual({
+			id: user.id,
+			name: "Alice",
+			email: "alice@example.com",
+		});
 		expect(manualEntry.project.name).toBe("Pupler");
 
 		const invalidEntryResponse = await request(routes, "/api/time-entries", {
@@ -282,6 +438,7 @@ describe("Pupler API", () => {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
+				user_id: user.id,
 				project_id: project.id,
 				description: "Build",
 				started_at: "2026-05-26T10:00:00.000Z",
@@ -295,6 +452,7 @@ describe("Pupler API", () => {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
+				user_id: user.id,
 				project_id: project.id,
 				description: "Review",
 				started_at: "2026-05-26T11:00:00.000Z",
@@ -351,6 +509,73 @@ describe("Pupler API", () => {
 		expect(report.project_totals).toHaveLength(1);
 		expect(report.project_totals[0].project_id).toBe(project.id);
 		expect(report.project_totals[0].entry_count).toBe(3);
+
+		const userReportResponse = await request(
+			routes,
+			`/api/time-report?user_id=${user.id}&from=2026-05-26T00:00:00.000Z&to=2026-05-27T00:00:00.000Z`,
+		);
+		expect(userReportResponse.status).toBe(200);
+		const userReport = await userReportResponse.json();
+		expect(userReport.total_seconds).toBe(12600);
+	});
+
+	test("keeps running timers separate by user", async () => {
+		const routes = createRoutes();
+
+		const firstUserResponse = await request(routes, "/api/users", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ name: "Alice" }),
+		});
+		const firstUser = await firstUserResponse.json();
+		const secondUserResponse = await request(routes, "/api/users", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ name: "Bob" }),
+		});
+		const secondUser = await secondUserResponse.json();
+
+		const projectResponse = await request(routes, "/api/time-projects", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: "Pupler",
+				color: "#2d7c6f",
+				archived_at: null,
+			}),
+		});
+		const project = await projectResponse.json();
+
+		const firstStartResponse = await request(routes, "/api/time-entries/start", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				user_id: firstUser.id,
+				project_id: project.id,
+				started_at: "2026-05-26T10:00:00.000Z",
+			}),
+		});
+		const firstEntry = await firstStartResponse.json();
+
+		const secondStartResponse = await request(routes, "/api/time-entries/start", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				user_id: secondUser.id,
+				project_id: project.id,
+				started_at: "2026-05-26T11:00:00.000Z",
+			}),
+		});
+		expect(secondStartResponse.status).toBe(201);
+
+		const firstEntryResponse = await request(
+			routes,
+			`/api/time-entries/${firstEntry.id}`,
+			{},
+			{ id: String(firstEntry.id) },
+		);
+		const reloadedFirstEntry = await firstEntryResponse.json();
+		expect(reloadedFirstEntry.ended_at).toBeNull();
 	});
 
 	test("starts timers without a project but requires one before stopping", async () => {

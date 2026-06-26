@@ -10,14 +10,22 @@ type TimeProject = {
 	updated_at: string;
 };
 
+type UserSummary = {
+	id: number;
+	name: string;
+	email: string | null;
+};
+
 type TimeEntry = {
 	id: number;
+	user_id: number | null;
 	project_id: number | null;
 	description: string | null;
 	started_at: string;
 	ended_at: string | null;
 	created_at: string;
 	updated_at: string;
+	user?: UserSummary | null;
 	project?: TimeProject;
 };
 

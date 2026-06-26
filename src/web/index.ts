@@ -3,6 +3,7 @@ import {
 	routes,
 	setRouteShellRenderer,
 } from "./router";
+import { loadAuthSession } from "./auth";
 import { renderAppShell } from "./app";
 import { renderOverviewPage } from "./pages/overview";
 import {
@@ -26,13 +27,20 @@ import { renderTodosPage } from "./pages/todos";
 import { renderGroupDetailPage } from "./pages/group-detail";
 import { renderReceiptDetailPage } from "./pages/receipt-detail";
 import { renderNotFoundPage } from "./pages/not-found";
+import { renderLoginPage } from "./pages/login";
 
-window.onload = () => {
+window.onload = async () => {
 	installLinkInterceptor(document.body);
 	setRouteShellRenderer(renderAppShell);
+	try {
+		await loadAuthSession();
+	} catch (error) {
+		console.error(error);
+	}
 
 	routes({
 		"/": renderOverviewPage,
+		"/login": renderLoginPage,
 		"/expirations": renderExpirationsPage,
 		"/inventory": renderInventoryPage,
 		"/inventory/containers/:id": (_main, params) =>
