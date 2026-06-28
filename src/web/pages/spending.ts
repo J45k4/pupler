@@ -44,7 +44,7 @@ type SpendingCurrencyTotal = {
 	total: number;
 };
 
-type SpendingMonthlyAverageTotal = SpendingCurrencyTotal & {
+type SpendingAverageTotal = SpendingCurrencyTotal & {
 	day_count: number;
 };
 
@@ -58,7 +58,9 @@ type SpendingBreakdown = {
 	item_count: number;
 	missing_total_count: number;
 	currency_totals: SpendingCurrencyTotal[];
-	monthly_average_totals: SpendingMonthlyAverageTotal[];
+	monthly_average_totals: SpendingAverageTotal[];
+	daily_average_totals: SpendingAverageTotal[];
+	current_month_totals: SpendingCurrencyTotal[];
 	categories: SpendingCategoryTotal[];
 };
 
@@ -649,7 +651,6 @@ export const renderSpendingOverviewPage = () => {
 		`
 			<section class="page-heading page-heading--compact">
 				<div>
-					<span class="eyebrow">Spending</span>
 					<h1 class="page-title">Overview</h1>
 				</div>
 				<div class="actions">

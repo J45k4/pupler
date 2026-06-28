@@ -102,13 +102,15 @@ type SpendingCurrencyTotal = {
 	total: number;
 };
 
-type SpendingMonthlyAverageTotal = SpendingCurrencyTotal & {
+type SpendingAverageTotal = SpendingCurrencyTotal & {
 	day_count: number;
 };
 
 type SpendingBreakdown = {
 	item_count: number;
-	monthly_average_totals: SpendingMonthlyAverageTotal[];
+	monthly_average_totals: SpendingAverageTotal[];
+	daily_average_totals: SpendingAverageTotal[];
+	current_month_totals: SpendingCurrencyTotal[];
 };
 
 type InventoryItemImage = {
@@ -2052,6 +2054,14 @@ const renderSpendingSummary = (
 		spendingBreakdown?.monthly_average_totals.map(
 			(total) => [total.currency, total.total] as [string, number],
 		) ?? [];
+	const averageDayTotals =
+		spendingBreakdown?.daily_average_totals.map(
+			(total) => [total.currency, total.total] as [string, number],
+		) ?? [];
+	const currentMonthTotals =
+		spendingBreakdown?.current_month_totals.map(
+			(total) => [total.currency, total.total] as [string, number],
+		) ?? [];
 	const missingTotalCount = yearToDateReceipts.filter(
 		(receipt) => receipt.total_amount === null,
 	).length;
@@ -2074,6 +2084,18 @@ const renderSpendingSummary = (
 				<span>Average Month Spending</span>
 				<div class="dashboard-spending-total__values">
 					${renderSpendingTotalValues(averageMonthTotals)}
+				</div>
+			</div>
+			<div class="dashboard-spending-total">
+				<span>Average Daily Spending</span>
+				<div class="dashboard-spending-total__values">
+					${renderSpendingTotalValues(averageDayTotals)}
+				</div>
+			</div>
+			<div class="dashboard-spending-total">
+				<span>This Month Spending</span>
+				<div class="dashboard-spending-total__values">
+					${renderSpendingTotalValues(currentMonthTotals)}
 				</div>
 			</div>
 			<div class="dashboard-spending-total">
@@ -3722,12 +3744,7 @@ export const loadDashboardSpendingSummary = async () => {
 			fetchGlobalSpendingBreakdown(),
 		]);
 		renderSpendingSummary(receipts, spendingBreakdown);
-		setStatus(
-			"dashboard-spending-status",
-			receipts.length
-				? `Loaded spending from ${receipts.length} receipt(s).`
-				: "No receipts recorded yet.",
-		);
+		setStatus("dashboard-spending-status", "");
 	} catch (error) {
 		renderSpendingSummary([]);
 		setStatus(

@@ -42,7 +42,7 @@ type SpendingLineItem = {
 	amount: number | null;
 };
 
-type SpendingMonthlyAverageTotal = {
+type SpendingAverageTotal = {
 	currency: string;
 	total: number;
 	day_count: number;
@@ -144,13 +144,23 @@ const calendarDayIndex = (timestamp: string) => {
 	);
 };
 
+const calendarMonthStartDayIndex = (timestamp: string) => {
+	const date = new Date(timestamp);
+	if (Number.isNaN(date.getTime())) {
+		return null;
+	}
+	return Math.floor(
+		Date.UTC(date.getFullYear(), date.getMonth(), 1) / DAY_MS,
+	);
+};
+
 const monthlyAverageTotals = (
 	spendingByCurrency: Map<
 		string,
 		{ firstDay: number; total: number }
 	>,
 	averageEndDay: number | null,
-): SpendingMonthlyAverageTotal[] =>
+): SpendingAverageTotal[] =>
 	[...spendingByCurrency.entries()]
 		.map(([currency, spending]) => {
 			const endDay = averageEndDay ?? spending.firstDay;
@@ -160,6 +170,25 @@ const monthlyAverageTotals = (
 				total: roundedMoney(
 					(spending.total / dayCount) * AVERAGE_DAYS_PER_MONTH,
 				),
+				day_count: dayCount,
+			};
+		})
+		.sort((left, right) => left.currency.localeCompare(right.currency));
+
+const dailyAverageTotals = (
+	spendingByCurrency: Map<
+		string,
+		{ firstDay: number; total: number }
+	>,
+	averageEndDay: number | null,
+): SpendingAverageTotal[] =>
+	[...spendingByCurrency.entries()]
+		.map(([currency, spending]) => {
+			const endDay = averageEndDay ?? spending.firstDay;
+			const dayCount = Math.max(1, endDay - spending.firstDay + 1);
+			return {
+				currency,
+				total: roundedMoney(spending.total / dayCount),
 				day_count: dayCount,
 			};
 		})
@@ -213,6 +242,8 @@ export const spendingRoute = (db: Database) =>
 			{ firstDay: number; total: number }
 		>();
 		const averageEndDay = calendarDayIndex(period.to);
+		const currentMonthStartDay = calendarMonthStartDayIndex(period.to);
+		const currentMonthTotals = new Map<string, number>();
 		let itemCount = 0;
 		let missingTotalCount = 0;
 
@@ -268,6 +299,18 @@ export const spendingRoute = (db: Database) =>
 						total: amount,
 					});
 				}
+
+				if (
+					currentMonthStartDay !== null &&
+					averageEndDay !== null &&
+					itemDay >= currentMonthStartDay &&
+					itemDay <= averageEndDay
+				) {
+					currentMonthTotals.set(
+						currency,
+						(currentMonthTotals.get(currency) ?? 0) + amount,
+					);
+				}
 			}
 		}
 
@@ -305,6 +348,16 @@ export const spendingRoute = (db: Database) =>
 				spendingByCurrency,
 				averageEndDay,
 			),
+			daily_average_totals: dailyAverageTotals(
+				spendingByCurrency,
+				averageEndDay,
+			),
+			current_month_totals: [...currentMonthTotals.entries()]
+				.map(([currency, total]) => ({
+					currency,
+					total: roundedMoney(total),
+				}))
+				.sort((left, right) => left.currency.localeCompare(right.currency)),
 			categories,
 		});
 	});
