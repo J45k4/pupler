@@ -2,6 +2,7 @@ import {
 	escapeHtml,
 	formatMoney,
 	formatReceiptDateTime,
+	loadDashboardSpendingSummary,
 	renderPage,
 	setStatus,
 } from "../app";
@@ -641,6 +642,32 @@ export const renderSpendingPage = () => {
 
 	attachSpendingBreakdownPageEvents();
 	void loadSpendingBreakdownPage(selectedRange);
+};
+
+export const renderSpendingOverviewPage = () => {
+	renderPage(
+		`
+			<section class="page-heading page-heading--compact">
+				<div>
+					<span class="eyebrow">Spending</span>
+					<h1 class="page-title">Overview</h1>
+				</div>
+				<div class="actions">
+					<a class="secondary action-link" href="/spending" data-link>Breakdown</a>
+					<a class="secondary action-link" href="/receipts" data-link>Receipts</a>
+				</div>
+			</section>
+
+			<section class="workspace workspace--single">
+				<div class="card panel dashboard-spending-panel">
+					<div id="dashboard-spending-summary"></div>
+					<div id="dashboard-spending-status" class="status"></div>
+				</div>
+			</section>
+		`,
+	);
+
+	void loadDashboardSpendingSummary();
 };
 
 export const renderSpendingMonthlyPage = () => {

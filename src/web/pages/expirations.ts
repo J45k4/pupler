@@ -11,7 +11,7 @@ export const renderExpirationsPage = () => {
 				<div>
 					<h1 class="page-title">Expirations</h1>
 				</div>
-				<a class="secondary action-link" href="/" data-link>Back To Overview</a>
+				<a class="secondary action-link" href="/inventory" data-link>Back To Inventory</a>
 			</section>
 
 			<section class="workspace workspace--single">

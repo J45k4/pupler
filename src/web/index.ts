@@ -9,6 +9,7 @@ import { renderOverviewPage } from "./pages/overview";
 import {
 	renderSpendingItemsPage,
 	renderSpendingMonthlyPage,
+	renderSpendingOverviewPage,
 	renderSpendingPage,
 } from "./pages/spending";
 import { renderExpirationsPage } from "./pages/expirations";
@@ -43,6 +44,7 @@ window.onload = async () => {
 		"/login": renderLoginPage,
 		"/expirations": renderExpirationsPage,
 		"/inventory": renderInventoryPage,
+		"/inventory/expirations": renderExpirationsPage,
 		"/inventory/containers/:id": (_main, params) =>
 			renderInventoryContainerDetailPage(params),
 		"/inventory/items/:id": (_main, params) =>
@@ -52,6 +54,7 @@ window.onload = async () => {
 		"/products/:id": (_main, params) => renderProductDetailPage(params),
 		"/receipts": renderReceiptsPage,
 		"/receipts/:id": (_main, params) => renderReceiptDetailPage(params),
+		"/spending/overview": renderSpendingOverviewPage,
 		"/spending": renderSpendingPage,
 		"/spending/monthly": renderSpendingMonthlyPage,
 		"/spending/items": renderSpendingItemsPage,

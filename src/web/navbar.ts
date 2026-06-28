@@ -24,12 +24,21 @@ const escapeHtml = (value: string) =>
 export const primaryNavItems: NavItem[] = [
 	{ href: "/", label: "Overview", mobileLabel: "Home" },
 	{ href: "/products", label: "Products", mobileLabel: "Products" },
-	{ href: "/inventory", label: "Inventory", mobileLabel: "Inventory" },
+	{
+		href: "/inventory",
+		label: "Inventory",
+		mobileLabel: "Inventory",
+		children: [
+			{ href: "/inventory", label: "Inventory" },
+			{ href: "/inventory/expirations", label: "Expirations" },
+		],
+	},
 	{
 		href: "/spending",
 		label: "Spending",
 		mobileLabel: "Spending",
 		children: [
+			{ href: "/spending/overview", label: "Overview" },
 			{ href: "/spending", label: "Breakdown" },
 			{ href: "/spending/monthly", label: "Monthly" },
 			{ href: "/spending/items", label: "Last Items" },

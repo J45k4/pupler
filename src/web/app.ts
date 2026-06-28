@@ -299,6 +299,7 @@ let productInfiniteScroll: InfiniteScroll<Product> | null = null;
 let expirationInfiniteScroll: InfiniteScroll<InventoryItem> | null = null;
 let receiptInfiniteScroll: InfiniteScroll<ReceiptTimelineEntry> | null = null;
 let timeTimerInterval: number | null = null;
+let dashboardTimerInterval: number | null = null;
 let currentTimeProjectChoices: TimeProjectChoice[] = [];
 let receiptBoardState: {
 	groups: Group[];
@@ -322,6 +323,10 @@ const render = (html: string) => {
 	if (timeTimerInterval !== null) {
 		window.clearInterval(timeTimerInterval);
 		timeTimerInterval = null;
+	}
+	if (dashboardTimerInterval !== null) {
+		window.clearInterval(dashboardTimerInterval);
+		dashboardTimerInterval = null;
 	}
 	document.body.classList.remove("modal-open");
 	document.body.innerHTML = html;
@@ -1087,6 +1092,12 @@ const fetchTimeProjects = () =>
 
 const fetchTimeEntries = () =>
 	timeApiJson<TimeEntry[]>("/api/time-entries?sort=started_at&order=desc");
+
+const stopTimeEntry = (id: number) =>
+	timeApiJson<TimeEntry>(`/api/time-entries/${id}/stop`, {
+		method: "POST",
+		body: JSON.stringify({}),
+	});
 
 const createTimeProject = (name: string) =>
 	timeApiJson<TimeProject>("/api/time-projects", {
@@ -2076,6 +2087,101 @@ const renderSpendingSummary = (
 					? `<div class="section-copy">${missingTotalCount} year-to-date receipt(s) have no total amount.</div>`
 					: ""
 			}
+		</div>
+	`;
+};
+
+const renderDashboardTimer = (runningEntry: TimeEntry | null) => {
+	const root = document.getElementById("dashboard-timer");
+	if (!root) {
+		return;
+	}
+
+	if (dashboardTimerInterval !== null) {
+		window.clearInterval(dashboardTimerInterval);
+		dashboardTimerInterval = null;
+	}
+
+	if (!runningEntry) {
+		root.innerHTML = `
+			<div class="dashboard-timer-empty">
+				<div class="empty">No timer running.</div>
+				<a class="primary action-link" href="/time" data-link>Start Timer</a>
+			</div>
+		`;
+		return;
+	}
+
+	root.innerHTML = `
+		<div class="time-running dashboard-timer-running">
+			<div class="time-running__project">
+				<span class="time-color" style="--time-color: ${escapeHtml(runningEntry.project?.color ?? "#2d7c6f")}"></span>
+				<strong>${escapeHtml(runningEntry.project?.name ?? "No project")}</strong>
+			</div>
+			<div id="dashboard-running-timer-duration" class="time-running__duration">
+				${formatDuration(timeEntryDurationSeconds(runningEntry))}
+			</div>
+			${runningEntry.description ? `<p class="section-copy">${escapeHtml(runningEntry.description)}</p>` : ""}
+			<div class="time-running__actions">
+				<a class="secondary action-link" href="/time" data-link>Edit</a>
+				<button
+					class="primary"
+					type="button"
+					data-dashboard-stop-time-entry-id="${runningEntry.id}"
+				>
+					Stop
+				</button>
+			</div>
+		</div>
+	`;
+
+	dashboardTimerInterval = window.setInterval(() => {
+		if (!root.isConnected) {
+			window.clearInterval(dashboardTimerInterval ?? undefined);
+			dashboardTimerInterval = null;
+			return;
+		}
+		const duration = document.getElementById("dashboard-running-timer-duration");
+		if (duration) {
+			duration.textContent = formatDuration(timeEntryDurationSeconds(runningEntry));
+		}
+	}, 1000);
+};
+
+const renderDashboardShoppingList = (items: ShoppingListItem[]) => {
+	const root = document.getElementById("dashboard-shopping-list");
+	if (!root) {
+		return;
+	}
+
+	const activeItems = items.slice(0, 8);
+	if (!activeItems.length) {
+		root.innerHTML = '<div class="empty">No active shoppinglist items.</div>';
+		return;
+	}
+
+	root.innerHTML = `
+		<div class="dashboard-shopping-list">
+			${activeItems
+				.map((item) => {
+					const productPictureUrl = item.product?.picture_file_id
+						? `/api/products/${item.product.id}/picture?updated=${encodeURIComponent(item.product.picture_file?.created_at ?? item.updated_at)}`
+						: null;
+					return `
+						<a class="dashboard-shopping-item" href="/shoppinglist" data-link>
+							${
+								productPictureUrl
+									? `<img class="dashboard-shopping-item__image" src="${productPictureUrl}" alt="${escapeHtml(item.product?.name ?? item.name)}" loading="lazy" onerror="this.remove()" />`
+									: '<span class="dashboard-shopping-item__image dashboard-shopping-item__image--placeholder"></span>'
+							}
+							<div class="dashboard-shopping-item__main">
+								<strong>${escapeHtml(item.name)}</strong>
+								<span>${escapeHtml(`${item.quantity} ${item.unit}`.trim())}</span>
+							</div>
+						</a>
+					`;
+				})
+				.join("")}
 		</div>
 	`;
 };
@@ -3251,6 +3357,28 @@ const fetchGlobalSpendingBreakdown = async () => {
 	return body as SpendingBreakdown;
 };
 
+const fetchActiveShoppingListItems = async () => {
+	const params = new URLSearchParams({
+		done: "false",
+		sort: "created_at",
+		order: "asc",
+	});
+	const response = await fetch(`/api/shopping-list-items?${params.toString()}`);
+	const body = (await response.json()) as
+		| ShoppingListItem[]
+		| { error?: string };
+
+	if (!response.ok) {
+		throw new Error(
+			"error" in body
+				? (body.error ?? "Failed to load shoppinglist items")
+				: "Failed to load shoppinglist items",
+		);
+	}
+
+	return body as ShoppingListItem[];
+};
+
 export const fetchReceipt = async (receiptId: number) => {
 	const response = await fetch(`/api/receipts/${receiptId}`);
 	const body = (await response.json()) as
@@ -3605,6 +3733,51 @@ export const loadDashboardSpendingSummary = async () => {
 		setStatus(
 			"dashboard-spending-status",
 			error instanceof Error ? error.message : "Failed to load spending.",
+			true,
+		);
+	}
+};
+
+export const loadDashboardTimer = async (statusMessage?: string) => {
+	try {
+		const entries = await fetchTimeEntries();
+		const runningEntry =
+			entries.find((entry) => entry.ended_at === null) ?? null;
+		renderDashboardTimer(runningEntry);
+		setStatus(
+			"dashboard-timer-status",
+			statusMessage ??
+				(runningEntry
+					? `Running since ${formatReceiptDateTime(runningEntry.started_at)}.`
+					: "Timer is stopped."),
+		);
+	} catch (error) {
+		renderDashboardTimer(null);
+		setStatus(
+			"dashboard-timer-status",
+			error instanceof Error ? error.message : "Failed to load timer.",
+			true,
+		);
+	}
+};
+
+export const loadDashboardShoppingList = async () => {
+	try {
+		const items = await fetchActiveShoppingListItems();
+		renderDashboardShoppingList(items);
+		setStatus(
+			"dashboard-shopping-status",
+			items.length
+				? `${Math.min(items.length, 8)} of ${items.length} active item(s).`
+				: "Shoppinglist is empty.",
+		);
+	} catch (error) {
+		renderDashboardShoppingList([]);
+		setStatus(
+			"dashboard-shopping-status",
+			error instanceof Error
+				? error.message
+				: "Failed to load shoppinglist items.",
 			true,
 		);
 	}
@@ -4209,6 +4382,36 @@ export const attachProductDetailEvents = (productId: number) => {
 		},
 		{ signal: productDetailAbortController.signal },
 	);
+};
+
+export const attachDashboardTimerEvents = () => {
+	const root = document.getElementById("dashboard-timer");
+	if (!root) return;
+
+	root.addEventListener("click", async (event) => {
+		const target = event.target;
+		if (!(target instanceof HTMLElement)) return;
+		const stopButton = target.closest("[data-dashboard-stop-time-entry-id]");
+		if (!(stopButton instanceof HTMLButtonElement)) return;
+
+		const entryId = Number(stopButton.dataset.dashboardStopTimeEntryId);
+		if (!Number.isFinite(entryId)) {
+			return;
+		}
+
+		stopButton.disabled = true;
+		try {
+			await stopTimeEntry(entryId);
+			await loadDashboardTimer("Timer stopped.");
+		} catch (error) {
+			stopButton.disabled = false;
+			setStatus(
+				"dashboard-timer-status",
+				error instanceof Error ? error.message : "Failed to stop timer.",
+				true,
+			);
+		}
+	});
 };
 
 export const attachTimePageEvents = () => {
