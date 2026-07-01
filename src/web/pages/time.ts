@@ -71,7 +71,9 @@ type TimePageState = {
 };
 
 const TIME_OVERVIEW_SPANS = [
+	{ value: "today", label: "Today" },
 	{ value: "this-week", label: "This Week" },
+	{ value: "custom-day", label: "Selected Day" },
 	{ value: "last-2-weeks", label: "Last 2 Weeks" },
 	{ value: "last-30-days", label: "Last 30 Days" },
 	{ value: "ytd", label: "YTD" },
@@ -79,7 +81,12 @@ const TIME_OVERVIEW_SPANS = [
 
 type TimeOverviewSpan = (typeof TIME_OVERVIEW_SPANS)[number];
 
-const DEFAULT_TIME_OVERVIEW_SPAN = "this-week";
+type TimeOverviewSelection = {
+	span: TimeOverviewSpan;
+	day: string;
+};
+
+const DEFAULT_TIME_OVERVIEW_SPAN = "today";
 
 const field = (label: string, control: HTMLElement) => {
 	const labelComponent = new Label({ text: label });
@@ -234,6 +241,11 @@ const formatDateTimeLocalInput = (date = new Date()) =>
 		.toISOString()
 		.slice(0, 16);
 
+const formatDateInput = (date = new Date()) =>
+	new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+		.toISOString()
+		.slice(0, 10);
+
 const formatTimestampForDateTimeLocalInput = (value: string) =>
 	formatDateTimeLocalInput(new Date(value));
 
@@ -244,6 +256,22 @@ const parseDateTimeLocalInput = (value: string) => {
 
 const startOfLocalDay = (date: Date) =>
 	new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+const localDateFromInput = (value: string) => {
+	const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+	if (!match) return null;
+	const [, year, month, day] = match;
+	const yearValue = Number(year);
+	const monthValue = Number(month);
+	const dayValue = Number(day);
+	const date = new Date(yearValue, monthValue - 1, dayValue);
+	return Number.isNaN(date.getTime()) ||
+		date.getFullYear() !== yearValue ||
+		date.getMonth() !== monthValue - 1 ||
+		date.getDate() !== dayValue
+		? null
+		: date;
+};
 
 const startOfLocalWeek = (date: Date) => {
 	const start = startOfLocalDay(date);
@@ -260,13 +288,24 @@ const getTimeOverviewSpan = (
 		(span) => span.value === DEFAULT_TIME_OVERVIEW_SPAN,
 	)!;
 
-const getCurrentTimeOverviewSpan = () =>
-	getTimeOverviewSpan(new URLSearchParams(window.location.search).get("span"));
+const getCurrentTimeOverviewSelection = (): TimeOverviewSelection => {
+	const params = new URLSearchParams(window.location.search);
+	const span = getTimeOverviewSpan(params.get("span"));
+	const requestedDay = params.get("day") ?? "";
+	const day = localDateFromInput(requestedDay)
+		? requestedDay
+		: formatDateInput();
+	return { span, day };
+};
 
-const getTimeOverviewPeriod = (span: TimeOverviewSpan) => {
+const getTimeOverviewPeriod = (selection: TimeOverviewSelection) => {
 	const to = new Date();
 	const from = (() => {
-		switch (span.value) {
+		switch (selection.span.value) {
+			case "today":
+				return startOfLocalDay(to);
+			case "custom-day":
+				return localDateFromInput(selection.day) ?? startOfLocalDay(to);
 			case "this-week":
 				return startOfLocalWeek(to);
 			case "last-2-weeks": {
@@ -283,15 +322,29 @@ const getTimeOverviewPeriod = (span: TimeOverviewSpan) => {
 				return new Date(to.getFullYear(), 0, 1);
 		}
 	})();
+	if (selection.span.value === "custom-day") {
+		const end = new Date(from);
+		end.setDate(end.getDate() + 1);
+		const clippedEndMs = Math.min(end.getTime(), to.getTime());
+		return {
+			from: from.toISOString(),
+			to: new Date(Math.max(from.getTime(), clippedEndMs)).toISOString(),
+		};
+	}
 	return { from: from.toISOString(), to: to.toISOString() };
 };
 
-const updateTimeOverviewSpanUrl = (span: TimeOverviewSpan) => {
+const updateTimeOverviewUrl = (selection: TimeOverviewSelection) => {
 	const url = new URL(window.location.href);
-	if (span.value === DEFAULT_TIME_OVERVIEW_SPAN) {
+	if (selection.span.value === DEFAULT_TIME_OVERVIEW_SPAN) {
 		url.searchParams.delete("span");
 	} else {
-		url.searchParams.set("span", span.value);
+		url.searchParams.set("span", selection.span.value);
+	}
+	if (selection.span.value === "custom-day") {
+		url.searchParams.set("day", selection.day);
+	} else {
+		url.searchParams.delete("day");
 	}
 	window.history.replaceState({}, "", `${url.pathname}${url.search}`);
 };
@@ -1658,16 +1711,22 @@ export const renderTimePage = (page: HTMLElement) => {
 };
 
 export const renderTimeOverviewPage = (page: HTMLElement) => {
-	const selectedSpan = getCurrentTimeOverviewSpan();
+	const selected = getCurrentTimeOverviewSelection();
 	const header = div("section-header");
 	header.append(text("h2", "Time Overview"));
 
 	const controls = div("spending-breakdown-controls time-overview-controls");
 	const spanSelect = document.createElement("select");
 	spanSelect.id = "time-overview-span-select";
-	spanSelect.append(...renderTimeOverviewSpanOptions(selectedSpan.value));
+	spanSelect.append(...renderTimeOverviewSpanOptions(selected.span.value));
 	const spanLabel = field("Span", spanSelect);
-	controls.append(spanLabel);
+	const dayInput = document.createElement("input");
+	dayInput.id = "time-overview-day-input";
+	dayInput.type = "date";
+	dayInput.value = selected.day;
+	dayInput.max = formatDateInput();
+	const dayLabel = field("Day", dayInput);
+	controls.append(spanLabel, dayLabel);
 
 	const status = div("status");
 	const results = div("time-overview-results");
@@ -1676,14 +1735,14 @@ export const renderTimeOverviewPage = (page: HTMLElement) => {
 	pageBlock.append(header, controls, status, results);
 	page.append(pageBlock);
 
-	const load = async (span: TimeOverviewSpan) => {
+	const load = async (selection: TimeOverviewSelection) => {
 		setStatus(status, "Loading time overview...");
 		renderTimeOverviewReport(null, results);
 		try {
-			const period = getTimeOverviewPeriod(span);
+			const period = getTimeOverviewPeriod(selection);
 			const report = await timeApi.fetchReport(period.from, period.to);
 			renderTimeOverviewReport(report, results);
-			setStatus(status, `Loaded ${span.label.toLowerCase()} time usage.`);
+			setStatus(status, `Loaded ${selection.span.label.toLowerCase()} time usage.`);
 		} catch (error) {
 			setStatus(
 				status,
@@ -1696,9 +1755,19 @@ export const renderTimeOverviewPage = (page: HTMLElement) => {
 	spanSelect.addEventListener("change", () => {
 		const span = getTimeOverviewSpan(spanSelect.value);
 		spanSelect.value = span.value;
-		updateTimeOverviewSpanUrl(span);
-		void load(span);
+		const selection = { span, day: dayInput.value || formatDateInput() };
+		updateTimeOverviewUrl(selection);
+		void load(selection);
 	});
 
-	void load(selectedSpan);
+	dayInput.addEventListener("change", () => {
+		const day = dayInput.value || formatDateInput();
+		const span = getTimeOverviewSpan("custom-day");
+		spanSelect.value = span.value;
+		const selection = { span, day };
+		updateTimeOverviewUrl(selection);
+		void load(selection);
+	});
+
+	void load(selected);
 };
