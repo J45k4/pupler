@@ -302,6 +302,7 @@ let expirationInfiniteScroll: InfiniteScroll<InventoryItem> | null = null;
 let receiptInfiniteScroll: InfiniteScroll<ReceiptTimelineEntry> | null = null;
 let timeTimerInterval: number | null = null;
 let dashboardTimerInterval: number | null = null;
+let navbarAbortController: AbortController | null = null;
 let currentTimeProjectChoices: TimeProjectChoice[] = [];
 let receiptBoardState: {
 	groups: Group[];
@@ -330,8 +331,81 @@ const render = (html: string) => {
 		window.clearInterval(dashboardTimerInterval);
 		dashboardTimerInterval = null;
 	}
-	document.body.classList.remove("modal-open");
+	navbarAbortController?.abort();
+	navbarAbortController = null;
+	document.documentElement.classList.remove("nav-open");
+	document.body.classList.remove("modal-open", "nav-open");
 	document.body.innerHTML = html;
+};
+
+const installNavbarToggle = () => {
+	const header = document.querySelector<HTMLElement>(".site-header");
+	const toggle = document.querySelector<HTMLButtonElement>(".navbar-toggle");
+	const navbar = document.getElementById("primary-navigation");
+	if (!header || !toggle || !navbar) {
+		return;
+	}
+
+	const controller = new AbortController();
+	navbarAbortController = controller;
+	const { signal } = controller;
+
+	const setOpen = (open: boolean) => {
+		document.documentElement.classList.toggle("nav-open", open);
+		document.body.classList.toggle("nav-open", open);
+		header.classList.toggle("site-header--nav-open", open);
+		toggle.setAttribute("aria-expanded", String(open));
+		toggle.setAttribute("aria-label", open ? "Close navigation" : "Open navigation");
+	};
+
+	toggle.addEventListener(
+		"click",
+		() => {
+			setOpen(!header.classList.contains("site-header--nav-open"));
+		},
+		{ signal },
+	);
+
+	navbar.addEventListener(
+		"click",
+		(event) => {
+			if (event.target instanceof Element && event.target.closest("a")) {
+				setOpen(false);
+			}
+		},
+		{ signal },
+	);
+
+	document.addEventListener(
+		"click",
+		(event) => {
+			if (!(event.target instanceof Node) || header.contains(event.target)) {
+				return;
+			}
+			setOpen(false);
+		},
+		{ signal },
+	);
+
+	document.addEventListener(
+		"keydown",
+		(event) => {
+			if (event.key === "Escape") {
+				setOpen(false);
+			}
+		},
+		{ signal },
+	);
+
+	window.addEventListener(
+		"resize",
+		() => {
+			if (window.matchMedia("(min-width: 861px)").matches) {
+				setOpen(false);
+			}
+		},
+		{ signal },
+	);
 };
 
 export const renderAppShell = (shellClassName = "") => {
@@ -342,6 +416,7 @@ export const renderAppShell = (shellClassName = "") => {
 		${renderNavbar(window.location.pathname, getCurrentUser())}
 		<main class="${shellClasses}"></main>
 	`);
+	installNavbarToggle();
 	document
 		.querySelector(".account-menu__logout")
 		?.addEventListener("click", async () => {

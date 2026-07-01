@@ -90,41 +90,46 @@ export const renderNavbar = (currentPath: string, user: NavbarUser | null = null
 				<a class="brand" href="/" data-link>
 					<span class="brand__badge">Pupler</span>
 				</a>
-					<nav class="navbar" aria-label="Primary">
-						${primaryNavItems
-							.map(({ href, label, mobileLabel, children }) => {
-								const isActive =
-									isActiveNavHref(currentPath, href) ||
-									(children?.some((child) =>
-										isActiveNavHref(currentPath, child.href),
-									) ??
-										false);
-								const active = isActive ? " navbar__link--active" : "";
-								if (children?.length) {
-									return `
-										<div class="navbar__dropdown">
-											<a class="navbar__link navbar__dropdown-trigger${active}" href="${href}" data-link aria-label="${label}" aria-haspopup="true">
-												<span class="navbar__label navbar__label--desktop">${label}</span>
-												<span class="navbar__label navbar__label--mobile">${mobileLabel}</span>
-											</a>
-											<div class="navbar__dropdown-menu">
-												${children
-													.map((child) => {
-														const childActive = currentPath === child.href
-															? " navbar__dropdown-link--active"
-															: "";
-														return `<a class="navbar__dropdown-link${childActive}" href="${child.href}" data-link>${child.label}</a>`;
-													})
-													.join("")}
-											</div>
+				<nav class="navbar" id="primary-navigation" aria-label="Primary">
+					${primaryNavItems
+						.map(({ href, label, mobileLabel, children }) => {
+							const isActive =
+								isActiveNavHref(currentPath, href) ||
+								(children?.some((child) =>
+									isActiveNavHref(currentPath, child.href),
+								) ??
+									false);
+							const active = isActive ? " navbar__link--active" : "";
+							if (children?.length) {
+								return `
+									<div class="navbar__dropdown">
+										<a class="navbar__link navbar__dropdown-trigger${active}" href="${href}" data-link aria-label="${label}" aria-haspopup="true">
+											<span class="navbar__label navbar__label--desktop">${label}</span>
+											<span class="navbar__label navbar__label--mobile">${mobileLabel}</span>
+										</a>
+										<div class="navbar__dropdown-menu">
+											${children
+												.map((child) => {
+													const childActive = currentPath === child.href
+														? " navbar__dropdown-link--active"
+														: "";
+													return `<a class="navbar__dropdown-link${childActive}" href="${child.href}" data-link>${child.label}</a>`;
+												})
+												.join("")}
 										</div>
-									`;
-								}
-								return `<a class="navbar__link${active}" href="${href}" data-link aria-label="${label}"><span class="navbar__label navbar__label--desktop">${label}</span><span class="navbar__label navbar__label--mobile">${mobileLabel}</span></a>`;
-							})
-							.join("")}
-					</nav>
-					${renderAccountMenu(user)}
+									</div>
+								`;
+							}
+							return `<a class="navbar__link${active}" href="${href}" data-link aria-label="${label}"><span class="navbar__label navbar__label--desktop">${label}</span><span class="navbar__label navbar__label--mobile">${mobileLabel}</span></a>`;
+						})
+						.join("")}
+				</nav>
+				${renderAccountMenu(user)}
+				<button class="navbar-toggle" type="button" aria-label="Open navigation" aria-controls="primary-navigation" aria-expanded="false">
+					<span class="navbar-toggle__bar"></span>
+					<span class="navbar-toggle__bar"></span>
+					<span class="navbar-toggle__bar"></span>
+				</button>
 			</div>
 		</header>
 	`;
