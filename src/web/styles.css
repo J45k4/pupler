@@ -1517,11 +1517,12 @@ body.modal-open {
 .shoppinglist-table__date {
 	color: var(--muted);
 	white-space: nowrap;
+	text-align: right;
 }
 
 .shoppinglist-table__date-label {
-	display: inline-block;
-	margin-right: 0.45rem;
+	display: block;
+	margin: 0 0 0.12rem;
 	font-size: 0.76rem;
 	font-weight: 700;
 	letter-spacing: 0.04em;
@@ -1529,6 +1530,7 @@ body.modal-open {
 }
 
 .shoppinglist-table__date-value {
+	display: block;
 	white-space: nowrap;
 }
 
@@ -3269,7 +3271,8 @@ body.modal-open {
 	}
 
 	.shoppinglist-table--shopping .shoppinglist-table__date-value {
-		display: none;
+		white-space: normal;
+		overflow-wrap: anywhere;
 	}
 
 	.shoppinglist-table--shopping .shoppinglist-product {
