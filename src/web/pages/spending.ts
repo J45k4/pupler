@@ -59,6 +59,7 @@ type SpendingBreakdown = {
 	missing_total_count: number;
 	currency_totals: SpendingCurrencyTotal[];
 	monthly_average_totals: SpendingAverageTotal[];
+	weekly_average_totals: SpendingAverageTotal[];
 	daily_average_totals: SpendingAverageTotal[];
 	current_month_totals: SpendingCurrencyTotal[];
 	categories: SpendingCategoryTotal[];

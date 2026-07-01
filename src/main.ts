@@ -1,6 +1,7 @@
 import {
 	authLoginRoute,
 	authLogoutRoute,
+	authPasswordRoute,
 	authSessionRoute,
 	ingredientDetailRoute,
 	ingredientsCollectionRoute,
@@ -92,6 +93,7 @@ export const server = (options: ServerOptions = {}) => {
 		routes: {
 			"/api/auth/login": authLoginRoute(db),
 			"/api/auth/logout": authLogoutRoute(db),
+			"/api/auth/password": authPasswordRoute(db),
 			"/api/auth/session": authSessionRoute(db),
 			"/api/groups": groupsCollectionRoute(db),
 			"/api/groups/:id": groupDetailRoute(db),
@@ -143,6 +145,7 @@ export const server = (options: ServerOptions = {}) => {
 			),
 			"/": index,
 			"/login": index,
+			"/settings": index,
 			"/expirations": index,
 			"/inventory": index,
 			"/inventory/expirations": index,

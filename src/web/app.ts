@@ -109,6 +109,7 @@ type SpendingAverageTotal = SpendingCurrencyTotal & {
 type SpendingBreakdown = {
 	item_count: number;
 	monthly_average_totals: SpendingAverageTotal[];
+	weekly_average_totals: SpendingAverageTotal[];
 	daily_average_totals: SpendingAverageTotal[];
 	current_month_totals: SpendingCurrencyTotal[];
 };
@@ -2129,6 +2130,10 @@ const renderSpendingSummary = (
 		spendingBreakdown?.monthly_average_totals.map(
 			(total) => [total.currency, total.total] as [string, number],
 		) ?? [];
+	const averageWeekTotals =
+		spendingBreakdown?.weekly_average_totals.map(
+			(total) => [total.currency, total.total] as [string, number],
+		) ?? [];
 	const averageDayTotals =
 		spendingBreakdown?.daily_average_totals.map(
 			(total) => [total.currency, total.total] as [string, number],
@@ -2159,6 +2164,12 @@ const renderSpendingSummary = (
 				<span>Average Month Spending</span>
 				<div class="dashboard-spending-total__values">
 					${renderSpendingTotalValues(averageMonthTotals)}
+				</div>
+			</div>
+			<div class="dashboard-spending-total">
+				<span>Average Weekly Spending</span>
+				<div class="dashboard-spending-total__values">
+					${renderSpendingTotalValues(averageWeekTotals)}
 				</div>
 			</div>
 			<div class="dashboard-spending-total">

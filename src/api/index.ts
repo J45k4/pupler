@@ -7,6 +7,7 @@ export {
 export {
 	authLoginRoute,
 	authLogoutRoute,
+	authPasswordRoute,
 	authSessionRoute,
 	requireAuthenticatedUser,
 	resolveAuthenticatedUser,

@@ -345,13 +345,33 @@ body {
 	white-space: nowrap;
 }
 
+.account-menu__link,
 .account-menu__logout {
 	width: 100%;
 	padding: 0.65rem 0.75rem;
 	border-radius: 10px;
+	text-align: left;
+}
+
+.account-menu__link {
+	background: rgba(45, 124, 111, 0.1);
+	color: var(--accent-2);
+	font-weight: 700;
+	text-decoration: none;
+}
+
+.account-menu__link:visited {
+	color: var(--accent-2);
+}
+
+.account-menu__link:hover {
+	transform: none;
+	background: rgba(45, 124, 111, 0.16);
+}
+
+.account-menu__logout {
 	background: rgba(186, 90, 49, 0.12);
 	color: var(--accent);
-	text-align: left;
 }
 
 .page-shell {
@@ -1780,7 +1800,8 @@ body.modal-open {
 	min-width: 10rem;
 }
 
-.spending-breakdown-controls select {
+.spending-breakdown-controls select,
+.spending-breakdown-controls input[type="date"] {
 	padding-block: 0.72rem;
 }
 

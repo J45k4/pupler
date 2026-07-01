@@ -71,3 +71,21 @@ export const logout = async () => {
 		throw new Error(await readErrorMessage(response, "Logout failed"));
 	}
 };
+
+export const changePassword = async (
+	currentPassword: string,
+	newPassword: string,
+) => {
+	const response = await fetch("/api/auth/password", {
+		method: "POST",
+		credentials: "same-origin",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({
+			current_password: currentPassword,
+			new_password: newPassword,
+		}),
+	});
+	if (!response.ok) {
+		throw new Error(await readErrorMessage(response, "Failed to change password"));
+	}
+};

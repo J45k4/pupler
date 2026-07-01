@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 
 import {
+	empty,
 	expectString,
 	HttpError,
 	json,
@@ -73,6 +74,11 @@ const clearSessionCookie = (req: Request) =>
 const parseLoginValues = (body: JsonObject) => ({
 	username: requireBodyField(body, "username", expectString).trim(),
 	password: requireBodyField(body, "password", expectString),
+});
+
+const parsePasswordChangeValues = (body: JsonObject) => ({
+	currentPassword: requireBodyField(body, "current_password", expectString),
+	newPassword: requireBodyField(body, "new_password", expectString),
 });
 
 const verifyPassword = async (password: string, passwordHash: string | null) => {
@@ -191,4 +197,40 @@ export const authSessionRoute = (db: Database) =>
 		return json(200, {
 			user: await requireAuthenticatedUser(db, req),
 		});
+	});
+
+export const authPasswordRoute = (db: Database) =>
+	withErrorHandling(async (req: Request) => {
+		if (req.method !== "POST") {
+			throw new HttpError(405, "Method not allowed for this route");
+		}
+
+		const authUser = await requireAuthenticatedUser(db, req);
+		const { currentPassword, newPassword } = parsePasswordChangeValues(
+			await readJsonObject(req),
+		);
+		if (!newPassword.trim()) {
+			throw new HttpError(400, "Field `new_password` cannot be empty");
+		}
+		if (newPassword.length < 8) {
+			throw new HttpError(400, "New password must be at least 8 characters");
+		}
+
+		const user = await db.client.user.findUnique({
+			where: { id: authUser.id },
+			select: { id: true, password_hash: true },
+		});
+		if (!user || !(await verifyPassword(currentPassword, user.password_hash))) {
+			throw new HttpError(401, "Current password is incorrect");
+		}
+
+		await db.client.user.update({
+			where: { id: user.id },
+			data: {
+				password_hash: await Bun.password.hash(newPassword),
+				updated_at: utcNow(),
+			},
+		});
+
+		return empty(204);
 	});

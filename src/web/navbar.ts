@@ -77,6 +77,7 @@ const renderAccountMenu = (user: NavbarUser | null) => {
 			</button>
 			<div class="account-menu__dropdown">
 				<div class="account-menu__username">${label}</div>
+				<a class="account-menu__link" href="/settings" data-link>Settings</a>
 				<button class="account-menu__logout" type="button">Logout</button>
 			</div>
 		</div>

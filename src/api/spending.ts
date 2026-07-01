@@ -9,6 +9,7 @@ import {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_DAYS = 30;
+const AVERAGE_DAYS_PER_WEEK = 7;
 const AVERAGE_DAYS_PER_MONTH = 30.44;
 const QUERY_FIELDS = new Set(["days", "from", "to", "range"]);
 
@@ -169,6 +170,27 @@ const monthlyAverageTotals = (
 				currency,
 				total: roundedMoney(
 					(spending.total / dayCount) * AVERAGE_DAYS_PER_MONTH,
+				),
+				day_count: dayCount,
+			};
+		})
+		.sort((left, right) => left.currency.localeCompare(right.currency));
+
+const weeklyAverageTotals = (
+	spendingByCurrency: Map<
+		string,
+		{ firstDay: number; total: number }
+	>,
+	averageEndDay: number | null,
+): SpendingAverageTotal[] =>
+	[...spendingByCurrency.entries()]
+		.map(([currency, spending]) => {
+			const endDay = averageEndDay ?? spending.firstDay;
+			const dayCount = Math.max(1, endDay - spending.firstDay + 1);
+			return {
+				currency,
+				total: roundedMoney(
+					(spending.total / dayCount) * AVERAGE_DAYS_PER_WEEK,
 				),
 				day_count: dayCount,
 			};
@@ -345,6 +367,10 @@ export const spendingRoute = (db: Database) =>
 				}))
 				.sort((left, right) => left.currency.localeCompare(right.currency)),
 			monthly_average_totals: monthlyAverageTotals(
+				spendingByCurrency,
+				averageEndDay,
+			),
+			weekly_average_totals: weeklyAverageTotals(
 				spendingByCurrency,
 				averageEndDay,
 			),

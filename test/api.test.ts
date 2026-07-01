@@ -6,6 +6,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
 	authLoginRoute,
 	authLogoutRoute,
+	authPasswordRoute,
 	authSessionRoute,
 	closeDatabase,
 	groupDetailRoute,
@@ -88,6 +89,7 @@ const createRoutes = () => {
 		handlers: {
 			"/api/auth/login": authLoginRoute(db),
 			"/api/auth/logout": authLogoutRoute(db),
+			"/api/auth/password": authPasswordRoute(db),
 			"/api/auth/session": authSessionRoute(db),
 			"/api/groups": groupsCollectionRoute(db),
 			"/api/groups/:id": groupDetailRoute(db),
@@ -146,7 +148,7 @@ const request = async (
 		? "/api/products/:id/picture"
 		: pathname.match(/^\/api\/receipts\/\d+\/picture$/)
 			? "/api/receipts/:id/picture"
-			: pathname.match(/^\/api\/auth\/(login|logout|session)$/)
+			: pathname.match(/^\/api\/auth\/(login|logout|password|session)$/)
 				? pathname
 			: pathname.match(/^\/api\/time-entries\/start$/)
 				? "/api/time-entries/start"
@@ -362,6 +364,60 @@ describe("Pupler API", () => {
 		expect(sessionResponse.status).toBe(200);
 		const sessionBody = await sessionResponse.json();
 		expect(sessionBody.user.id).toBe(created.id);
+
+		const wrongPasswordChangeResponse = await request(
+			routes,
+			"/api/auth/password",
+			{
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Cookie: sessionCookie,
+				},
+				body: JSON.stringify({
+					current_password: "wrong",
+					new_password: "new correct horse battery staple",
+				}),
+			},
+		);
+		expect(wrongPasswordChangeResponse.status).toBe(401);
+
+		const passwordChangeResponse = await request(
+			routes,
+			"/api/auth/password",
+			{
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Cookie: sessionCookie,
+				},
+				body: JSON.stringify({
+					current_password: "correct horse battery staple",
+					new_password: "new correct horse battery staple",
+				}),
+			},
+		);
+		expect(passwordChangeResponse.status).toBe(204);
+
+		const oldPasswordLoginResponse = await request(routes, "/api/auth/login", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				username: "alice",
+				password: "correct horse battery staple",
+			}),
+		});
+		expect(oldPasswordLoginResponse.status).toBe(401);
+
+		const newPasswordLoginResponse = await request(routes, "/api/auth/login", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				username: "alice",
+				password: "new correct horse battery staple",
+			}),
+		});
+		expect(newPasswordLoginResponse.status).toBe(200);
 
 		const logoutResponse = await request(routes, "/api/auth/logout", {
 			method: "POST",
@@ -1927,6 +1983,9 @@ describe("Pupler API", () => {
 		expect(breakdown.monthly_average_totals).toEqual([
 			{ currency: "EUR", total: 9.3, day_count: 18 },
 		]);
+		expect(breakdown.weekly_average_totals).toEqual([
+			{ currency: "EUR", total: 2.14, day_count: 18 },
+		]);
 		expect(breakdown.daily_average_totals).toEqual([
 			{ currency: "EUR", total: 0.31, day_count: 18 },
 		]);
@@ -1983,6 +2042,9 @@ describe("Pupler API", () => {
 		]);
 		expect(allTimeBreakdown.monthly_average_totals).toEqual([
 			{ currency: "EUR", total: 52.15, day_count: 61 },
+		]);
+		expect(allTimeBreakdown.weekly_average_totals).toEqual([
+			{ currency: "EUR", total: 11.99, day_count: 61 },
 		]);
 		expect(allTimeBreakdown.daily_average_totals).toEqual([
 			{ currency: "EUR", total: 1.71, day_count: 61 },
