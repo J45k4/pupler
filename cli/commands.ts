@@ -329,8 +329,8 @@ const RESOURCES: ResourceConfig[] = [
 		},
 	},
 	{
-		command: "time-projects",
-		path: "/api/time-projects",
+		command: "clients",
+		path: "/api/clients",
 		fields: {
 			name: { type: "string" },
 			color: { type: "string" },
@@ -338,6 +338,25 @@ const RESOURCES: ResourceConfig[] = [
 		},
 		queryFields: {
 			id: { type: "integer" },
+			name: { type: "string", nullable: true },
+			color: { type: "string", nullable: true },
+			archived_at: { type: "timestamp", nullable: true },
+			created_at: { type: "timestamp" },
+			updated_at: { type: "timestamp" },
+		},
+	},
+	{
+		command: "projects",
+		path: "/api/projects",
+		fields: {
+			client_id: { type: "integer", nullable: true },
+			name: { type: "string" },
+			color: { type: "string" },
+			archived_at: { type: "timestamp", nullable: true },
+		},
+		queryFields: {
+			id: { type: "integer" },
+			client_id: { type: "integer", nullable: true },
 			name: { type: "string", nullable: true },
 			color: { type: "string", nullable: true },
 			archived_at: { type: "timestamp", nullable: true },

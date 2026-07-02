@@ -208,11 +208,34 @@ describe("Pupler CLI", () => {
 		};
 		expect(userBody.name).toBe("Alice");
 
-		const project = await runCli(
+		const client = await runCli(
 			[
-				"time-projects",
+				"clients",
 				"create",
 				"--json",
+				"--name",
+				"OpenAI",
+				"--color",
+				"#6f5aa8",
+				"--archived-at",
+				"null",
+			],
+			{ baseUrl: server.baseUrl },
+		);
+		expect(client.exitCode).toBe(0);
+		const clientBody = JSON.parse(client.stdout) as {
+			id: number;
+			name: string;
+		};
+		expect(clientBody.name).toBe("OpenAI");
+
+		const project = await runCli(
+			[
+				"projects",
+				"create",
+				"--json",
+				"--client-id",
+				String(clientBody.id),
 				"--name",
 				"Pupler",
 				"--color",
@@ -225,9 +248,11 @@ describe("Pupler CLI", () => {
 		expect(project.exitCode).toBe(0);
 		const projectBody = JSON.parse(project.stdout) as {
 			id: number;
+			client_id: number | null;
 			name: string;
 		};
 		expect(projectBody.name).toBe("Pupler");
+		expect(projectBody.client_id).toBe(clientBody.id);
 
 		const started = await runCli(
 			[

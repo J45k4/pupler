@@ -2620,6 +2620,69 @@ body.modal-open {
 	opacity: 0.62;
 }
 
+.clients-workspace {
+	align-items: start;
+	grid-template-columns: minmax(18rem, 24rem) minmax(0, 1fr);
+}
+
+.client-list {
+	display: grid;
+	gap: 0;
+	margin-top: 1rem;
+}
+
+.client-row {
+	display: grid;
+	gap: 1rem;
+	grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.4fr);
+	align-items: center;
+	padding: 1rem 0;
+	border-bottom: 1px solid var(--line);
+}
+
+.client-row:first-child {
+	padding-top: 0;
+}
+
+.client-row:last-child {
+	padding-bottom: 0;
+	border-bottom: 0;
+}
+
+.client-row--archived {
+	opacity: 0.68;
+}
+
+.client-row__summary,
+.client-row__form {
+	min-width: 0;
+}
+
+.client-row__form {
+	display: grid;
+	gap: 0.75rem;
+	grid-template-columns: minmax(0, 1fr) 5rem auto;
+	align-items: end;
+}
+
+.client-row__actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+}
+
+.time-project-list .time-project-row {
+	grid-template-columns: minmax(0, 1fr) minmax(16rem, 0.7fr);
+}
+
+.time-project-client-form {
+	display: grid;
+	gap: 0.5rem;
+	grid-template-columns: minmax(0, 1fr) auto auto;
+	align-items: center;
+	min-width: 0;
+}
+
 .time-action-row,
 .time-entry-row__summary {
 	display: grid;
@@ -2865,6 +2928,15 @@ body.modal-open {
 
 	.time-project-create,
 	.time-project-row {
+		grid-template-columns: 1fr;
+	}
+
+	.time-project-client-form {
+		grid-template-columns: 1fr;
+	}
+
+	.client-row,
+	.client-row__form {
 		grid-template-columns: 1fr;
 	}
 

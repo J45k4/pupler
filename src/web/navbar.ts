@@ -24,6 +24,7 @@ const escapeHtml = (value: string) =>
 export const primaryNavItems: NavItem[] = [
 	{ href: "/", label: "Overview", mobileLabel: "Home" },
 	{ href: "/products", label: "Products", mobileLabel: "Products" },
+	{ href: "/clients", label: "Clients", mobileLabel: "Clients" },
 	{
 		href: "/inventory",
 		label: "Inventory",

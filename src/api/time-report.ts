@@ -20,8 +20,24 @@ type TimeReportProjectTotal = {
 	project_id: number;
 	project_name: string;
 	project_color: string;
+	client_id: number | null;
+	client_name: string | null;
+	client_color: string | null;
 	total_seconds: number;
 	entry_count: number;
+};
+
+type TimeReportClientTotal = {
+	client_id: number | null;
+	client_name: string;
+	client_color: string;
+	total_seconds: number;
+	entry_count: number;
+	project_count: number;
+};
+
+type MutableTimeReportClientTotal = TimeReportClientTotal & {
+	project_ids: Set<number>;
 };
 
 const parseTimeReportQuery = (url: URL): TimeReportPeriod => {
@@ -112,13 +128,23 @@ export const timeReportRoute = (db: Database) =>
 						name: true,
 						color: true,
 						archived_at: true,
+						client_id: true,
+						client: {
+							select: {
+								id: true,
+								name: true,
+								color: true,
+								archived_at: true,
+							},
+						},
 					},
 				},
 			},
 			orderBy: [{ started_at: "desc" }, { id: "desc" }],
 		});
 
-		const totals = new Map<number, TimeReportProjectTotal>();
+		const projectTotals = new Map<number, TimeReportProjectTotal>();
+		const clientTotals = new Map<string, MutableTimeReportClientTotal>();
 		let totalSeconds = 0;
 
 		for (const entry of entries) {
@@ -126,31 +152,72 @@ export const timeReportRoute = (db: Database) =>
 			if (seconds <= 0) continue;
 			totalSeconds += seconds;
 			if (entry.project_id === null || entry.project === null) continue;
-			const existing = totals.get(entry.project_id);
-			if (existing) {
-				existing.total_seconds += seconds;
-				existing.entry_count += 1;
-				continue;
+			const existingProject = projectTotals.get(entry.project_id);
+			if (existingProject) {
+				existingProject.total_seconds += seconds;
+				existingProject.entry_count += 1;
+			} else {
+				projectTotals.set(entry.project_id, {
+					project_id: entry.project_id,
+					project_name: entry.project.name,
+					project_color: entry.project.color,
+					client_id: entry.project.client_id,
+					client_name: entry.project.client?.name ?? null,
+					client_color: entry.project.client?.color ?? null,
+					total_seconds: seconds,
+					entry_count: 1,
+				});
 			}
-			totals.set(entry.project_id, {
-				project_id: entry.project_id,
-				project_name: entry.project.name,
-				project_color: entry.project.color,
-				total_seconds: seconds,
-				entry_count: 1,
-			});
+
+			const clientKey = entry.project.client_id === null
+				? "none"
+				: String(entry.project.client_id);
+			const existingClient = clientTotals.get(clientKey);
+			if (existingClient) {
+				existingClient.total_seconds += seconds;
+				existingClient.entry_count += 1;
+				existingClient.project_ids.add(entry.project_id);
+			} else {
+				clientTotals.set(clientKey, {
+					client_id: entry.project.client_id,
+					client_name: entry.project.client?.name ?? "No client",
+					client_color: entry.project.client?.color ?? "#6b7280",
+					total_seconds: seconds,
+					entry_count: 1,
+					project_count: 1,
+					project_ids: new Set([entry.project_id]),
+				});
+			}
 		}
 
 		const runningEntry = entries.find((entry) => entry.ended_at === null) ?? null;
-
-		return json(200, {
-			period,
-			total_seconds: totalSeconds,
-			running_entry: runningEntry,
-			project_totals: [...totals.values()].sort(
+		const sortedProjectTotals = [...projectTotals.values()].sort(
+			(left, right) =>
+				right.total_seconds - left.total_seconds ||
+				left.project_name.localeCompare(right.project_name),
+		);
+		const sortedClientTotals = [...clientTotals.values()]
+			.map(({ project_ids, ...client }) => ({
+				...client,
+				project_count: project_ids.size,
+			}))
+			.sort(
 				(left, right) =>
 					right.total_seconds - left.total_seconds ||
-					left.project_name.localeCompare(right.project_name),
-			),
+					left.client_name.localeCompare(right.client_name),
+			);
+		const responsePeriod = {
+			from: period.from,
+			to: period.to,
+			range: period.range,
+			...(period.user_id === undefined ? {} : { user_id: period.user_id }),
+		};
+
+		return json(200, {
+			period: responsePeriod,
+			total_seconds: totalSeconds,
+			running_entry: runningEntry,
+			project_totals: sortedProjectTotals,
+			client_totals: sortedClientTotals,
 		});
 	});

@@ -1166,7 +1166,7 @@ const timeApiJson = async <T>(path: string, options: RequestInit = {}) => {
 };
 
 const fetchTimeProjects = () =>
-	timeApiJson<TimeProject[]>("/api/time-projects?sort=name&order=asc");
+	timeApiJson<TimeProject[]>("/api/projects?sort=name&order=asc");
 
 const fetchTimeEntries = () =>
 	timeApiJson<TimeEntry[]>("/api/time-entries?sort=started_at&order=desc");
@@ -1178,7 +1178,7 @@ const stopTimeEntry = (id: number) =>
 	});
 
 const createTimeProject = (name: string) =>
-	timeApiJson<TimeProject>("/api/time-projects", {
+	timeApiJson<TimeProject>("/api/projects", {
 		method: "POST",
 		body: JSON.stringify({ name, archived_at: null }),
 	});

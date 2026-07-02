@@ -140,6 +140,13 @@ describe("Pupler API e2e", () => {
 		);
 		expect(spendingItemsPage.body).toContain("<title>Pupler</title>");
 
+		const clientsPage = await server.call<string>("/clients");
+		expect(clientsPage.response.status).toBe(200);
+		expect(clientsPage.response.headers.get("content-type")).toContain(
+			"text/html",
+		);
+		expect(clientsPage.body).toContain("<title>Pupler</title>");
+
 		const timePage = await server.call<string>("/time");
 		expect(timePage.response.status).toBe(200);
 		expect(timePage.response.headers.get("content-type")).toContain(

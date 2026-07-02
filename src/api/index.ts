@@ -75,9 +75,13 @@ export {
 	usersCollectionRoute,
 } from "./users";
 export {
-	timeProjectDetailRoute,
-	timeProjectsCollectionRoute,
-} from "./time-projects";
+	clientDetailRoute,
+	clientsCollectionRoute,
+} from "./clients";
+export {
+	projectDetailRoute,
+	projectsCollectionRoute,
+} from "./projects";
 export {
 	timeEntriesCollectionRoute,
 	timeEntryDetailRoute,

@@ -304,18 +304,35 @@ model UserSession {
 	@@map("user_sessions")
 }
 
-model TimeProject {
+model Client {
+	id          Int       @id @default(autoincrement())
+	name        String
+	color       String
+	archived_at String?   @map("archived_at")
+	created_at  String    @map("created_at")
+	updated_at  String    @map("updated_at")
+	projects    Project[]
+
+	@@index([name], map: "idx_clients_name")
+	@@index([archived_at], map: "idx_clients_archived_at")
+	@@map("clients")
+}
+
+model Project {
 	id           Int         @id @default(autoincrement())
+	client_id    Int?        @map("client_id")
 	name         String
 	color        String
 	archived_at  String?     @map("archived_at")
 	created_at   String      @map("created_at")
 	updated_at   String      @map("updated_at")
+	client       Client?     @relation(fields: [client_id], references: [id], onDelete: SetNull)
 	time_entries TimeEntry[]
 
-	@@index([name], map: "idx_time_projects_name")
-	@@index([archived_at], map: "idx_time_projects_archived_at")
-	@@map("time_projects")
+	@@index([client_id], map: "idx_projects_client_id")
+	@@index([name], map: "idx_projects_name")
+	@@index([archived_at], map: "idx_projects_archived_at")
+	@@map("projects")
 }
 
 model TimeEntry {
@@ -328,7 +345,7 @@ model TimeEntry {
 	created_at  String       @map("created_at")
 	updated_at  String       @map("updated_at")
 	user        User?        @relation(fields: [user_id], references: [id], onDelete: SetNull)
-	project     TimeProject? @relation(fields: [project_id], references: [id])
+	project     Project?     @relation(fields: [project_id], references: [id])
 
 	@@index([user_id], map: "idx_time_entries_user_id")
 	@@index([project_id], map: "idx_time_entries_project_id")

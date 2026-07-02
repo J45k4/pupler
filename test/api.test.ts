@@ -43,8 +43,10 @@ import {
 	timeEntryDetailRoute,
 	timeEntryStartRoute,
 	timeEntryStopRoute,
-	timeProjectDetailRoute,
-	timeProjectsCollectionRoute,
+	clientDetailRoute,
+	clientsCollectionRoute,
+	projectDetailRoute,
+	projectsCollectionRoute,
 	timeReportRoute,
 	todoDetailRoute,
 	todosCollectionRoute,
@@ -123,8 +125,10 @@ const createRoutes = () => {
 			"/api/todos/:id": todoDetailRoute(db),
 			"/api/users": usersCollectionRoute(db),
 			"/api/users/:id": userDetailRoute(db),
-			"/api/time-projects": timeProjectsCollectionRoute(db),
-			"/api/time-projects/:id": timeProjectDetailRoute(db),
+			"/api/clients": clientsCollectionRoute(db),
+			"/api/clients/:id": clientDetailRoute(db),
+			"/api/projects": projectsCollectionRoute(db),
+			"/api/projects/:id": projectDetailRoute(db),
 			"/api/time-entries": timeEntriesCollectionRoute(db),
 			"/api/time-entries/start": timeEntryStartRoute(db),
 			"/api/time-entries/:id/stop": timeEntryStopRoute(db),
@@ -446,10 +450,24 @@ describe("Pupler API", () => {
 		expect(userResponse.status).toBe(201);
 		const user = await userResponse.json();
 
-		const projectResponse = await request(routes, "/api/time-projects", {
+		const clientResponse = await request(routes, "/api/clients", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
+				name: "OpenAI",
+				color: "#6f5aa8",
+				archived_at: null,
+			}),
+		});
+		expect(clientResponse.status).toBe(201);
+		const client = await clientResponse.json();
+		expect(client.name).toBe("OpenAI");
+
+		const projectResponse = await request(routes, "/api/projects", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				client_id: client.id,
 				name: "Pupler",
 				color: "#2d7c6f",
 				archived_at: null,
@@ -458,6 +476,8 @@ describe("Pupler API", () => {
 		expect(projectResponse.status).toBe(201);
 		const project = await projectResponse.json();
 		expect(project.name).toBe("Pupler");
+		expect(project.client_id).toBe(client.id);
+		expect(project.client.name).toBe("OpenAI");
 
 		const manualEntryResponse = await request(routes, "/api/time-entries", {
 			method: "POST",
@@ -564,7 +584,13 @@ describe("Pupler API", () => {
 		expect(report.total_seconds).toBe(12600);
 		expect(report.project_totals).toHaveLength(1);
 		expect(report.project_totals[0].project_id).toBe(project.id);
+		expect(report.project_totals[0].client_id).toBe(client.id);
 		expect(report.project_totals[0].entry_count).toBe(3);
+		expect(report.client_totals).toHaveLength(1);
+		expect(report.client_totals[0].client_id).toBe(client.id);
+		expect(report.client_totals[0].client_name).toBe("OpenAI");
+		expect(report.client_totals[0].project_count).toBe(1);
+		expect(report.client_totals[0].entry_count).toBe(3);
 
 		const userReportResponse = await request(
 			routes,
@@ -591,7 +617,7 @@ describe("Pupler API", () => {
 		});
 		const secondUser = await secondUserResponse.json();
 
-		const projectResponse = await request(routes, "/api/time-projects", {
+		const projectResponse = await request(routes, "/api/projects", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
@@ -637,7 +663,7 @@ describe("Pupler API", () => {
 	test("starts timers without a project but requires one before stopping", async () => {
 		const routes = createRoutes();
 
-		const projectResponse = await request(routes, "/api/time-projects", {
+		const projectResponse = await request(routes, "/api/projects", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({

@@ -53,9 +53,18 @@ const ENTRY_INCLUDE = {
 	project: {
 		select: {
 			id: true,
+			client_id: true,
 			name: true,
 			color: true,
 			archived_at: true,
+			client: {
+				select: {
+					id: true,
+					name: true,
+					color: true,
+					archived_at: true,
+				},
+			},
 		},
 	},
 } as const;

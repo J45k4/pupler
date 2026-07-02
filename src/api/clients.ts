@@ -19,7 +19,7 @@ import {
 	type JsonObject,
 } from "./core";
 
-const DEFAULT_PROJECT_COLORS = [
+const DEFAULT_CLIENT_COLORS = [
 	"#ba5a31",
 	"#2d7c6f",
 	"#6f5aa8",
@@ -35,10 +35,10 @@ const DEFAULT_SORT = [
 const SORT_FIELDS = new Set(["id", "name", "color", "archived_at", "created_at", "updated_at"]);
 const WRITABLE_FIELDS = ["name", "color", "archived_at"];
 
-const fetchTimeProject = (db: Database, id: number) =>
-	db.client.timeProject.findUnique({ where: { id } });
+const fetchClient = (db: Database, id: number) =>
+	db.client.client.findUnique({ where: { id } });
 
-const parseProjectName = (body: JsonObject, field = "name") => {
+const parseClientName = (body: JsonObject, field = "name") => {
 	const name = requireBodyField(body, field, expectString).trim();
 	if (!name) {
 		throw new HttpError(400, `Field \`${field}\` cannot be empty`);
@@ -46,7 +46,7 @@ const parseProjectName = (body: JsonObject, field = "name") => {
 	return name;
 };
 
-const parseOptionalProjectName = (body: JsonObject, field = "name") => {
+const parseOptionalClientName = (body: JsonObject, field = "name") => {
 	const rawName = readOptionalBodyField(body, field, expectString);
 	if (rawName === undefined) return undefined;
 	const name = rawName.trim();
@@ -56,7 +56,7 @@ const parseOptionalProjectName = (body: JsonObject, field = "name") => {
 	return name;
 };
 
-const parseProjectColor = (value: string) => {
+const parseClientColor = (value: string) => {
 	const color = value.trim();
 	if (!color) {
 		throw new HttpError(400, "Field `color` cannot be empty");
@@ -64,15 +64,15 @@ const parseProjectColor = (value: string) => {
 	return color;
 };
 
-const parseOptionalProjectColor = (body: JsonObject, field = "color") => {
+const parseOptionalClientColor = (body: JsonObject, field = "color") => {
 	const rawColor = readOptionalBodyField(body, field, expectString);
 	if (rawColor === undefined) return undefined;
-	return parseProjectColor(rawColor);
+	return parseClientColor(rawColor);
 };
 
-const defaultProjectColor = (name: string) => {
+const defaultClientColor = (name: string) => {
 	const total = [...name].reduce((sum, char) => sum + char.charCodeAt(0), 0);
-	return DEFAULT_PROJECT_COLORS[total % DEFAULT_PROJECT_COLORS.length]!;
+	return DEFAULT_CLIENT_COLORS[total % DEFAULT_CLIENT_COLORS.length]!;
 };
 
 const parseSort = (url: URL) => {
@@ -113,8 +113,8 @@ const parseFilters = (url: URL) => {
 const parseCreateValues = (body: JsonObject) => {
 	assertKnownFields(body, WRITABLE_FIELDS);
 	const now = utcNow();
-	const name = parseProjectName(body);
-	const color = parseOptionalProjectColor(body) ?? defaultProjectColor(name);
+	const name = parseClientName(body);
+	const color = parseOptionalClientColor(body) ?? defaultClientColor(name);
 	return {
 		name,
 		color,
@@ -126,11 +126,11 @@ const parseCreateValues = (body: JsonObject) => {
 
 const parseReplaceValues = (
 	body: JsonObject,
-	existingRow: Awaited<ReturnType<typeof fetchTimeProject>>,
+	existingRow: Awaited<ReturnType<typeof fetchClient>>,
 ) => {
 	assertKnownFields(body, WRITABLE_FIELDS);
-	const name = parseProjectName(body);
-	const color = parseOptionalProjectColor(body) ?? defaultProjectColor(name);
+	const name = parseClientName(body);
+	const color = parseOptionalClientColor(body) ?? defaultClientColor(name);
 	return {
 		name,
 		color,
@@ -143,8 +143,8 @@ const parseReplaceValues = (
 const parsePatchValues = (body: JsonObject) => {
 	assertKnownFields(body, WRITABLE_FIELDS);
 	const values: Record<string, unknown> = {};
-	const name = parseOptionalProjectName(body);
-	const color = parseOptionalProjectColor(body);
+	const name = parseOptionalClientName(body);
+	const color = parseOptionalClientColor(body);
 	const archivedAt = readOptionalBodyField(body, "archived_at", expectNullableTimestamp);
 
 	if (name !== undefined) values.name = name;
@@ -159,13 +159,13 @@ const parsePatchValues = (body: JsonObject) => {
 	return values;
 };
 
-export const timeProjectsCollectionRoute = (db: Database) =>
+export const clientsCollectionRoute = (db: Database) =>
 	withErrorHandling(async (req: Request) => {
 		if (req.method === "GET") {
 			const url = new URL(req.url);
 			return json(
 				200,
-				await db.client.timeProject.findMany({
+				await db.client.client.findMany({
 					where: parseFilters(url),
 					orderBy: parseSort(url),
 				}),
@@ -174,7 +174,7 @@ export const timeProjectsCollectionRoute = (db: Database) =>
 		if (req.method === "POST") {
 			return json(
 				201,
-				await db.client.timeProject.create({
+				await db.client.client.create({
 					data: parseCreateValues(await readJsonObject(req)),
 				}),
 			);
@@ -182,17 +182,17 @@ export const timeProjectsCollectionRoute = (db: Database) =>
 		throw new HttpError(405, "Method not allowed for this route");
 	});
 
-export const timeProjectDetailRoute = (db: Database) =>
+export const clientDetailRoute = (db: Database) =>
 	withErrorHandling(async (req: BunRequest<string>) => {
 		const id = parseIdParam(req.params.id ?? "");
-		const existingRow = await fetchTimeProject(db, id);
+		const existingRow = await fetchClient(db, id);
 		if (!existingRow) throw new HttpError(404, "Resource not found");
 
 		if (req.method === "GET") return json(200, existingRow);
 		if (req.method === "PUT") {
 			return json(
 				200,
-				await db.client.timeProject.update({
+				await db.client.client.update({
 					where: { id },
 					data: parseReplaceValues(await readJsonObject(req), existingRow),
 				}),
@@ -201,14 +201,14 @@ export const timeProjectDetailRoute = (db: Database) =>
 		if (req.method === "PATCH") {
 			return json(
 				200,
-				await db.client.timeProject.update({
+				await db.client.client.update({
 					where: { id },
 					data: parsePatchValues(await readJsonObject(req)),
 				}),
 			);
 		}
 		if (req.method === "DELETE") {
-			await db.client.timeProject.delete({ where: { id } });
+			await db.client.client.delete({ where: { id } });
 			return empty(204);
 		}
 		throw new HttpError(405, "Method not allowed for this route");

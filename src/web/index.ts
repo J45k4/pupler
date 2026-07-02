@@ -17,6 +17,7 @@ import { renderRecipesPage } from "./pages/recipes";
 import { renderRecipeDetailPage } from "./pages/recipe-detail";
 import { renderRecipeCreatePage } from "./pages/recipe-create";
 import { renderProductsPage } from "./pages/products";
+import { renderClientsPage } from "./pages/clients";
 import { renderProductDetailPage } from "./pages/product-detail";
 import { renderInventoryPage } from "./pages/inventory";
 import { renderInventoryItemDetailPage } from "./pages/inventory-item-detail";
@@ -53,6 +54,7 @@ window.onload = async () => {
 			renderInventoryItemDetailPage(params),
 		"/groups/:id": (_main, params) => renderGroupDetailPage(params),
 		"/products": renderProductsPage,
+		"/clients": renderClientsPage,
 		"/products/:id": (_main, params) => renderProductDetailPage(params),
 		"/receipts": renderReceiptsPage,
 		"/receipts/:id": (_main, params) => renderReceiptDetailPage(params),

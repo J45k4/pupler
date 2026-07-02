@@ -1,13 +1,24 @@
 import { Button, Label, UiComponent } from "../ui/component";
 import { SearchSelect, type SearchSelectOption } from "../ui/search-select";
 
-type TimeProject = {
+type Client = {
 	id: number;
 	name: string;
 	color: string;
 	archived_at: string | null;
 	created_at: string;
 	updated_at: string;
+};
+
+type Project = {
+	id: number;
+	client_id: number | null;
+	name: string;
+	color: string;
+	archived_at: string | null;
+	created_at: string;
+	updated_at: string;
+	client?: Client | null;
 };
 
 type UserSummary = {
@@ -26,11 +37,11 @@ type TimeEntry = {
 	created_at: string;
 	updated_at: string;
 	user?: UserSummary | null;
-	project?: TimeProject;
+	project?: Project;
 };
 
-type TimeProjectChoice = {
-	project: TimeProject;
+type ProjectChoice = {
+	project: Project;
 	entry_count: number;
 	total_seconds: number;
 	latest_started_at: string | null;
@@ -42,15 +53,27 @@ type TimeQuickAction = {
 	entry_count: number;
 	latest_started_at: string;
 	total_seconds: number;
-	project?: TimeProject;
+	project?: Project;
 };
 
 type TimeReportProjectTotal = {
 	project_id: number;
 	project_name: string;
 	project_color: string;
+	client_id: number | null;
+	client_name: string | null;
+	client_color: string | null;
 	total_seconds: number;
 	entry_count: number;
+};
+
+type TimeReportClientTotal = {
+	client_id: number | null;
+	client_name: string;
+	client_color: string;
+	total_seconds: number;
+	entry_count: number;
+	project_count: number;
 };
 
 type TimeReport = {
@@ -61,12 +84,14 @@ type TimeReport = {
 	};
 	total_seconds: number;
 	project_totals: TimeReportProjectTotal[];
+	client_totals: TimeReportClientTotal[];
 };
 
 type TimePageState = {
-	projects: TimeProject[];
+	clients: Client[];
+	projects: Project[];
 	entries: TimeEntry[];
-	choices: TimeProjectChoice[];
+	choices: ProjectChoice[];
 	runningEntry: TimeEntry | null;
 };
 
@@ -84,6 +109,7 @@ type TimeOverviewSpan = (typeof TIME_OVERVIEW_SPANS)[number];
 type TimeOverviewSelection = {
 	span: TimeOverviewSpan;
 	day: string;
+	group: TimeOverviewGroup;
 };
 
 type TimeOverviewPeriod = {
@@ -95,9 +121,16 @@ type TimeOverviewAverage = {
 	totalSeconds: number;
 	dayCount: number;
 	projectSecondsById: Map<number, number>;
+	clientSecondsByKey: Map<string, number>;
 };
 
 const DEFAULT_TIME_OVERVIEW_SPAN = "today";
+const TIME_OVERVIEW_GROUPS = [
+	{ value: "project", label: "Project" },
+	{ value: "client", label: "Client" },
+] as const;
+type TimeOverviewGroup = (typeof TIME_OVERVIEW_GROUPS)[number]["value"];
+const DEFAULT_TIME_OVERVIEW_GROUP: TimeOverviewGroup = "project";
 
 const field = (label: string, control: HTMLElement) => {
 	const labelComponent = new Label({ text: label });
@@ -158,8 +191,11 @@ const timeApiJson = async <T>(path: string, options: RequestInit = {}) => {
 };
 
 const timeApi = {
+	fetchClients: () =>
+		timeApiJson<Client[]>("/api/clients?sort=name&order=asc"),
+
 	fetchProjects: () =>
-		timeApiJson<TimeProject[]>("/api/time-projects?sort=name&order=asc"),
+		timeApiJson<Project[]>("/api/projects?sort=name&order=asc"),
 
 	fetchEntries: () =>
 		timeApiJson<TimeEntry[]>("/api/time-entries?sort=started_at&order=desc"),
@@ -169,10 +205,30 @@ const timeApi = {
 		return timeApiJson<TimeReport>(`/api/time-report?${query.toString()}`);
 	},
 
-	createProject: (name: string) =>
-		timeApiJson<TimeProject>("/api/time-projects", {
+	createProject: (name: string, clientId: number | null = null) =>
+		timeApiJson<Project>("/api/projects", {
+			method: "POST",
+			body: JSON.stringify({ name, client_id: clientId, archived_at: null }),
+		}),
+
+	createClient: (name: string) =>
+		timeApiJson<Client>("/api/clients", {
 			method: "POST",
 			body: JSON.stringify({ name, archived_at: null }),
+		}),
+
+	updateProject: (
+		id: number,
+		values: {
+			client_id?: number | null;
+			name?: string;
+			color?: string;
+			archived_at?: string | null;
+		},
+	) =>
+		timeApiJson<Project>(`/api/projects/${id}`, {
+			method: "PATCH",
+			body: JSON.stringify(values),
 		}),
 
 	createEntry: (values: {
@@ -299,14 +355,21 @@ const getTimeOverviewSpan = (
 		(span) => span.value === DEFAULT_TIME_OVERVIEW_SPAN,
 	)!;
 
+const getTimeOverviewGroup = (
+	value: string | null | undefined,
+): TimeOverviewGroup =>
+	TIME_OVERVIEW_GROUPS.find((group) => group.value === value)?.value ??
+	DEFAULT_TIME_OVERVIEW_GROUP;
+
 const getCurrentTimeOverviewSelection = (): TimeOverviewSelection => {
 	const params = new URLSearchParams(window.location.search);
 	const span = getTimeOverviewSpan(params.get("span"));
+	const group = getTimeOverviewGroup(params.get("group"));
 	const requestedDay = params.get("day") ?? "";
 	const day = localDateFromInput(requestedDay)
 		? requestedDay
 		: formatDateInput();
-	return { span, day };
+	return { span, day, group };
 };
 
 const getTimeOverviewPeriod = (selection: TimeOverviewSelection) => {
@@ -390,6 +453,11 @@ const updateTimeOverviewUrl = (selection: TimeOverviewSelection) => {
 	} else {
 		url.searchParams.delete("day");
 	}
+	if (selection.group === DEFAULT_TIME_OVERVIEW_GROUP) {
+		url.searchParams.delete("group");
+	} else {
+		url.searchParams.set("group", selection.group);
+	}
 	window.history.replaceState({}, "", `${url.pathname}${url.search}`);
 };
 
@@ -406,12 +474,13 @@ const normalizeDescription = (description: string | null | undefined) =>
 	description?.trim() ?? "";
 
 const normalizeProjectName = (name: string) => name.trim().toLowerCase();
+const normalizeClientName = (name: string) => name.trim().toLowerCase();
 
 const buildProjectChoices = (
 	entries: TimeEntry[],
-	projects: TimeProject[],
-): TimeProjectChoice[] => {
-	const choiceByProjectId = new Map<number, TimeProjectChoice>();
+	projects: Project[],
+): ProjectChoice[] => {
+	const choiceByProjectId = new Map<number, ProjectChoice>();
 	for (const project of projects) {
 		if (project.archived_at !== null) continue;
 		choiceByProjectId.set(project.id, {
@@ -453,7 +522,7 @@ const buildProjectChoices = (
 
 const buildQuickActions = (
 	entries: TimeEntry[],
-	projects: TimeProject[],
+	projects: Project[],
 ): TimeQuickAction[] => {
 	const projectById = new Map(projects.map((project) => [project.id, project]));
 	const activeProjectIds = new Set(
@@ -515,7 +584,7 @@ const findPreviousTimeEntryEnd = (
 };
 
 const projectOptions = (
-	projects: TimeProject[],
+	projects: Project[],
 	selectedId?: number | null,
 ) =>
 	projects
@@ -526,7 +595,7 @@ const projectOptions = (
 		}));
 
 const selectProject = (
-	projects: TimeProject[],
+	projects: Project[],
 	selectedId?: number | null,
 ) => {
 	const select = document.createElement("select");
@@ -545,23 +614,84 @@ const selectProject = (
 	return select;
 };
 
-const choiceOptions = (choices: TimeProjectChoice[]): SearchSelectOption[] =>
+const choiceOptions = (choices: ProjectChoice[]): SearchSelectOption[] =>
 	choices.map((choice) => ({
 		value: String(choice.project.id),
 		label: choice.project.name,
 	}));
 
-const findChoiceByName = (choices: TimeProjectChoice[], name: string) => {
+const choiceOptionsForClient = (
+	choices: ProjectChoice[],
+	client: Client | null,
+): SearchSelectOption[] =>
+	choiceOptions(
+		client
+			? choices.filter((choice) => choice.project.client_id === client.id)
+			: choices,
+	);
+
+const clientOptions = (
+	clients: Client[],
+	selectedId?: number | null,
+): SearchSelectOption[] =>
+	clients
+		.filter((client) => client.archived_at === null || client.id === selectedId)
+		.map((client) => ({
+			value: String(client.id),
+			label: client.name,
+		}));
+
+const findChoiceByName = (choices: ProjectChoice[], name: string) => {
 	const normalizedName = normalizeProjectName(name);
 	return choices.find(
 		(choice) => normalizeProjectName(choice.project.name) === normalizedName,
 	);
 };
 
-const findChoiceById = (choices: TimeProjectChoice[], id: number) =>
+const findChoiceById = (choices: ProjectChoice[], id: number) =>
 	choices.find((choice) => choice.project.id === id);
 
-const projectForEntry = (entry: TimeEntry, projects: TimeProject[]) =>
+const findClientByName = (clients: Client[], name: string) => {
+	const normalizedName = normalizeClientName(name);
+	return clients.find((client) => normalizeClientName(client.name) === normalizedName);
+};
+
+const selectedClientFromSelect = (
+	clients: Client[],
+	clientSelect: SearchSelect,
+) => {
+	const selectedId = Number(clientSelect.value);
+	if (Number.isInteger(selectedId) && selectedId > 0) {
+		return clients.find((client) => client.id === selectedId) ?? null;
+	}
+	return clientSelect.text ? (findClientByName(clients, clientSelect.text) ?? null) : null;
+};
+
+const bindClientScopedProjectSelect = (
+	getState: () => TimePageState,
+	clientSelect: SearchSelect,
+	projectSelect: SearchSelect,
+) => {
+	const refresh = () => {
+		const state = getState();
+		const client = selectedClientFromSelect(state.clients, clientSelect);
+		projectSelect.setOptions(
+			client || !clientSelect.text
+				? choiceOptionsForClient(state.choices, client)
+				: [],
+		);
+	};
+
+	for (const eventName of ["input", "keydown", "mousedown", "focusout"]) {
+		clientSelect.root.addEventListener(eventName, () => {
+			window.setTimeout(refresh, 0);
+		});
+	}
+	refresh();
+	return refresh;
+};
+
+const projectForEntry = (entry: TimeEntry, projects: Project[]) =>
 	entry.project ??
 	(entry.project_id === null
 		? undefined
@@ -575,11 +705,13 @@ const sortTimeEntries = (entries: TimeEntry[]) =>
 	);
 
 const createTimePageState = (
-	projects: TimeProject[],
+	clients: Client[],
+	projects: Project[],
 	entries: TimeEntry[],
 ): TimePageState => {
 	const sortedEntries = sortTimeEntries(entries);
 	return {
+		clients,
 		projects,
 		entries: sortedEntries,
 		choices: buildProjectChoices(sortedEntries, projects),
@@ -608,8 +740,12 @@ class TimeStore {
 		for (const listener of this.listeners) listener();
 	}
 
-	public setData(projects: TimeProject[], entries: TimeEntry[]) {
-		this.set(createTimePageState(projects, entries));
+	public setData(projects: Project[], entries: TimeEntry[]) {
+		this.set(createTimePageState(this.state.clients, projects, entries));
+	}
+
+	public setAllData(clients: Client[], projects: Project[], entries: TimeEntry[]) {
+		this.set(createTimePageState(clients, projects, entries));
 	}
 
 	public subscribe(listener: () => void, options?: { immediate?: boolean }) {
@@ -672,11 +808,12 @@ class TimeActions {
 	public async loadInitial() {
 		try {
 			setStatus(this.status, "Loading time tracking...");
-			const [projects, entries] = await Promise.all([
+			const [clients, projects, entries] = await Promise.all([
+				timeApi.fetchClients(),
 				timeApi.fetchProjects(),
 				timeApi.fetchEntries(),
 			]);
-			this.store.setData(projects, entries);
+			this.store.setAllData(clients, projects, entries);
 			setStatus(
 				this.status,
 				`Loaded ${entries.length} time entr${entries.length === 1 ? "y" : "ies"}.`,
@@ -690,24 +827,62 @@ class TimeActions {
 		}
 	}
 
-	public async ensureProject(projectName: string) {
+	public async ensureProject(projectName: string, clientName = "") {
 		const normalizedName = projectName.trim();
 		if (!normalizedName) throw new Error("Project is required.");
+		const client = clientName.trim() ? await this.ensureClient(clientName) : null;
 		const state = this.store.get();
-		const existing = findChoiceByName(state.choices, normalizedName)?.project;
+		const existing = findChoiceByName(
+			client
+				? state.choices.filter((choice) => choice.project.client_id === client.id)
+				: state.choices,
+			normalizedName,
+		)?.project;
 		if (existing) return existing;
-		const project = await timeApi.createProject(normalizedName);
-		this.store.setData([...state.projects, project], state.entries);
+		const project = await timeApi.createProject(normalizedName, client?.id ?? null);
+		const nextState = this.store.get();
+		this.store.setData([...nextState.projects, project], nextState.entries);
 		return project;
 	}
 
+	public async ensureClient(clientName: string) {
+		const normalizedName = clientName.trim();
+		if (!normalizedName) throw new Error("Client is required.");
+		const state = this.store.get();
+		const existing = findClientByName(state.clients, normalizedName);
+		if (existing) return existing;
+		const client = await timeApi.createClient(normalizedName);
+		this.store.setAllData([...state.clients, client], state.projects, state.entries);
+		return client;
+	}
+
+	public async assignProjectClient(project: Project, clientName: string) {
+		const normalizedName = clientName.trim();
+		const client = normalizedName ? await this.ensureClient(normalizedName) : null;
+		const updatedProject = await timeApi.updateProject(project.id, {
+			client_id: client?.id ?? null,
+		});
+		const nextState = this.store.get();
+		const projects = nextState.projects.map((candidate) =>
+			candidate.id === updatedProject.id ? updatedProject : candidate,
+		);
+		const entries = nextState.entries.map((entry) =>
+			entry.project_id === updatedProject.id
+				? { ...entry, project: updatedProject }
+				: entry,
+		);
+		this.store.setAllData(nextState.clients, projects, entries);
+		return updatedProject;
+	}
+
 	public async addEntry(values: {
+		clientName: string;
 		projectName: string;
 		description: string | null;
 		startedAt: string;
 		endedAt: string | null;
 	}) {
-		const project = await this.ensureProject(values.projectName);
+		const project = await this.ensureProject(values.projectName, values.clientName);
 		const entry = await timeApi.createEntry({
 			project_id: project.id,
 			description: values.description,
@@ -719,9 +894,16 @@ class TimeActions {
 		return entry;
 	}
 
-	public async startTimer(projectName: string, description: string | null) {
+	public async startTimer(
+		clientName: string,
+		projectName: string,
+		description: string | null,
+	) {
+		if (clientName.trim() && !projectName.trim()) {
+			throw new Error("Project is required when client is selected.");
+		}
 		const project = projectName.trim()
-			? await this.ensureProject(projectName)
+			? await this.ensureProject(projectName, clientName)
 			: null;
 		const entry = await timeApi.startEntry({
 			...(project ? { project_id: project.id } : {}),
@@ -752,8 +934,12 @@ class TimeActions {
 		return stopped;
 	}
 
-	public async assignProjectAndStopTimer(entry: TimeEntry, projectName: string) {
-		const project = await this.ensureProject(projectName);
+	public async assignProjectAndStopTimer(
+		entry: TimeEntry,
+		projectName: string,
+		clientName = "",
+	) {
+		const project = await this.ensureProject(projectName, clientName);
 		const assigned = await timeApi.updateEntry(entry.id, {
 			project_id: project.id,
 		});
@@ -768,13 +954,17 @@ class TimeActions {
 	public async updateRunningTimer(
 		entry: TimeEntry,
 		values: {
+			clientName: string;
 			projectName: string;
 			description: string | null;
 			startedAt: string;
 		},
 	) {
+		if (values.clientName.trim() && !values.projectName.trim()) {
+			throw new Error("Project is required when client is selected.");
+		}
 		const project = values.projectName.trim()
-			? await this.ensureProject(values.projectName)
+			? await this.ensureProject(values.projectName, values.clientName)
 			: null;
 		const updated = await timeApi.updateEntry(entry.id, {
 			project_id: project?.id ?? null,
@@ -853,6 +1043,11 @@ const createTimeEntryCreateModal = (context: TimePageContext) => {
 	header.append(text("h2", "Add Time Entry"), closeButton.root);
 
 	const form = document.createElement("form");
+	const clientSelect = new SearchSelect({
+		placeholder: "Type or choose a client",
+		allowCreate: true,
+		createLabelPrefix: "Create client",
+	});
 	const projectSelect = new SearchSelect({
 		placeholder: "Type or choose a project",
 		allowCreate: true,
@@ -888,6 +1083,7 @@ const createTimeEntryCreateModal = (context: TimePageContext) => {
 	actions.append(submitButton.root, cancelButton.root);
 
 	form.append(
+		field("Client (optional)", clientSelect.root),
 		field("Project", projectSelect.root),
 		field("Description", description),
 		row,
@@ -903,13 +1099,16 @@ const createTimeEntryCreateModal = (context: TimePageContext) => {
 		root.hidden = true;
 		document.body.classList.remove("modal-open");
 		form.reset();
+		clientSelect.clear();
 		projectSelect.clear();
 		setLocalStatus("");
 	};
 
 	const open = () => {
 		const range = defaultTimeEntryRange();
-		projectSelect.setOptions(choiceOptions(context.store.get().choices));
+		const state = context.store.get();
+		clientSelect.setOptions(clientOptions(state.clients));
+		projectSelect.setOptions(choiceOptions(state.choices));
 		startedAt.value = range.startedAt;
 		endedAt.value = range.endedAt;
 		root.hidden = false;
@@ -917,6 +1116,11 @@ const createTimeEntryCreateModal = (context: TimePageContext) => {
 		setLocalStatus("");
 		projectSelect.focus();
 	};
+	bindClientScopedProjectSelect(
+		() => context.store.get(),
+		clientSelect,
+		projectSelect,
+	);
 
 	closeButton.onClick = close;
 	cancelButton.onClick = close;
@@ -939,6 +1143,7 @@ const createTimeEntryCreateModal = (context: TimePageContext) => {
 
 		try {
 			await context.actions.addEntry({
+				clientName: clientSelect.text,
 				projectName: projectSelect.text,
 				description: description.value.trim() || null,
 				startedAt: startedAtValue,
@@ -986,18 +1191,33 @@ const createRunningEditModal = (
 
 	const form = document.createElement("form");
 	form.className = "time-running__start-form";
+	const state = context.store.get();
+	const project = projectForEntry(runningEntry, state.projects);
 
+	const clientSelect = new SearchSelect({
+		placeholder: "Type or choose a client",
+		allowCreate: true,
+		createLabelPrefix: "Create client",
+	});
+	clientSelect
+		.setOptions(clientOptions(state.clients, project?.client_id ?? null))
+		.setValue(project?.client_id === null || project?.client_id === undefined ? null : String(project.client_id));
 	const projectSelect = new SearchSelect({
 		placeholder: "Type or choose a project",
 		allowCreate: true,
 		createLabelPrefix: "Create project",
 	});
 	projectSelect
-		.setOptions(choiceOptions(context.store.get().choices))
+		.setOptions(choiceOptionsForClient(state.choices, selectedClientFromSelect(state.clients, clientSelect)))
 		.setValue(
 			runningEntry.project_id === null ? null : String(runningEntry.project_id),
 		);
 	projectSelect.root.setAttribute("aria-label", "Running timer project");
+	bindClientScopedProjectSelect(
+		() => context.store.get(),
+		clientSelect,
+		projectSelect,
+	);
 
 	const description = document.createElement("input");
 	description.value = runningEntry.description ?? "";
@@ -1010,6 +1230,7 @@ const createRunningEditModal = (
 	startedAt.required = true;
 
 	form.append(
+		field("Client (optional)", clientSelect.root),
 		field("Project (optional)", projectSelect.root),
 		field("Description", description),
 		field("Started At", startedAt),
@@ -1082,6 +1303,7 @@ const createRunningEditModal = (
 		}
 		try {
 			await context.actions.updateRunningTimer(runningEntry, {
+				clientName: clientSelect.text,
 				projectName: projectSelect.text,
 				description: description.value.trim() || null,
 				startedAt: startedAtValue,
@@ -1130,6 +1352,11 @@ const createStopTimerProjectModal = (
 	copy.className = "section-copy";
 
 	const form = document.createElement("form");
+	const clientSelect = new SearchSelect({
+		placeholder: "Type or choose a client",
+		allowCreate: true,
+		createLabelPrefix: "Create client",
+	});
 	const projectSelect = new SearchSelect({
 		placeholder: "Type or choose a project",
 		allowCreate: true,
@@ -1148,7 +1375,11 @@ const createStopTimerProjectModal = (
 		type: "button",
 	});
 	actions.append(submitButton.root, cancelButton.root);
-	form.append(field("Project", projectSelect.root), actions);
+	form.append(
+		field("Client (optional)", clientSelect.root),
+		field("Project", projectSelect.root),
+		actions,
+	);
 
 	const status = div("status");
 	const setLocalStatus = (message: string, isError = false) => {
@@ -1158,17 +1389,25 @@ const createStopTimerProjectModal = (
 	const close = () => {
 		root.hidden = true;
 		document.body.classList.remove("modal-open");
+		clientSelect.clear();
 		projectSelect.clear();
 		setLocalStatus("");
 	};
 
 	const open = () => {
-		projectSelect.setOptions(choiceOptions(context.store.get().choices));
+		const state = context.store.get();
+		clientSelect.setOptions(clientOptions(state.clients));
+		projectSelect.setOptions(choiceOptions(state.choices));
 		root.hidden = false;
 		document.body.classList.add("modal-open");
 		setLocalStatus("");
 		projectSelect.focus();
 	};
+	bindClientScopedProjectSelect(
+		() => context.store.get(),
+		clientSelect,
+		projectSelect,
+	);
 
 	closeButton.onClick = close;
 	cancelButton.onClick = close;
@@ -1183,6 +1422,7 @@ const createStopTimerProjectModal = (
 			await context.actions.assignProjectAndStopTimer(
 				runningEntry,
 				projectSelect.text,
+				clientSelect.text,
 			);
 			close();
 			setStatus(context.status, "Timer stopped.");
@@ -1297,12 +1537,23 @@ const createTimerPanel = (context: TimePageContext) => {
 
 		const form = document.createElement("form");
 		form.className = "time-start-form";
+		const clientSelect = new SearchSelect({
+			placeholder: "Type or choose a client",
+			allowCreate: true,
+			createLabelPrefix: "Create client",
+		});
+		clientSelect.setOptions(clientOptions(state.clients));
 		const projectSelect = new SearchSelect({
 			placeholder: "Type or choose a project",
 			allowCreate: true,
 			createLabelPrefix: "Create project",
 		});
 		projectSelect.setOptions(choiceOptions(state.choices));
+		bindClientScopedProjectSelect(
+			() => context.store.get(),
+			clientSelect,
+			projectSelect,
+		);
 
 		const description = document.createElement("input");
 		description.placeholder = "What are you working on?";
@@ -1314,6 +1565,7 @@ const createTimerPanel = (context: TimePageContext) => {
 			type: "submit",
 		});
 		form.append(
+			field("Client (optional)", clientSelect.root),
 			field("Project (optional)", projectSelect.root),
 			field("Description", description),
 			submit.root,
@@ -1326,6 +1578,7 @@ const createTimerPanel = (context: TimePageContext) => {
 			}
 			try {
 				await context.actions.startTimer(
+					clientSelect.text,
 					projectSelect.text,
 					description.value.trim() || null,
 				);
@@ -1432,6 +1685,9 @@ const createTimeEntryRow = (
 			Boolean(entry.ended_at),
 		),
 	);
+	if (project?.client) {
+		title.append(tag(project.client.name, true));
+	}
 
 	const editButton = new Button({
 		text: "Edit",
@@ -1455,7 +1711,7 @@ const createTimeEntryRow = (
 	startAgain.onClick = async () => {
 		try {
 			if (entry.project_id === null) {
-				await context.actions.startTimer("", description || null);
+				await context.actions.startTimer("", "", description || null);
 			} else {
 				await context.actions.startTimerForProject(
 					entry.project_id,
@@ -1594,12 +1850,105 @@ const createTimeEntriesList = (context: TimePageContext) => {
 	});
 };
 
+const createProjectsList = (context: TimePageContext) => {
+	const root = div("time-project-list");
+
+	const render = () => {
+		root.replaceChildren();
+		const state = context.store.get();
+		const projects = state.projects.filter((project) => project.archived_at === null);
+		if (!projects.length) {
+			const empty = div("empty");
+			empty.textContent = "No time projects yet.";
+			root.append(empty);
+			return;
+		}
+
+		for (const project of projects) {
+			const row = div("time-project-row");
+			const main = div("time-entry-row__main");
+			const title = div("time-entry-row__title");
+			title.append(timeColor(project.color), text("strong", project.name));
+			const meta = div("section-copy");
+			meta.textContent = project.client?.name
+				? `Client: ${project.client.name}`
+				: "No client";
+			main.append(title, meta);
+
+			const form = document.createElement("form");
+			form.className = "time-project-client-form";
+			const clientSelect = new SearchSelect({
+				placeholder: "No client",
+				allowCreate: true,
+				createLabelPrefix: "Create client",
+			});
+			clientSelect
+				.setOptions(clientOptions(state.clients, project.client_id))
+				.setValue(project.client_id === null ? null : String(project.client_id));
+			const save = new Button({
+				text: "Save",
+				className: "secondary",
+				type: "submit",
+			});
+			const clear = new Button({
+				text: "Clear",
+				className: "secondary",
+				type: "button",
+			});
+			form.append(clientSelect.root, save.root, clear.root);
+			form.addEventListener("submit", async (event) => {
+				event.preventDefault();
+				try {
+					await context.actions.assignProjectClient(project, clientSelect.text);
+					setStatus(context.status, "Project client saved.");
+				} catch (error) {
+					setStatus(
+						context.status,
+						error instanceof Error ? error.message : "Failed to save project client.",
+						true,
+					);
+				}
+			});
+			clear.onClick = async () => {
+				try {
+					clientSelect.clear();
+					await context.actions.assignProjectClient(project, "");
+					setStatus(context.status, "Project client cleared.");
+				} catch (error) {
+					setStatus(
+						context.status,
+						error instanceof Error ? error.message : "Failed to clear project client.",
+						true,
+					);
+				}
+			};
+			row.append(main, form);
+			root.append(row);
+		}
+	};
+
+	const unsubscribe = context.store.subscribe(render);
+	return Object.assign(new UiComponent(root), {
+		render,
+		destroy: unsubscribe,
+	});
+};
+
 const renderTimeOverviewSpanOptions = (selectedValue: string) =>
 	TIME_OVERVIEW_SPANS.map((span) => {
 		const option = document.createElement("option");
 		option.value = span.value;
 		option.textContent = span.label;
 		option.selected = span.value === selectedValue;
+		return option;
+	});
+
+const renderTimeOverviewGroupOptions = (selectedValue: TimeOverviewGroup) =>
+	TIME_OVERVIEW_GROUPS.map((group) => {
+		const option = document.createElement("option");
+		option.value = group.value;
+		option.textContent = group.label;
+		option.selected = group.value === selectedValue;
 		return option;
 	});
 
@@ -1610,35 +1959,76 @@ const formatTimeOverviewPeriod = (report: TimeReport) => {
 	return `${formatDateTime(report.period.from)} - ${formatDateTime(report.period.to)}`;
 };
 
-const createTimeOverviewPie = (report: TimeReport) => {
+type TimeOverviewItem = {
+	key: string;
+	name: string;
+	color: string;
+	totalSeconds: number;
+	entryCount: number;
+	projectCount?: number;
+};
+
+const clientTotalKey = (clientId: number | null) =>
+	clientId === null ? "none" : String(clientId);
+
+const getTimeOverviewItems = (
+	report: TimeReport,
+	group: TimeOverviewGroup,
+): TimeOverviewItem[] => {
+	if (group === "client") {
+		return report.client_totals.map((client) => ({
+			key: clientTotalKey(client.client_id),
+			name: client.client_name,
+			color: client.client_color,
+			totalSeconds: client.total_seconds,
+			entryCount: client.entry_count,
+			projectCount: client.project_count,
+		}));
+	}
+	return report.project_totals.map((project) => ({
+		key: String(project.project_id),
+		name: project.project_name,
+		color: project.project_color,
+		totalSeconds: project.total_seconds,
+		entryCount: project.entry_count,
+	}));
+};
+
+const createTimeOverviewPie = (
+	report: TimeReport,
+	group: TimeOverviewGroup,
+) => {
 	const pie = div("time-overview-pie");
-	const total = report.project_totals.reduce(
-		(sum, project) => sum + project.total_seconds,
+	const items = getTimeOverviewItems(report, group);
+	const total = items.reduce(
+		(sum, item) => sum + item.totalSeconds,
 		0,
 	);
 	if (total <= 0) {
 		pie.classList.add("time-overview-pie--empty");
-		pie.setAttribute("aria-label", "No project time in this span");
+		pie.setAttribute("aria-label", `No ${group} time in this span`);
 		return pie;
 	}
 
 	let cursor = 0;
-	const segments = report.project_totals.map((project) => {
+	const segments = items.map((item) => {
 		const start = cursor;
-		const end = cursor + (project.total_seconds / total) * 100;
+		const end = cursor + (item.totalSeconds / total) * 100;
 		cursor = end;
-		return `${project.project_color} ${start.toFixed(3)}% ${end.toFixed(3)}%`;
+		return `${item.color} ${start.toFixed(3)}% ${end.toFixed(3)}%`;
 	});
 	pie.style.background = `conic-gradient(${segments.join(", ")})`;
-	pie.setAttribute("aria-label", "Project time usage pie chart");
+	pie.setAttribute("aria-label", `${group} time usage pie chart`);
 	return pie;
 };
 
 const createTimeOverviewSummary = (
 	report: TimeReport,
 	average: TimeOverviewAverage | null,
+	group: TimeOverviewGroup,
 ) => {
 	const summary = div("time-report-summary time-overview-summary");
+	const items = getTimeOverviewItems(report, group);
 	const total = div();
 	total.append(text("span", "Total Time"), text("strong", formatDuration(report.total_seconds)));
 	const dailyAverage = div();
@@ -1653,8 +2043,8 @@ const createTimeOverviewSummary = (
 	);
 	const projects = div();
 	projects.append(
-		text("span", "Projects"),
-		text("strong", String(report.project_totals.length)),
+		text("span", group === "client" ? "Clients" : "Projects"),
+		text("strong", String(items.length)),
 	);
 	const period = div();
 	period.append(text("span", "Span"), text("strong", formatTimeOverviewPeriod(report)));
@@ -1665,44 +2055,50 @@ const createTimeOverviewSummary = (
 const createTimeOverviewProjectList = (
 	report: TimeReport,
 	average: TimeOverviewAverage | null,
+	group: TimeOverviewGroup,
 ) => {
 	const list = div("time-report-list time-overview-list");
-	const projectTotal = report.project_totals.reduce(
-		(sum, project) => sum + project.total_seconds,
+	const items = getTimeOverviewItems(report, group);
+	const itemTotal = items.reduce(
+		(sum, item) => sum + item.totalSeconds,
 		0,
 	);
-	if (!report.project_totals.length) {
+	if (!items.length) {
 		const empty = div("empty");
-		empty.textContent = "No tracked project time in this span.";
+		empty.textContent = `No tracked ${group} time in this span.`;
 		list.append(empty);
 		return list;
 	}
 
-	for (const project of report.project_totals) {
+	for (const item of items) {
 		const row = div("time-report-row time-overview-row");
 		const main = div("time-overview-row__main");
 		const title = div("time-entry-row__title");
 		title.append(
-			timeColor(project.project_color),
-			text("strong", project.project_name),
+			timeColor(item.color),
+			text("strong", item.name),
 		);
 		const meta = text(
 			"span",
-			`${project.entry_count} entr${project.entry_count === 1 ? "y" : "ies"}`,
+			group === "client"
+				? `${item.projectCount ?? 0} project${item.projectCount === 1 ? "" : "s"} - ${item.entryCount} entr${item.entryCount === 1 ? "y" : "ies"}`
+				: `${item.entryCount} entr${item.entryCount === 1 ? "y" : "ies"}`,
 		);
 		meta.className = "section-copy";
 		const percent =
-			projectTotal > 0 ? Math.round((project.total_seconds / projectTotal) * 100) : 0;
+			itemTotal > 0 ? Math.round((item.totalSeconds / itemTotal) * 100) : 0;
 		main.append(title, meta);
 		const total = div("time-overview-row__total");
-		const projectAverageSeconds = average?.projectSecondsById.get(project.project_id) ?? 0;
+		const averageSeconds = group === "client"
+			? (average?.clientSecondsByKey.get(item.key) ?? 0)
+			: (average?.projectSecondsById.get(Number(item.key)) ?? 0);
 		total.append(
-			text("strong", formatDuration(project.total_seconds)),
+			text("strong", formatDuration(item.totalSeconds)),
 			text("span", `${percent}%`),
 			text(
 				"span",
 				average && average.dayCount > 0
-					? `Avg/day ${formatDuration(projectAverageSeconds / average.dayCount)}`
+					? `Avg/day ${formatDuration(averageSeconds / average.dayCount)}`
 					: "Avg/day No full days",
 			),
 		);
@@ -1717,6 +2113,7 @@ const renderTimeOverviewReport = (
 	report: TimeReport | null,
 	resultsRoot: HTMLElement,
 	average: TimeOverviewAverage | null = null,
+	group: TimeOverviewGroup = DEFAULT_TIME_OVERVIEW_GROUP,
 ) => {
 	resultsRoot.replaceChildren();
 	if (!report) {
@@ -1728,16 +2125,16 @@ const renderTimeOverviewReport = (
 
 	const chartPanel = div("time-overview-chart");
 	chartPanel.append(
-		createTimeOverviewPie(report),
-		createTimeOverviewProjectList(report, average),
+		createTimeOverviewPie(report, group),
+		createTimeOverviewProjectList(report, average, group),
 	);
-	resultsRoot.append(createTimeOverviewSummary(report, average), chartPanel);
+	resultsRoot.append(createTimeOverviewSummary(report, average, group), chartPanel);
 };
 
 export const renderTimePage = (page: HTMLElement) => {
 	const status = div("status");
 	const store = new TimeStore(
-		createTimePageState([], []),
+		createTimePageState([], [], []),
 	);
 	const actions = new TimeActions(store, status);
 	const context: TimePageContext = {
@@ -1749,6 +2146,7 @@ export const renderTimePage = (page: HTMLElement) => {
 	const timerPanel = createTimerPanel(context);
 	const quickActions = createQuickActions(context);
 	const entriesList = createTimeEntriesList(context);
+	const projectsList = createProjectsList(context);
 	const entryCreateModal = createTimeEntryCreateModal(context);
 
 	const workspace = div("workspace time-workspace");
@@ -1773,7 +2171,12 @@ export const renderTimePage = (page: HTMLElement) => {
 	headerActions.append(addEntry.root);
 	entriesHeader.append(text("h2", "Past Entries"), headerActions);
 	entriesBlock.append(entriesHeader, status, entriesList.root);
-	main.append(entriesBlock);
+	const projectsBlock = document.createElement("section");
+	projectsBlock.className = "time-block";
+	const projectsHeader = div("section-header");
+	projectsHeader.append(text("h2", "Projects"));
+	projectsBlock.append(projectsHeader, projectsList.root);
+	main.append(entriesBlock, projectsBlock);
 
 	workspace.append(sidebar, main);
 	page.append(workspace, entryCreateModal.root);
@@ -1791,13 +2194,17 @@ export const renderTimeOverviewPage = (page: HTMLElement) => {
 	spanSelect.id = "time-overview-span-select";
 	spanSelect.append(...renderTimeOverviewSpanOptions(selected.span.value));
 	const spanLabel = field("Span", spanSelect);
+	const groupSelect = document.createElement("select");
+	groupSelect.id = "time-overview-group-select";
+	groupSelect.append(...renderTimeOverviewGroupOptions(selected.group));
+	const groupLabel = field("Group By", groupSelect);
 	const dayInput = document.createElement("input");
 	dayInput.id = "time-overview-day-input";
 	dayInput.type = "date";
 	dayInput.value = selected.day;
 	dayInput.max = formatDateInput();
 	const dayLabel = field("Day", dayInput);
-	controls.append(spanLabel, dayLabel);
+	controls.append(spanLabel, groupLabel, dayLabel);
 
 	const status = div("status");
 	const results = div("time-overview-results");
@@ -1808,7 +2215,7 @@ export const renderTimeOverviewPage = (page: HTMLElement) => {
 
 	const load = async (selection: TimeOverviewSelection) => {
 		setStatus(status, "Loading time overview...");
-		renderTimeOverviewReport(null, results);
+		renderTimeOverviewReport(null, results, null, selection.group);
 		try {
 			const period = getTimeOverviewPeriod(selection);
 			const averagePeriod = getFullLocalDayBounds(period);
@@ -1835,8 +2242,15 @@ export const renderTimeOverviewPage = (page: HTMLElement) => {
 									project.total_seconds,
 								]),
 							),
+							clientSecondsByKey: new Map(
+								averageReport.client_totals.map((client) => [
+									clientTotalKey(client.client_id),
+									client.total_seconds,
+								]),
+							),
 						}
 					: null,
+				selection.group,
 			);
 			setStatus(status, `Loaded ${selection.span.label.toLowerCase()} time usage.`);
 		} catch (error) {
@@ -1851,7 +2265,23 @@ export const renderTimeOverviewPage = (page: HTMLElement) => {
 	spanSelect.addEventListener("change", () => {
 		const span = getTimeOverviewSpan(spanSelect.value);
 		spanSelect.value = span.value;
-		const selection = { span, day: dayInput.value || formatDateInput() };
+		const selection = {
+			span,
+			day: dayInput.value || formatDateInput(),
+			group: getTimeOverviewGroup(groupSelect.value),
+		};
+		updateTimeOverviewUrl(selection);
+		void load(selection);
+	});
+
+	groupSelect.addEventListener("change", () => {
+		const group = getTimeOverviewGroup(groupSelect.value);
+		groupSelect.value = group;
+		const selection = {
+			span: getTimeOverviewSpan(spanSelect.value),
+			day: dayInput.value || formatDateInput(),
+			group,
+		};
 		updateTimeOverviewUrl(selection);
 		void load(selection);
 	});
@@ -1860,7 +2290,11 @@ export const renderTimeOverviewPage = (page: HTMLElement) => {
 		const day = dayInput.value || formatDateInput();
 		const span = getTimeOverviewSpan("custom-day");
 		spanSelect.value = span.value;
-		const selection = { span, day };
+		const selection = {
+			span,
+			day,
+			group: getTimeOverviewGroup(groupSelect.value),
+		};
 		updateTimeOverviewUrl(selection);
 		void load(selection);
 	});
