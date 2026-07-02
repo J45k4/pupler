@@ -86,6 +86,17 @@ type TimeOverviewSelection = {
 	day: string;
 };
 
+type TimeOverviewPeriod = {
+	from: string;
+	to: string;
+};
+
+type TimeOverviewAverage = {
+	totalSeconds: number;
+	dayCount: number;
+	projectSecondsById: Map<number, number>;
+};
+
 const DEFAULT_TIME_OVERVIEW_SPAN = "today";
 
 const field = (label: string, control: HTMLElement) => {
@@ -332,6 +343,39 @@ const getTimeOverviewPeriod = (selection: TimeOverviewSelection) => {
 		};
 	}
 	return { from: from.toISOString(), to: to.toISOString() };
+};
+
+const getFullLocalDayBounds = (period: TimeOverviewPeriod) => {
+	const from = new Date(period.from);
+	const to = new Date(period.to);
+	if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+		return null;
+	}
+
+	const start = startOfLocalDay(from);
+	if (from.getTime() > start.getTime()) {
+		start.setDate(start.getDate() + 1);
+	}
+	const end = startOfLocalDay(to);
+	if (start.getTime() >= end.getTime()) {
+		return null;
+	}
+
+	return { from: start.toISOString(), to: end.toISOString() };
+};
+
+const countFullLocalDays = (period: TimeOverviewPeriod) => {
+	const bounds = getFullLocalDayBounds(period);
+	if (!bounds) {
+		return 0;
+	}
+
+	const end = new Date(bounds.to);
+	let days = 0;
+	for (const cursor = new Date(bounds.from); cursor < end; days += 1) {
+		cursor.setDate(cursor.getDate() + 1);
+	}
+	return days;
 };
 
 const updateTimeOverviewUrl = (selection: TimeOverviewSelection) => {
@@ -1590,10 +1634,23 @@ const createTimeOverviewPie = (report: TimeReport) => {
 	return pie;
 };
 
-const createTimeOverviewSummary = (report: TimeReport) => {
+const createTimeOverviewSummary = (
+	report: TimeReport,
+	average: TimeOverviewAverage | null,
+) => {
 	const summary = div("time-report-summary time-overview-summary");
 	const total = div();
 	total.append(text("span", "Total Time"), text("strong", formatDuration(report.total_seconds)));
+	const dailyAverage = div();
+	dailyAverage.append(
+		text("span", "Average per full day"),
+		text(
+			"strong",
+			average && average.dayCount > 0
+				? formatDuration(average.totalSeconds / average.dayCount)
+				: "No full days",
+		),
+	);
 	const projects = div();
 	projects.append(
 		text("span", "Projects"),
@@ -1601,11 +1658,14 @@ const createTimeOverviewSummary = (report: TimeReport) => {
 	);
 	const period = div();
 	period.append(text("span", "Span"), text("strong", formatTimeOverviewPeriod(report)));
-	summary.append(total, projects, period);
+	summary.append(total, dailyAverage, projects, period);
 	return summary;
 };
 
-const createTimeOverviewProjectList = (report: TimeReport) => {
+const createTimeOverviewProjectList = (
+	report: TimeReport,
+	average: TimeOverviewAverage | null,
+) => {
 	const list = div("time-report-list time-overview-list");
 	const projectTotal = report.project_totals.reduce(
 		(sum, project) => sum + project.total_seconds,
@@ -1635,9 +1695,16 @@ const createTimeOverviewProjectList = (report: TimeReport) => {
 			projectTotal > 0 ? Math.round((project.total_seconds / projectTotal) * 100) : 0;
 		main.append(title, meta);
 		const total = div("time-overview-row__total");
+		const projectAverageSeconds = average?.projectSecondsById.get(project.project_id) ?? 0;
 		total.append(
 			text("strong", formatDuration(project.total_seconds)),
 			text("span", `${percent}%`),
+			text(
+				"span",
+				average && average.dayCount > 0
+					? `Avg/day ${formatDuration(projectAverageSeconds / average.dayCount)}`
+					: "Avg/day No full days",
+			),
 		);
 		row.append(main, total);
 		list.append(row);
@@ -1649,6 +1716,7 @@ const createTimeOverviewProjectList = (report: TimeReport) => {
 const renderTimeOverviewReport = (
 	report: TimeReport | null,
 	resultsRoot: HTMLElement,
+	average: TimeOverviewAverage | null = null,
 ) => {
 	resultsRoot.replaceChildren();
 	if (!report) {
@@ -1659,8 +1727,11 @@ const renderTimeOverviewReport = (
 	}
 
 	const chartPanel = div("time-overview-chart");
-	chartPanel.append(createTimeOverviewPie(report), createTimeOverviewProjectList(report));
-	resultsRoot.append(createTimeOverviewSummary(report), chartPanel);
+	chartPanel.append(
+		createTimeOverviewPie(report),
+		createTimeOverviewProjectList(report, average),
+	);
+	resultsRoot.append(createTimeOverviewSummary(report, average), chartPanel);
 };
 
 export const renderTimePage = (page: HTMLElement) => {
@@ -1740,8 +1811,33 @@ export const renderTimeOverviewPage = (page: HTMLElement) => {
 		renderTimeOverviewReport(null, results);
 		try {
 			const period = getTimeOverviewPeriod(selection);
-			const report = await timeApi.fetchReport(period.from, period.to);
-			renderTimeOverviewReport(report, results);
+			const averagePeriod = getFullLocalDayBounds(period);
+			const reportPromise = timeApi.fetchReport(period.from, period.to);
+			const averageReportPromise = averagePeriod
+				? averagePeriod.from === period.from && averagePeriod.to === period.to
+					? reportPromise
+					: timeApi.fetchReport(averagePeriod.from, averagePeriod.to)
+				: Promise.resolve(null);
+			const [report, averageReport] = await Promise.all([
+				reportPromise,
+				averageReportPromise,
+			]);
+			renderTimeOverviewReport(
+				report,
+				results,
+				averageReport && averagePeriod
+					? {
+							totalSeconds: averageReport.total_seconds,
+							dayCount: countFullLocalDays(averagePeriod),
+							projectSecondsById: new Map(
+								averageReport.project_totals.map((project) => [
+									project.project_id,
+									project.total_seconds,
+								]),
+							),
+						}
+					: null,
+			);
 			setStatus(status, `Loaded ${selection.span.label.toLowerCase()} time usage.`);
 		} catch (error) {
 			setStatus(
