@@ -25,6 +25,7 @@ export const primaryNavItems: NavItem[] = [
 	{ href: "/", label: "Overview", mobileLabel: "Home" },
 	{ href: "/products", label: "Products", mobileLabel: "Products" },
 	{ href: "/clients", label: "Clients", mobileLabel: "Clients" },
+	{ href: "/projects", label: "Projects", mobileLabel: "Projects" },
 	{
 		href: "/inventory",
 		label: "Inventory",

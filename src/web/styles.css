@@ -1176,6 +1176,18 @@ button:hover,
 	opacity: 0.55;
 }
 
+.receipt-kanban-scrollbar {
+	max-width: 100%;
+	height: 1rem;
+	overflow-x: auto;
+	overflow-y: hidden;
+	-webkit-overflow-scrolling: touch;
+}
+
+.receipt-kanban-scrollbar__inner {
+	height: 1px;
+}
+
 .receipt-kanban {
 	display: grid;
 	align-items: start;
@@ -1185,6 +1197,7 @@ button:hover,
 	grid-template-columns: none;
 	max-width: 100%;
 	overflow-x: auto;
+	overflow-y: visible;
 	padding-bottom: 0.35rem;
 	scroll-snap-type: x proximity;
 	-webkit-overflow-scrolling: touch;
@@ -2604,38 +2617,21 @@ body.modal-open {
 	box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.7);
 }
 
-.time-project-create,
-.time-project-row {
-	display: grid;
-	gap: 0.65rem;
-	grid-template-columns: minmax(0, 1fr) minmax(6.5rem, 0.5fr) auto;
-	align-items: center;
-}
-
-.time-project-row {
-	grid-template-columns: auto minmax(0, 1fr) minmax(6.5rem, 0.5fr) auto auto;
-	padding: 0.75rem;
-	border: 1px solid var(--line);
-	border-radius: 16px;
-	background: rgba(255, 255, 255, 0.5);
-}
-
-.time-project-row--archived {
-	opacity: 0.62;
-}
-
-.clients-workspace {
+.clients-workspace,
+.projects-workspace {
 	align-items: start;
 	grid-template-columns: minmax(18rem, 24rem) minmax(0, 1fr);
 }
 
-.client-list {
+.client-list,
+.project-list {
 	display: grid;
 	gap: 0;
 	margin-top: 1rem;
 }
 
-.client-row {
+.client-row,
+.project-row {
 	display: grid;
 	gap: 1rem;
 	grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.4fr);
@@ -2644,21 +2640,26 @@ body.modal-open {
 	border-bottom: 1px solid var(--line);
 }
 
-.client-row:first-child {
+.client-row:first-child,
+.project-row:first-child {
 	padding-top: 0;
 }
 
-.client-row:last-child {
+.client-row:last-child,
+.project-row:last-child {
 	padding-bottom: 0;
 	border-bottom: 0;
 }
 
-.client-row--archived {
+.client-row--archived,
+.project-row--archived {
 	opacity: 0.68;
 }
 
 .client-row__summary,
-.client-row__form {
+.client-row__form,
+.project-row__summary,
+.project-row__form {
 	min-width: 0;
 }
 
@@ -2669,22 +2670,18 @@ body.modal-open {
 	align-items: end;
 }
 
-.client-row__actions {
+.project-row__form {
+	display: grid;
+	gap: 0.75rem;
+	grid-template-columns: minmax(0, 1fr) 5rem minmax(12rem, 0.9fr) auto;
+	align-items: end;
+}
+
+.client-row__actions,
+.project-row__actions {
 	display: flex;
 	flex-wrap: wrap;
 	gap: 0.5rem;
-}
-
-.time-project-list .time-project-row {
-	grid-template-columns: minmax(0, 1fr) minmax(16rem, 0.7fr);
-}
-
-.time-project-client-form {
-	display: grid;
-	gap: 0.5rem;
-	grid-template-columns: minmax(0, 1fr) auto auto;
-	align-items: center;
-	min-width: 0;
 }
 
 .time-action-row,
@@ -3196,17 +3193,10 @@ body.modal-open {
 		grid-template-columns: 1fr;
 	}
 
-	.time-project-create,
-	.time-project-row {
-		grid-template-columns: 1fr;
-	}
-
-	.time-project-client-form {
-		grid-template-columns: 1fr;
-	}
-
 	.client-row,
-	.client-row__form {
+	.client-row__form,
+	.project-row,
+	.project-row__form {
 		grid-template-columns: 1fr;
 	}
 
@@ -3530,7 +3520,6 @@ body.modal-open {
 	.panel > .page-heading,
 	.panel > .page-copy,
 	.panel > .receipt-metadata,
-	.panel > .time-project-create,
 	.panel > .time-report-summary,
 	.panel > .spending-breakdown-controls,
 	.panel > .inventory-detail-block,

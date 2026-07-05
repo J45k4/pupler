@@ -6,6 +6,7 @@ import {
 	withErrorHandling,
 	type Database,
 } from "./core";
+import { displayCurrency, displayMoneyAmount } from "../currency";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_DAYS = 30;
@@ -272,7 +273,8 @@ export const spendingRoute = (db: Database) =>
 		for (const item of items) {
 			itemCount += 1;
 			const category = normalizeCategory(item.product.category);
-			const currency = item.receipt.currency;
+			const sourceCurrency = item.receipt.currency;
+			const currency = displayCurrency(sourceCurrency);
 			const key = bucketKey(category, currency);
 			let bucket = buckets.get(key);
 			if (!bucket) {
@@ -288,7 +290,11 @@ export const spendingRoute = (db: Database) =>
 			}
 
 			bucket.item_count += 1;
-			const amount = receiptItemAmount(item);
+			const sourceAmount = receiptItemAmount(item);
+			const amount =
+				sourceAmount === null
+					? null
+					: displayMoneyAmount(sourceAmount, sourceCurrency);
 			bucket.items.push({
 				id: item.id,
 				receipt_id: item.receipt.id,

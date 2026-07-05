@@ -2015,6 +2015,18 @@ describe("Pupler API", () => {
 		});
 		const recentReceipt = await recentReceiptResponse.json();
 
+		const usdReceiptResponse = await request(routes, "/api/receipts", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				store_name: "Anomaly",
+				purchased_at: "2026-04-14T12:00:00.000Z",
+				currency: "USD",
+				total_amount: 5,
+			}),
+		});
+		const usdReceipt = await usdReceiptResponse.json();
+
 		const oldReceiptResponse = await request(routes, "/api/receipts", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
@@ -2053,6 +2065,14 @@ describe("Pupler API", () => {
 				line_total: null,
 			},
 			{
+				receipt_id: usdReceipt.id,
+				product_id: householdProduct.id,
+				quantity: 1,
+				unit: "month",
+				unit_price: null,
+				line_total: 5,
+			},
+			{
 				receipt_id: oldReceipt.id,
 				product_id: householdProduct.id,
 				quantity: 1,
@@ -2075,22 +2095,22 @@ describe("Pupler API", () => {
 		);
 		expect(breakdownResponse.status).toBe(200);
 		const breakdown = await breakdownResponse.json();
-		expect(breakdown.item_count).toBe(3);
+		expect(breakdown.item_count).toBe(4);
 		expect(breakdown.missing_total_count).toBe(1);
 		expect(breakdown.currency_totals).toEqual([
-			{ currency: "EUR", total: 5.5 },
+			{ currency: "EUR", total: 9.89 },
 		]);
 		expect(breakdown.monthly_average_totals).toEqual([
-			{ currency: "EUR", total: 9.3, day_count: 18 },
+			{ currency: "EUR", total: 16.72, day_count: 18 },
 		]);
 		expect(breakdown.weekly_average_totals).toEqual([
-			{ currency: "EUR", total: 2.14, day_count: 18 },
+			{ currency: "EUR", total: 3.84, day_count: 18 },
 		]);
 		expect(breakdown.daily_average_totals).toEqual([
-			{ currency: "EUR", total: 0.31, day_count: 18 },
+			{ currency: "EUR", total: 0.55, day_count: 18 },
 		]);
 		expect(breakdown.current_month_totals).toEqual([
-			{ currency: "EUR", total: 5.5 },
+			{ currency: "EUR", total: 9.89 },
 		]);
 		expect(breakdown.categories).toHaveLength(2);
 		expect(breakdown.categories[0]).toMatchObject(
@@ -2113,15 +2133,27 @@ describe("Pupler API", () => {
 			{
 				category: "household",
 				currency: "EUR",
-				total: 0,
-				item_count: 1,
+				total: 4.39,
+				item_count: 2,
 				missing_total_count: 1,
 			},
 		);
-		expect(breakdown.categories[1].items).toHaveLength(1);
-		expect(breakdown.categories[1].items[0]).toMatchObject({
+		expect(breakdown.categories[1].items).toHaveLength(2);
+		expect(
+			breakdown.categories[1].items.find(
+				(item: { amount: number | null }) => item.amount === null,
+			),
+		).toMatchObject({
 			product_name: "Soap",
 			amount: null,
+		});
+		expect(
+			breakdown.categories[1].items.find(
+				(item: { receipt_id: number }) => item.receipt_id === usdReceipt.id,
+			),
+		).toMatchObject({
+			product_name: "Soap",
+			amount: 4.39,
 		});
 
 		const allTimeResponse = await request(
@@ -2136,21 +2168,21 @@ describe("Pupler API", () => {
 			days: null,
 			range: "all",
 		});
-		expect(allTimeBreakdown.item_count).toBe(4);
+		expect(allTimeBreakdown.item_count).toBe(5);
 		expect(allTimeBreakdown.currency_totals).toEqual([
-			{ currency: "EUR", total: 104.5 },
+			{ currency: "EUR", total: 108.89 },
 		]);
 		expect(allTimeBreakdown.monthly_average_totals).toEqual([
-			{ currency: "EUR", total: 52.15, day_count: 61 },
+			{ currency: "EUR", total: 54.34, day_count: 61 },
 		]);
 		expect(allTimeBreakdown.weekly_average_totals).toEqual([
-			{ currency: "EUR", total: 11.99, day_count: 61 },
+			{ currency: "EUR", total: 12.5, day_count: 61 },
 		]);
 		expect(allTimeBreakdown.daily_average_totals).toEqual([
-			{ currency: "EUR", total: 1.71, day_count: 61 },
+			{ currency: "EUR", total: 1.79, day_count: 61 },
 		]);
 		expect(allTimeBreakdown.current_month_totals).toEqual([
-			{ currency: "EUR", total: 5.5 },
+			{ currency: "EUR", total: 9.89 },
 		]);
 
 		const mixedRangeResponse = await request(

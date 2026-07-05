@@ -2502,6 +2502,33 @@ const createTimeMonthlyDayDetails = (
 	return details;
 };
 
+const createTimeMonthlyTotals = (
+	clients: TimeOverviewItem[],
+	totalSeconds: number,
+	emptyText: string,
+) => {
+	const rows = div("time-monthly-detail__rows");
+	for (const client of clients) {
+		const percentage =
+			totalSeconds > 0 ? Math.round((client.totalSeconds / totalSeconds) * 100) : 0;
+		const row = div("time-monthly-detail__row");
+		const label = div("time-entry-row__title");
+		label.append(timeColor(client.color), text("strong", client.name));
+		row.append(
+			label,
+			text("span", `${percentage}%`),
+			text("span", formatDuration(client.totalSeconds)),
+		);
+		rows.append(row);
+	}
+	if (!rows.childElementCount) {
+		const empty = div("empty");
+		empty.textContent = emptyText;
+		rows.append(empty);
+	}
+	return rows;
+};
+
 const createTimeMonthlyCalendar = (
 	days: TimeWeeklyDayReport[],
 	selectedDate: string,
@@ -2558,6 +2585,9 @@ const createTimeMonthlyCalendar = (
 
 	const selectedIndex = days.findIndex((day) => day.date === selectedDate);
 	const side = div("time-monthly-side");
+	const monthTitle = div("time-monthly-detail__title");
+	monthTitle.append(text("strong", "Whole month"));
+	const monthTotalSeconds = dayTotals.reduce((sum, seconds) => sum + seconds, 0);
 	side.append(
 		createTimeMonthlyDayDetails(
 			days[selectedIndex],
@@ -2565,7 +2595,12 @@ const createTimeMonthlyCalendar = (
 			selectedIndex >= 0 ? dayClientSeconds[selectedIndex] : undefined,
 			selectedIndex >= 0 ? (dayTotals[selectedIndex] ?? 0) : 0,
 		),
-		createTimeWeeklyLegend(clients, "No tracked client time in this month."),
+		monthTitle,
+		createTimeMonthlyTotals(
+			clients,
+			monthTotalSeconds,
+			"No tracked client time in this month.",
+		),
 	);
 	root.append(
 		calendar,

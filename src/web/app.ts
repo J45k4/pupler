@@ -17,6 +17,7 @@ import {
 	attachUploadDropzones,
 	renderUploadDropzone,
 } from "./ui/upload-dropzone";
+import { displayCurrency, displayMoneyAmount } from "../currency";
 
 export { escapeHtml } from "./lib/html";
 export {
@@ -309,6 +310,7 @@ let receiptBoardState: {
 	groups: Group[];
 	receipts: PurchaseReceipt[];
 } | null = null;
+let receiptKanbanScrollCleanup: (() => void) | null = null;
 export let receiptViewModeOverride: ReceiptViewMode | null = null;
 let inventoryTreeState: {
 	containers: InventoryContainer[];
@@ -2091,9 +2093,11 @@ const getSpendingTotalsByCurrency = (receipts: PurchaseReceipt[]) => {
 		if (receipt.total_amount === null) {
 			continue;
 		}
+		const currency = displayCurrency(receipt.currency);
 		totals.set(
-			receipt.currency,
-			(totals.get(receipt.currency) ?? 0) + receipt.total_amount,
+			currency,
+			(totals.get(currency) ?? 0) +
+				displayMoneyAmount(receipt.total_amount, receipt.currency),
 		);
 	}
 
@@ -2579,6 +2583,8 @@ const renderReceiptTimeline = (receipts: PurchaseReceipt[]) => {
 		return;
 	}
 
+	receiptKanbanScrollCleanup?.();
+	receiptKanbanScrollCleanup = null;
 	receiptInfiniteScroll?.destroy();
 	receiptInfiniteScroll = new InfiniteScroll(
 		{
@@ -2590,6 +2596,44 @@ const renderReceiptTimeline = (receipts: PurchaseReceipt[]) => {
 		createReceiptTimelineEntries(receipts),
 	);
 	receiptInfiniteScroll.render();
+};
+
+const attachReceiptKanbanScrollSync = () => {
+	receiptKanbanScrollCleanup?.();
+	receiptKanbanScrollCleanup = null;
+
+	const scrollbar = document.querySelector<HTMLElement>(
+		"[data-receipt-kanban-scrollbar]",
+	);
+	const scrollbarInner = document.querySelector<HTMLElement>(
+		"[data-receipt-kanban-scrollbar-inner]",
+	);
+	const board = document.querySelector<HTMLElement>("[data-receipt-kanban]");
+	if (!scrollbar || !scrollbarInner || !board) {
+		return;
+	}
+
+	const syncScrollbarWidth = () => {
+		scrollbarInner.style.width = `${board.scrollWidth}px`;
+		scrollbar.hidden = board.scrollWidth <= board.clientWidth;
+	};
+	const syncFromScrollbar = () => {
+		board.scrollLeft = scrollbar.scrollLeft;
+	};
+	const syncFromBoard = () => {
+		scrollbar.scrollLeft = board.scrollLeft;
+	};
+
+	syncScrollbarWidth();
+	scrollbar.addEventListener("scroll", syncFromScrollbar, { passive: true });
+	board.addEventListener("scroll", syncFromBoard, { passive: true });
+	window.addEventListener("resize", syncScrollbarWidth);
+
+	receiptKanbanScrollCleanup = () => {
+		scrollbar.removeEventListener("scroll", syncFromScrollbar);
+		board.removeEventListener("scroll", syncFromBoard);
+		window.removeEventListener("resize", syncScrollbarWidth);
+	};
 };
 
 const renderReceiptBoard = (
@@ -2621,7 +2665,13 @@ const renderReceiptBoard = (
 	];
 
 	results.innerHTML = `
-		<div class="receipt-kanban">
+		<div class="receipt-kanban-scrollbar" data-receipt-kanban-scrollbar>
+			<div
+				class="receipt-kanban-scrollbar__inner"
+				data-receipt-kanban-scrollbar-inner
+			></div>
+		</div>
+		<div class="receipt-kanban" data-receipt-kanban>
 			${columns
 				.map((column) => {
 					const columnReceipts = receipts.filter((receipt) =>
@@ -2660,6 +2710,7 @@ const renderReceiptBoard = (
 				.join("")}
 		</div>
 	`;
+	attachReceiptKanbanScrollSync();
 };
 
 const renderReceipts = (
