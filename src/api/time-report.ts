@@ -17,7 +17,7 @@ type TimeReportPeriod = {
 };
 
 type TimeReportProjectTotal = {
-	project_id: number;
+	project_id: number | null;
 	project_name: string;
 	project_color: string;
 	client_id: number | null;
@@ -39,6 +39,8 @@ type TimeReportClientTotal = {
 type MutableTimeReportClientTotal = TimeReportClientTotal & {
 	project_ids: Set<number>;
 };
+
+const NO_PROJECT_TIME_COLOR = "#9ca3af";
 
 const parseTimeReportQuery = (url: URL): TimeReportPeriod => {
 	for (const key of url.searchParams.keys()) {
@@ -143,7 +145,7 @@ export const timeReportRoute = (db: Database) =>
 			orderBy: [{ started_at: "desc" }, { id: "desc" }],
 		});
 
-		const projectTotals = new Map<number, TimeReportProjectTotal>();
+		const projectTotals = new Map<string, TimeReportProjectTotal>();
 		const clientTotals = new Map<string, MutableTimeReportClientTotal>();
 		let totalSeconds = 0;
 
@@ -151,13 +153,49 @@ export const timeReportRoute = (db: Database) =>
 			const seconds = entryDurationSeconds(entry, period);
 			if (seconds <= 0) continue;
 			totalSeconds += seconds;
-			if (entry.project_id === null || entry.project === null) continue;
-			const existingProject = projectTotals.get(entry.project_id);
+			if (entry.project_id === null || entry.project === null) {
+				const existingProject = projectTotals.get("unknown");
+				if (existingProject) {
+					existingProject.total_seconds += seconds;
+					existingProject.entry_count += 1;
+				} else {
+					projectTotals.set("unknown", {
+						project_id: null,
+						project_name: "No project",
+						project_color: NO_PROJECT_TIME_COLOR,
+						client_id: null,
+						client_name: null,
+						client_color: null,
+						total_seconds: seconds,
+						entry_count: 1,
+					});
+				}
+
+				const existingClient = clientTotals.get("unknown");
+				if (existingClient) {
+					existingClient.total_seconds += seconds;
+					existingClient.entry_count += 1;
+				} else {
+					clientTotals.set("unknown", {
+						client_id: null,
+						client_name: "No project",
+						client_color: NO_PROJECT_TIME_COLOR,
+						total_seconds: seconds,
+						entry_count: 1,
+						project_count: 0,
+						project_ids: new Set(),
+					});
+				}
+				continue;
+			}
+
+			const projectKey = String(entry.project_id);
+			const existingProject = projectTotals.get(projectKey);
 			if (existingProject) {
 				existingProject.total_seconds += seconds;
 				existingProject.entry_count += 1;
 			} else {
-				projectTotals.set(entry.project_id, {
+				projectTotals.set(projectKey, {
 					project_id: entry.project_id,
 					project_name: entry.project.name,
 					project_color: entry.project.color,

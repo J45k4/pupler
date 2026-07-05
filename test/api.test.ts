@@ -601,6 +601,80 @@ describe("Pupler API", () => {
 		expect(userReport.total_seconds).toBe(12600);
 	});
 
+	test("reports unlabeled tracked time as a no-project bucket", async () => {
+		const routes = createRoutes();
+
+		const projectResponse = await request(routes, "/api/projects", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: "Admin",
+				color: "#2d7c6f",
+				archived_at: null,
+			}),
+		});
+		const project = await projectResponse.json();
+
+		const unknownStartResponse = await request(routes, "/api/time-entries/start", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				started_at: "2026-05-26T08:00:00.000Z",
+			}),
+		});
+		expect(unknownStartResponse.status).toBe(201);
+
+		const noClientEntryResponse = await request(routes, "/api/time-entries", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				project_id: project.id,
+				description: "Planning",
+				started_at: "2026-05-26T08:30:00.000Z",
+				ended_at: "2026-05-26T09:00:00.000Z",
+			}),
+		});
+		expect(noClientEntryResponse.status).toBe(201);
+
+		const reportResponse = await request(
+			routes,
+			"/api/time-report?from=2026-05-26T08:00:00.000Z&to=2026-05-26T09:00:00.000Z",
+		);
+		expect(reportResponse.status).toBe(200);
+		const report = await reportResponse.json();
+		expect(report.total_seconds).toBe(5400);
+		expect(report.project_totals).toEqual([
+			expect.objectContaining({
+				project_id: null,
+				project_name: "No project",
+				total_seconds: 3600,
+				entry_count: 1,
+			}),
+			expect.objectContaining({
+				project_id: project.id,
+				project_name: "Admin",
+				total_seconds: 1800,
+				entry_count: 1,
+			}),
+		]);
+		expect(report.client_totals).toEqual([
+			expect.objectContaining({
+				client_id: null,
+				client_name: "No project",
+				total_seconds: 3600,
+				entry_count: 1,
+				project_count: 0,
+			}),
+			expect.objectContaining({
+				client_id: null,
+				client_name: "No client",
+				total_seconds: 1800,
+				entry_count: 1,
+				project_count: 1,
+			}),
+		]);
+	});
+
 	test("keeps running timers separate by user", async () => {
 		const routes = createRoutes();
 

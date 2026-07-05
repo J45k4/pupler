@@ -57,7 +57,7 @@ type TimeQuickAction = {
 };
 
 type TimeReportProjectTotal = {
-	project_id: number;
+	project_id: number | null;
 	project_name: string;
 	project_color: string;
 	client_id: number | null;
@@ -119,11 +119,25 @@ type TimeOverviewPeriod = {
 
 type TimeOverviewAverage = {
 	totalSeconds: number;
+	baselineSeconds: number;
 	dayCount: number;
-	projectSecondsById: Map<number, number>;
+	projectSecondsByKey: Map<string, number>;
 	clientSecondsByKey: Map<string, number>;
 };
 
+type TimeWeeklyDayReport = {
+	date: string;
+	label: string;
+	shortLabel: string;
+	from: string;
+	to: string;
+	baselineSeconds: number;
+	report: TimeReport | null;
+};
+
+const DAY_SECONDS = 24 * 60 * 60;
+const UNKNOWN_TIME_KEY = "__unknown_time__";
+const UNKNOWN_TIME_COLOR = "#cbd5e1";
 const DEFAULT_TIME_OVERVIEW_SPAN = "today";
 const TIME_OVERVIEW_GROUPS = [
 	{ value: "project", label: "Project" },
@@ -217,20 +231,6 @@ const timeApi = {
 			body: JSON.stringify({ name, archived_at: null }),
 		}),
 
-	updateProject: (
-		id: number,
-		values: {
-			client_id?: number | null;
-			name?: string;
-			color?: string;
-			archived_at?: string | null;
-		},
-	) =>
-		timeApiJson<Project>(`/api/projects/${id}`, {
-			method: "PATCH",
-			body: JSON.stringify(values),
-		}),
-
 	createEntry: (values: {
 		project_id: number;
 		description: string | null;
@@ -313,6 +313,28 @@ const formatDateInput = (date = new Date()) =>
 		.toISOString()
 		.slice(0, 10);
 
+const formatMonthInput = (date = new Date()) =>
+	new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+		.toISOString()
+		.slice(0, 7);
+
+const formatShortDate = (date: Date) =>
+	new Intl.DateTimeFormat(undefined, {
+		month: "short",
+		day: "numeric",
+	}).format(date);
+
+const formatMonth = (date: Date) =>
+	new Intl.DateTimeFormat(undefined, {
+		month: "long",
+		year: "numeric",
+	}).format(date);
+
+const formatWeekday = (date: Date) =>
+	new Intl.DateTimeFormat(undefined, {
+		weekday: "short",
+	}).format(date);
+
 const formatTimestampForDateTimeLocalInput = (value: string) =>
 	formatDateTimeLocalInput(new Date(value));
 
@@ -340,12 +362,29 @@ const localDateFromInput = (value: string) => {
 		: date;
 };
 
+const localMonthFromInput = (value: string) => {
+	const match = /^(\d{4})-(\d{2})$/.exec(value);
+	if (!match) return null;
+	const [, year, month] = match;
+	const yearValue = Number(year);
+	const monthValue = Number(month);
+	const date = new Date(yearValue, monthValue - 1, 1);
+	return Number.isNaN(date.getTime()) ||
+		date.getFullYear() !== yearValue ||
+		date.getMonth() !== monthValue - 1
+		? null
+		: date;
+};
+
 const startOfLocalWeek = (date: Date) => {
 	const start = startOfLocalDay(date);
 	const mondayOffset = (start.getDay() + 6) % 7;
 	start.setDate(start.getDate() - mondayOffset);
 	return start;
 };
+
+const startOfLocalMonth = (date: Date) =>
+	new Date(date.getFullYear(), date.getMonth(), 1);
 
 const getTimeOverviewSpan = (
 	value: string | null | undefined,
@@ -370,6 +409,18 @@ const getCurrentTimeOverviewSelection = (): TimeOverviewSelection => {
 		? requestedDay
 		: formatDateInput();
 	return { span, day, group };
+};
+
+const getCurrentTimeWeeklyDate = () => {
+	const params = new URLSearchParams(window.location.search);
+	const requestedWeek = params.get("week") ?? "";
+	return localDateFromInput(requestedWeek) ? requestedWeek : formatDateInput();
+};
+
+const getCurrentTimeMonthlyDate = () => {
+	const params = new URLSearchParams(window.location.search);
+	const requestedMonth = params.get("month") ?? "";
+	return localMonthFromInput(requestedMonth) ? requestedMonth : formatMonthInput();
 };
 
 const getTimeOverviewPeriod = (selection: TimeOverviewSelection) => {
@@ -441,6 +492,33 @@ const countFullLocalDays = (period: TimeOverviewPeriod) => {
 	return days;
 };
 
+const countLocalDaysInclusive = (from: Date, to: Date) => {
+	const start = startOfLocalDay(from);
+	const end = startOfLocalDay(to);
+	let days = 0;
+	for (const cursor = new Date(start); cursor <= end; days += 1) {
+		cursor.setDate(cursor.getDate() + 1);
+	}
+	return days;
+};
+
+const getTimeOverviewBaselineSeconds = (selection: TimeOverviewSelection) => {
+	const today = startOfLocalDay(new Date());
+	switch (selection.span.value) {
+		case "today":
+		case "custom-day":
+			return DAY_SECONDS;
+		case "this-week":
+			return countLocalDaysInclusive(startOfLocalWeek(today), today) * DAY_SECONDS;
+		case "last-2-weeks":
+			return 14 * DAY_SECONDS;
+		case "last-30-days":
+			return 30 * DAY_SECONDS;
+		case "ytd":
+			return countLocalDaysInclusive(new Date(today.getFullYear(), 0, 1), today) * DAY_SECONDS;
+	}
+};
+
 const updateTimeOverviewUrl = (selection: TimeOverviewSelection) => {
 	const url = new URL(window.location.href);
 	if (selection.span.value === DEFAULT_TIME_OVERVIEW_SPAN) {
@@ -459,6 +537,78 @@ const updateTimeOverviewUrl = (selection: TimeOverviewSelection) => {
 		url.searchParams.set("group", selection.group);
 	}
 	window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+};
+
+const updateTimeWeeklyUrl = (weekDate: string) => {
+	const url = new URL(window.location.href);
+	const today = formatDateInput();
+	if (weekDate === today) {
+		url.searchParams.delete("week");
+	} else {
+		url.searchParams.set("week", weekDate);
+	}
+	window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+};
+
+const updateTimeMonthlyUrl = (monthDate: string) => {
+	const url = new URL(window.location.href);
+	const currentMonth = formatMonthInput();
+	if (monthDate === currentMonth) {
+		url.searchParams.delete("month");
+	} else {
+		url.searchParams.set("month", monthDate);
+	}
+	window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+};
+
+const getTimeWeeklyDays = (weekDate: string): TimeWeeklyDayReport[] => {
+	const start = startOfLocalWeek(
+		localDateFromInput(weekDate) ?? startOfLocalDay(new Date()),
+	);
+	const now = new Date();
+	const today = startOfLocalDay(now);
+	return Array.from({ length: 7 }, (_, index) => {
+		const day = new Date(start);
+		day.setDate(start.getDate() + index);
+		const nextDay = new Date(day);
+		nextDay.setDate(day.getDate() + 1);
+		const to = new Date(Math.min(nextDay.getTime(), now.getTime()));
+		return {
+			date: formatDateInput(day),
+			label: `${formatWeekday(day)} ${formatShortDate(day)}`,
+			shortLabel: formatWeekday(day),
+			from: day.toISOString(),
+			to: to.toISOString(),
+			baselineSeconds: day > today ? 0 : DAY_SECONDS,
+			report: null,
+		};
+	});
+};
+
+const getTimeMonthlyDays = (monthDate: string): TimeWeeklyDayReport[] => {
+	const start = startOfLocalMonth(
+		localMonthFromInput(monthDate) ?? startOfLocalDay(new Date()),
+	);
+	const nextMonth = new Date(start);
+	nextMonth.setMonth(start.getMonth() + 1);
+	const now = new Date();
+	const today = startOfLocalDay(now);
+	const days: TimeWeeklyDayReport[] = [];
+	for (const day = new Date(start); day < nextMonth; day.setDate(day.getDate() + 1)) {
+		const nextDay = new Date(day);
+		nextDay.setDate(day.getDate() + 1);
+		const to = new Date(Math.min(nextDay.getTime(), now.getTime()));
+		days.push({
+			date: formatDateInput(day),
+			label: `${formatWeekday(day)} ${formatShortDate(day)}`,
+			shortLabel: String(day.getDate()),
+			from: day.toISOString(),
+			to: to.toISOString(),
+			baselineSeconds: day > today ? 0 : DAY_SECONDS,
+			report: null,
+		});
+	}
+	return days;
 };
 
 const defaultTimeEntryRange = () => {
@@ -854,25 +1004,6 @@ class TimeActions {
 		const client = await timeApi.createClient(normalizedName);
 		this.store.setAllData([...state.clients, client], state.projects, state.entries);
 		return client;
-	}
-
-	public async assignProjectClient(project: Project, clientName: string) {
-		const normalizedName = clientName.trim();
-		const client = normalizedName ? await this.ensureClient(normalizedName) : null;
-		const updatedProject = await timeApi.updateProject(project.id, {
-			client_id: client?.id ?? null,
-		});
-		const nextState = this.store.get();
-		const projects = nextState.projects.map((candidate) =>
-			candidate.id === updatedProject.id ? updatedProject : candidate,
-		);
-		const entries = nextState.entries.map((entry) =>
-			entry.project_id === updatedProject.id
-				? { ...entry, project: updatedProject }
-				: entry,
-		);
-		this.store.setAllData(nextState.clients, projects, entries);
-		return updatedProject;
 	}
 
 	public async addEntry(values: {
@@ -1456,9 +1587,10 @@ const createTimerPanel = (context: TimePageContext) => {
 		root.replaceChildren();
 		const state = context.store.get();
 		const runningEntry = state.runningEntry;
+		root.classList.toggle("time-block--timer-running", runningEntry !== null);
 		const header = div("section-header");
 		header.append(
-			text("h2", "Start Timer"),
+			text("h2", runningEntry ? "Current Timer" : "Start Timer"),
 			runningEntry ? tag("Running") : tag("Stopped", true),
 		);
 		root.append(header);
@@ -1533,6 +1665,7 @@ const createTimerPanel = (context: TimePageContext) => {
 					timeEntryDurationSeconds(runningEntry),
 				);
 			}, 1000);
+			return;
 		}
 
 		const form = document.createElement("form");
@@ -1850,90 +1983,6 @@ const createTimeEntriesList = (context: TimePageContext) => {
 	});
 };
 
-const createProjectsList = (context: TimePageContext) => {
-	const root = div("time-project-list");
-
-	const render = () => {
-		root.replaceChildren();
-		const state = context.store.get();
-		const projects = state.projects.filter((project) => project.archived_at === null);
-		if (!projects.length) {
-			const empty = div("empty");
-			empty.textContent = "No time projects yet.";
-			root.append(empty);
-			return;
-		}
-
-		for (const project of projects) {
-			const row = div("time-project-row");
-			const main = div("time-entry-row__main");
-			const title = div("time-entry-row__title");
-			title.append(timeColor(project.color), text("strong", project.name));
-			const meta = div("section-copy");
-			meta.textContent = project.client?.name
-				? `Client: ${project.client.name}`
-				: "No client";
-			main.append(title, meta);
-
-			const form = document.createElement("form");
-			form.className = "time-project-client-form";
-			const clientSelect = new SearchSelect({
-				placeholder: "No client",
-				allowCreate: true,
-				createLabelPrefix: "Create client",
-			});
-			clientSelect
-				.setOptions(clientOptions(state.clients, project.client_id))
-				.setValue(project.client_id === null ? null : String(project.client_id));
-			const save = new Button({
-				text: "Save",
-				className: "secondary",
-				type: "submit",
-			});
-			const clear = new Button({
-				text: "Clear",
-				className: "secondary",
-				type: "button",
-			});
-			form.append(clientSelect.root, save.root, clear.root);
-			form.addEventListener("submit", async (event) => {
-				event.preventDefault();
-				try {
-					await context.actions.assignProjectClient(project, clientSelect.text);
-					setStatus(context.status, "Project client saved.");
-				} catch (error) {
-					setStatus(
-						context.status,
-						error instanceof Error ? error.message : "Failed to save project client.",
-						true,
-					);
-				}
-			});
-			clear.onClick = async () => {
-				try {
-					clientSelect.clear();
-					await context.actions.assignProjectClient(project, "");
-					setStatus(context.status, "Project client cleared.");
-				} catch (error) {
-					setStatus(
-						context.status,
-						error instanceof Error ? error.message : "Failed to clear project client.",
-						true,
-					);
-				}
-			};
-			row.append(main, form);
-			root.append(row);
-		}
-	};
-
-	const unsubscribe = context.store.subscribe(render);
-	return Object.assign(new UiComponent(root), {
-		render,
-		destroy: unsubscribe,
-	});
-};
-
 const renderTimeOverviewSpanOptions = (selectedValue: string) =>
 	TIME_OVERVIEW_SPANS.map((span) => {
 		const option = document.createElement("option");
@@ -1966,40 +2015,81 @@ type TimeOverviewItem = {
 	totalSeconds: number;
 	entryCount: number;
 	projectCount?: number;
+	synthetic?: boolean;
 };
 
-const clientTotalKey = (clientId: number | null) =>
-	clientId === null ? "none" : String(clientId);
+const projectTotalKey = (projectId: number | null) =>
+	projectId === null ? "no-project" : String(projectId);
+
+const clientTotalKey = (client: Pick<TimeReportClientTotal, "client_id" | "client_name">) =>
+	client.client_id === null ? client.client_name : String(client.client_id);
 
 const getTimeOverviewItems = (
 	report: TimeReport,
 	group: TimeOverviewGroup,
+	baselineSeconds?: number,
 ): TimeOverviewItem[] => {
-	if (group === "client") {
-		return report.client_totals.map((client) => ({
-			key: clientTotalKey(client.client_id),
+	const items = group === "client"
+		? report.client_totals.map((client) => ({
+			key: clientTotalKey(client),
 			name: client.client_name,
 			color: client.client_color,
 			totalSeconds: client.total_seconds,
 			entryCount: client.entry_count,
 			projectCount: client.project_count,
-		}));
-	}
-	return report.project_totals.map((project) => ({
-		key: String(project.project_id),
+		}))
+		: report.project_totals.map((project) => ({
+		key: projectTotalKey(project.project_id),
 		name: project.project_name,
 		color: project.project_color,
 		totalSeconds: project.total_seconds,
 		entryCount: project.entry_count,
 	}));
+	if (baselineSeconds === undefined) return items;
+	const trackedSeconds = items.reduce((sum, item) => sum + item.totalSeconds, 0);
+	const unknownSeconds = Math.max(0, baselineSeconds - trackedSeconds);
+	if (unknownSeconds <= 0) return items;
+	return [
+		...items,
+		{
+			key: UNKNOWN_TIME_KEY,
+			name: "Unknown",
+			color: UNKNOWN_TIME_COLOR,
+			totalSeconds: unknownSeconds,
+			entryCount: 0,
+			projectCount: 0,
+			synthetic: true,
+		},
+	];
+};
+
+const polarToPiePoint = (percent: number) => {
+	const radians = ((percent / 100) * 360 - 90) * (Math.PI / 180);
+	return {
+		x: 50 + 50 * Math.cos(radians),
+		y: 50 + 50 * Math.sin(radians),
+	};
+};
+
+const describePieSegment = (startPercent: number, endPercent: number) => {
+	const start = polarToPiePoint(startPercent);
+	const end = polarToPiePoint(endPercent);
+	const largeArc = endPercent - startPercent > 50 ? 1 : 0;
+	return [
+		"M 50 50",
+		`L ${start.x.toFixed(4)} ${start.y.toFixed(4)}`,
+		`A 50 50 0 ${largeArc} 1 ${end.x.toFixed(4)} ${end.y.toFixed(4)}`,
+		"Z",
+	].join(" ");
 };
 
 const createTimeOverviewPie = (
 	report: TimeReport,
 	group: TimeOverviewGroup,
+	baselineSeconds?: number,
 ) => {
 	const pie = div("time-overview-pie");
-	const items = getTimeOverviewItems(report, group);
+	const items = getTimeOverviewItems(report, group, baselineSeconds);
 	const total = items.reduce(
 		(sum, item) => sum + item.totalSeconds,
 		0,
@@ -2010,14 +2100,34 @@ const createTimeOverviewPie = (
 		return pie;
 	}
 
+	const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+	svg.setAttribute("viewBox", "0 0 100 100");
+	svg.setAttribute("role", "img");
+	svg.setAttribute("aria-label", `${group} time usage pie chart`);
 	let cursor = 0;
-	const segments = items.map((item) => {
+	for (const item of items) {
 		const start = cursor;
 		const end = cursor + (item.totalSeconds / total) * 100;
 		cursor = end;
-		return `${item.color} ${start.toFixed(3)}% ${end.toFixed(3)}%`;
-	});
-	pie.style.background = `conic-gradient(${segments.join(", ")})`;
+		const percent = Math.round((item.totalSeconds / total) * 100);
+		const segment =
+			end - start >= 99.999
+				? document.createElementNS("http://www.w3.org/2000/svg", "circle")
+				: document.createElementNS("http://www.w3.org/2000/svg", "path");
+		if (segment instanceof SVGCircleElement) {
+			segment.setAttribute("cx", "50");
+			segment.setAttribute("cy", "50");
+			segment.setAttribute("r", "50");
+		} else {
+			segment.setAttribute("d", describePieSegment(start, end));
+		}
+		segment.setAttribute("fill", item.color);
+		const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+		title.textContent = `${item.name}: ${percent}% (${formatDuration(item.totalSeconds)})`;
+		segment.append(title);
+		svg.append(segment);
+	}
+	pie.append(svg);
 	pie.setAttribute("aria-label", `${group} time usage pie chart`);
 	return pie;
 };
@@ -2026,9 +2136,10 @@ const createTimeOverviewSummary = (
 	report: TimeReport,
 	average: TimeOverviewAverage | null,
 	group: TimeOverviewGroup,
+	baselineSeconds?: number,
 ) => {
 	const summary = div("time-report-summary time-overview-summary");
-	const items = getTimeOverviewItems(report, group);
+	const items = getTimeOverviewItems(report, group, baselineSeconds);
 	const total = div();
 	total.append(text("span", "Total Time"), text("strong", formatDuration(report.total_seconds)));
 	const dailyAverage = div();
@@ -2056,9 +2167,10 @@ const createTimeOverviewProjectList = (
 	report: TimeReport,
 	average: TimeOverviewAverage | null,
 	group: TimeOverviewGroup,
+	baselineSeconds?: number,
 ) => {
 	const list = div("time-report-list time-overview-list");
-	const items = getTimeOverviewItems(report, group);
+	const items = getTimeOverviewItems(report, group, baselineSeconds);
 	const itemTotal = items.reduce(
 		(sum, item) => sum + item.totalSeconds,
 		0,
@@ -2080,7 +2192,9 @@ const createTimeOverviewProjectList = (
 		);
 		const meta = text(
 			"span",
-			group === "client"
+			item.synthetic
+				? "24h minus tracked time"
+				: group === "client"
 				? `${item.projectCount ?? 0} project${item.projectCount === 1 ? "" : "s"} - ${item.entryCount} entr${item.entryCount === 1 ? "y" : "ies"}`
 				: `${item.entryCount} entr${item.entryCount === 1 ? "y" : "ies"}`,
 		);
@@ -2089,19 +2203,21 @@ const createTimeOverviewProjectList = (
 			itemTotal > 0 ? Math.round((item.totalSeconds / itemTotal) * 100) : 0;
 		main.append(title, meta);
 		const total = div("time-overview-row__total");
-		const averageSeconds = group === "client"
-			? (average?.clientSecondsByKey.get(item.key) ?? 0)
-			: (average?.projectSecondsById.get(Number(item.key)) ?? 0);
+			const averageSeconds = item.synthetic
+				? Math.max(0, (average?.baselineSeconds ?? 0) - (average?.totalSeconds ?? 0))
+				: group === "client"
+					? (average?.clientSecondsByKey.get(item.key) ?? 0)
+					: (average?.projectSecondsByKey.get(item.key) ?? 0);
 		total.append(
 			text("strong", formatDuration(item.totalSeconds)),
 			text("span", `${percent}%`),
-			text(
+		);
+			total.append(text(
 				"span",
 				average && average.dayCount > 0
 					? `Avg/day ${formatDuration(averageSeconds / average.dayCount)}`
 					: "Avg/day No full days",
-			),
-		);
+			));
 		row.append(main, total);
 		list.append(row);
 	}
@@ -2114,6 +2230,7 @@ const renderTimeOverviewReport = (
 	resultsRoot: HTMLElement,
 	average: TimeOverviewAverage | null = null,
 	group: TimeOverviewGroup = DEFAULT_TIME_OVERVIEW_GROUP,
+	baselineSeconds?: number,
 ) => {
 	resultsRoot.replaceChildren();
 	if (!report) {
@@ -2125,10 +2242,369 @@ const renderTimeOverviewReport = (
 
 	const chartPanel = div("time-overview-chart");
 	chartPanel.append(
-		createTimeOverviewPie(report, group),
-		createTimeOverviewProjectList(report, average, group),
+		createTimeOverviewPie(report, group, baselineSeconds),
+		createTimeOverviewProjectList(report, average, group, baselineSeconds),
 	);
-	resultsRoot.append(createTimeOverviewSummary(report, average, group), chartPanel);
+	resultsRoot.append(createTimeOverviewSummary(report, average, group, baselineSeconds), chartPanel);
+};
+
+const createEmptyTimeReport = (from: string, to: string): TimeReport => ({
+	period: {
+		from,
+		to,
+		range: "custom",
+	},
+	total_seconds: 0,
+	project_totals: [],
+	client_totals: [],
+});
+
+const createTimeWeeklySummary = (days: TimeWeeklyDayReport[]) => {
+	const summary = div("time-report-summary time-overview-summary");
+	const reports = days.map((day) => day.report).filter((report): report is TimeReport => report !== null);
+	const totalSeconds = reports.reduce(
+		(sum, report) => sum + report.total_seconds,
+		0,
+	);
+	const activeDays = reports.filter((report) => report.total_seconds > 0).length;
+	const clients = new Set<string>();
+	for (const report of reports) {
+		for (const client of report.client_totals) {
+			clients.add(clientTotalKey(client));
+		}
+	}
+	const weekStart = localDateFromInput(days[0]?.date ?? formatDateInput());
+	const weekEnd = localDateFromInput(days[6]?.date ?? formatDateInput());
+	const total = div();
+	total.append(text("span", "Total Time"), text("strong", formatDuration(totalSeconds)));
+	const average = div();
+	average.append(
+		text("span", "Daily Average"),
+		text("strong", activeDays > 0 ? formatDuration(totalSeconds / activeDays) : "No active days"),
+	);
+	const clientCount = div();
+	clientCount.append(text("span", "Clients"), text("strong", String(clients.size)));
+	const span = div();
+	span.append(
+		text("span", "Week"),
+		text(
+			"strong",
+			weekStart && weekEnd
+				? `${formatShortDate(weekStart)} - ${formatShortDate(weekEnd)}`
+				: "Selected week",
+		),
+	);
+	summary.append(total, average, clientCount, span);
+	return summary;
+};
+
+const createTimeMonthlySummary = (days: TimeWeeklyDayReport[]) => {
+	const summary = div("time-report-summary time-overview-summary");
+	const reports = days.map((day) => day.report).filter((report): report is TimeReport => report !== null);
+	const totalSeconds = reports.reduce(
+		(sum, report) => sum + report.total_seconds,
+		0,
+	);
+	const activeDays = reports.filter((report) => report.total_seconds > 0).length;
+	const clients = new Set<string>();
+	for (const report of reports) {
+		for (const client of report.client_totals) {
+			clients.add(clientTotalKey(client));
+		}
+	}
+	const monthStart = localDateFromInput(days[0]?.date ?? formatDateInput());
+	const total = div();
+	total.append(text("span", "Total Time"), text("strong", formatDuration(totalSeconds)));
+	const average = div();
+	average.append(
+		text("span", "Daily Average"),
+		text("strong", activeDays > 0 ? formatDuration(totalSeconds / activeDays) : "No active days"),
+	);
+	const clientCount = div();
+	clientCount.append(text("span", "Clients"), text("strong", String(clients.size)));
+	const span = div();
+	span.append(
+		text("span", "Month"),
+		text("strong", monthStart ? formatMonth(monthStart) : "Selected month"),
+	);
+	summary.append(total, average, clientCount, span);
+	return summary;
+};
+
+const getTimePeriodChartData = (days: TimeWeeklyDayReport[]) => {
+	const clientTotals = new Map<string, TimeOverviewItem>();
+	const dayClientSeconds = days.map((day) => {
+		const totals = new Map<string, number>();
+		let trackedSeconds = 0;
+		for (const client of day.report?.client_totals ?? []) {
+			const key = clientTotalKey(client);
+			totals.set(key, client.total_seconds);
+			trackedSeconds += client.total_seconds;
+			const existing = clientTotals.get(key);
+			if (existing) {
+				existing.totalSeconds += client.total_seconds;
+				existing.entryCount += client.entry_count;
+				existing.projectCount = Math.max(
+					existing.projectCount ?? 0,
+					client.project_count,
+				);
+			} else {
+				clientTotals.set(key, {
+					key,
+					name: client.client_name,
+					color: client.client_color,
+					totalSeconds: client.total_seconds,
+					entryCount: client.entry_count,
+					projectCount: client.project_count,
+				});
+			}
+		}
+		const unknownSeconds = Math.max(0, day.baselineSeconds - trackedSeconds);
+		if (unknownSeconds > 0) {
+			totals.set(UNKNOWN_TIME_KEY, unknownSeconds);
+			const existing = clientTotals.get(UNKNOWN_TIME_KEY);
+			if (existing) {
+				existing.totalSeconds += unknownSeconds;
+			} else {
+				clientTotals.set(UNKNOWN_TIME_KEY, {
+					key: UNKNOWN_TIME_KEY,
+					name: "Unknown",
+					color: UNKNOWN_TIME_COLOR,
+					totalSeconds: unknownSeconds,
+					entryCount: 0,
+					projectCount: 0,
+					synthetic: true,
+				});
+			}
+		}
+		return totals;
+	});
+	const clients = [...clientTotals.values()].sort(
+		(left, right) =>
+			Number(Boolean(left.synthetic)) - Number(Boolean(right.synthetic)) ||
+			right.totalSeconds - left.totalSeconds ||
+			left.name.localeCompare(right.name),
+	);
+	const dayTotals = days.map((day) =>
+		Math.max(day.baselineSeconds, day.report?.total_seconds ?? 0),
+	);
+	return { clients, dayClientSeconds, dayTotals };
+};
+
+const createTimeWeeklyLegend = (
+	clients: TimeOverviewItem[],
+	emptyText: string,
+) => {
+	const legend = div("time-weekly-legend");
+	if (clients.length === 0) {
+		const empty = div("empty");
+		empty.textContent = emptyText;
+		legend.append(empty);
+	} else {
+		for (const client of clients) {
+			const row = div("time-weekly-legend__row");
+			const label = div("time-entry-row__title");
+			label.append(timeColor(client.color), text("strong", client.name));
+			row.append(label, text("span", formatDuration(client.totalSeconds)));
+			legend.append(row);
+		}
+	}
+	return legend;
+};
+
+const createTimeWeeklyChart = (
+	days: TimeWeeklyDayReport[],
+	emptyText = "No tracked client time in this week.",
+) => {
+	const { clients, dayClientSeconds, dayTotals } = getTimePeriodChartData(days);
+	const maxDaySeconds = Math.max(...dayTotals, 0);
+	const root = div("time-weekly-chart");
+	const bars = div("time-weekly-bars");
+	bars.style.setProperty("--time-period-days", String(days.length));
+
+	for (const [index, day] of days.entries()) {
+		const dayTotal = dayTotals[index] ?? 0;
+		const column = div("time-weekly-day");
+		const bar = div("time-weekly-bar");
+		bar.style.setProperty(
+			"--time-weekly-fill",
+			maxDaySeconds > 0 ? `${Math.max(4, (dayTotal / maxDaySeconds) * 100)}%` : "0%",
+		);
+		if (dayTotal <= 0) {
+			bar.classList.add("time-weekly-bar--empty");
+		}
+		const stack = div("time-weekly-bar__stack");
+		for (const client of clients) {
+			const seconds = dayClientSeconds[index]?.get(client.key) ?? 0;
+			if (seconds <= 0 || dayTotal <= 0) continue;
+			const segment = div("time-weekly-bar__segment");
+			segment.style.setProperty("--time-color", client.color);
+			segment.style.setProperty(
+				"--time-weekly-segment",
+				`${(seconds / dayTotal) * 100}%`,
+			);
+			const percentage = Math.round((seconds / dayTotal) * 100);
+			segment.title = `${client.name}: ${percentage}% (${formatDuration(seconds)})`;
+			stack.append(segment);
+		}
+		bar.append(stack);
+		const label = div("time-weekly-day__label");
+		label.append(text("strong", day.shortLabel), text("span", formatDuration(dayTotal)));
+		column.append(bar, label);
+		bars.append(column);
+	}
+
+	root.append(bars, createTimeWeeklyLegend(clients, emptyText));
+	return root;
+};
+
+const createTimeMonthlyDayDetails = (
+	day: TimeWeeklyDayReport | undefined,
+	clients: TimeOverviewItem[],
+	dayClientSeconds: Map<string, number> | undefined,
+	dayTotal: number,
+) => {
+	const details = div("time-monthly-detail");
+	if (!day) {
+		const empty = div("empty");
+		empty.textContent = "Select a day.";
+		details.append(empty);
+		return details;
+	}
+
+	const date = localDateFromInput(day.date) ?? new Date(day.from);
+	const title = div("time-monthly-detail__title");
+	title.append(text("strong", `${formatWeekday(date)} ${formatShortDate(date)}`));
+	title.append(text("span", `${formatDuration(day.report?.total_seconds ?? 0)} tracked`));
+	details.append(title);
+
+	const rows = div("time-monthly-detail__rows");
+	for (const client of clients) {
+		const seconds = dayClientSeconds?.get(client.key) ?? 0;
+		if (seconds <= 0 || dayTotal <= 0) continue;
+		const percentage = Math.round((seconds / dayTotal) * 100);
+		const row = div("time-monthly-detail__row");
+		const label = div("time-entry-row__title");
+		label.append(timeColor(client.color), text("strong", client.name));
+		row.append(
+			label,
+			text("span", `${percentage}%`),
+			text("span", formatDuration(seconds)),
+		);
+		rows.append(row);
+	}
+	if (!rows.childElementCount) {
+		const empty = div("empty");
+		empty.textContent = "No time details for this day.";
+		rows.append(empty);
+	}
+	details.append(rows);
+	return details;
+};
+
+const createTimeMonthlyCalendar = (
+	days: TimeWeeklyDayReport[],
+	selectedDate: string,
+	onSelectDate: (date: string) => void,
+) => {
+	const { clients, dayClientSeconds, dayTotals } = getTimePeriodChartData(days);
+	const root = div("time-monthly-calendar-layout");
+	const calendar = div("time-monthly-calendar");
+	for (const weekday of ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]) {
+		calendar.append(text("div", weekday));
+		calendar.lastElementChild?.classList.add("time-monthly-weekday");
+	}
+	const firstDay = localDateFromInput(days[0]?.date ?? formatDateInput());
+	const leadingBlankCount = firstDay ? (firstDay.getDay() + 6) % 7 : 0;
+	for (let index = 0; index < leadingBlankCount; index += 1) {
+		calendar.append(div("time-monthly-day time-monthly-day--blank"));
+	}
+
+	for (const [index, day] of days.entries()) {
+		const dayTotal = dayTotals[index] ?? 0;
+		const trackedSeconds = day.report?.total_seconds ?? 0;
+		const cell = document.createElement("button");
+		cell.type = "button";
+		cell.className = "time-monthly-day";
+		cell.setAttribute("aria-pressed", day.date === selectedDate ? "true" : "false");
+		cell.addEventListener("click", () => onSelectDate(day.date));
+		if (day.date === selectedDate) {
+			cell.classList.add("time-monthly-day--selected");
+		}
+		if (dayTotal <= 0) {
+			cell.classList.add("time-monthly-day--empty");
+		}
+		const header = div("time-monthly-day__header");
+		header.append(text("strong", day.shortLabel), text("span", formatWeekday(localDateFromInput(day.date) ?? new Date(day.from))));
+		const total = text("span", dayTotal > 0 ? formatDuration(trackedSeconds) : "Future");
+		total.className = "time-monthly-day__total";
+		const bar = div("time-monthly-day__bar");
+		for (const client of clients) {
+			const seconds = dayClientSeconds[index]?.get(client.key) ?? 0;
+			if (seconds <= 0 || dayTotal <= 0) continue;
+			const segment = div("time-monthly-day__segment");
+			segment.style.setProperty("--time-color", client.color);
+			segment.style.setProperty(
+				"--time-monthly-segment",
+				`${(seconds / dayTotal) * 100}%`,
+			);
+			const percentage = Math.round((seconds / dayTotal) * 100);
+			segment.title = `${client.name}: ${percentage}% (${formatDuration(seconds)})`;
+			bar.append(segment);
+		}
+		cell.append(header, total, bar);
+		calendar.append(cell);
+	}
+
+	const selectedIndex = days.findIndex((day) => day.date === selectedDate);
+	const side = div("time-monthly-side");
+	side.append(
+		createTimeMonthlyDayDetails(
+			days[selectedIndex],
+			clients,
+			selectedIndex >= 0 ? dayClientSeconds[selectedIndex] : undefined,
+			selectedIndex >= 0 ? (dayTotals[selectedIndex] ?? 0) : 0,
+		),
+		createTimeWeeklyLegend(clients, "No tracked client time in this month."),
+	);
+	root.append(
+		calendar,
+		side,
+	);
+	return root;
+};
+
+const renderTimeWeeklyReport = (
+	days: TimeWeeklyDayReport[] | null,
+	resultsRoot: HTMLElement,
+) => {
+	resultsRoot.replaceChildren();
+	if (!days) {
+		const empty = div("empty");
+		empty.textContent = "Choose a week to load time usage.";
+		resultsRoot.append(empty);
+		return;
+	}
+	resultsRoot.append(createTimeWeeklySummary(days), createTimeWeeklyChart(days));
+};
+
+const renderTimeMonthlyReport = (
+	days: TimeWeeklyDayReport[] | null,
+	resultsRoot: HTMLElement,
+	selectedDate = "",
+	onSelectDate: (date: string) => void = () => {},
+) => {
+	resultsRoot.replaceChildren();
+	if (!days) {
+		const empty = div("empty");
+		empty.textContent = "Choose a month to load time usage.";
+		resultsRoot.append(empty);
+		return;
+	}
+	resultsRoot.append(
+		createTimeMonthlySummary(days),
+		createTimeMonthlyCalendar(days, selectedDate, onSelectDate),
+	);
 };
 
 export const renderTimePage = (page: HTMLElement) => {
@@ -2146,7 +2622,6 @@ export const renderTimePage = (page: HTMLElement) => {
 	const timerPanel = createTimerPanel(context);
 	const quickActions = createQuickActions(context);
 	const entriesList = createTimeEntriesList(context);
-	const projectsList = createProjectsList(context);
 	const entryCreateModal = createTimeEntryCreateModal(context);
 
 	const workspace = div("workspace time-workspace");
@@ -2171,12 +2646,7 @@ export const renderTimePage = (page: HTMLElement) => {
 	headerActions.append(addEntry.root);
 	entriesHeader.append(text("h2", "Past Entries"), headerActions);
 	entriesBlock.append(entriesHeader, status, entriesList.root);
-	const projectsBlock = document.createElement("section");
-	projectsBlock.className = "time-block";
-	const projectsHeader = div("section-header");
-	projectsHeader.append(text("h2", "Projects"));
-	projectsBlock.append(projectsHeader, projectsList.root);
-	main.append(entriesBlock, projectsBlock);
+	main.append(entriesBlock);
 
 	workspace.append(sidebar, main);
 	page.append(workspace, entryCreateModal.root);
@@ -2186,9 +2656,6 @@ export const renderTimePage = (page: HTMLElement) => {
 
 export const renderTimeOverviewPage = (page: HTMLElement) => {
 	const selected = getCurrentTimeOverviewSelection();
-	const header = div("section-header");
-	header.append(text("h2", "Time Overview"));
-
 	const controls = div("spending-breakdown-controls time-overview-controls");
 	const spanSelect = document.createElement("select");
 	spanSelect.id = "time-overview-span-select";
@@ -2210,7 +2677,7 @@ export const renderTimeOverviewPage = (page: HTMLElement) => {
 	const results = div("time-overview-results");
 	const pageBlock = document.createElement("section");
 	pageBlock.className = "time-block";
-	pageBlock.append(header, controls, status, results);
+	pageBlock.append(controls, status, results);
 	page.append(pageBlock);
 
 	const load = async (selection: TimeOverviewSelection) => {
@@ -2218,6 +2685,7 @@ export const renderTimeOverviewPage = (page: HTMLElement) => {
 		renderTimeOverviewReport(null, results, null, selection.group);
 		try {
 			const period = getTimeOverviewPeriod(selection);
+			const baselineSeconds = getTimeOverviewBaselineSeconds(selection);
 			const averagePeriod = getFullLocalDayBounds(period);
 			const reportPromise = timeApi.fetchReport(period.from, period.to);
 			const averageReportPromise = averagePeriod
@@ -2233,24 +2701,26 @@ export const renderTimeOverviewPage = (page: HTMLElement) => {
 				report,
 				results,
 				averageReport && averagePeriod
-					? {
-							totalSeconds: averageReport.total_seconds,
-							dayCount: countFullLocalDays(averagePeriod),
-							projectSecondsById: new Map(
+						? {
+								totalSeconds: averageReport.total_seconds,
+								dayCount: countFullLocalDays(averagePeriod),
+								baselineSeconds: countFullLocalDays(averagePeriod) * DAY_SECONDS,
+								projectSecondsByKey: new Map(
 								averageReport.project_totals.map((project) => [
-									project.project_id,
+									projectTotalKey(project.project_id),
 									project.total_seconds,
 								]),
 							),
 							clientSecondsByKey: new Map(
 								averageReport.client_totals.map((client) => [
-									clientTotalKey(client.client_id),
+									clientTotalKey(client),
 									client.total_seconds,
 								]),
 							),
 						}
 					: null,
 				selection.group,
+				baselineSeconds,
 			);
 			setStatus(status, `Loaded ${selection.span.label.toLowerCase()} time usage.`);
 		} catch (error) {
@@ -2300,4 +2770,185 @@ export const renderTimeOverviewPage = (page: HTMLElement) => {
 	});
 
 	void load(selected);
+};
+
+export const renderTimeWeeklyPage = (page: HTMLElement) => {
+	let selectedDate = getCurrentTimeWeeklyDate();
+	const controls = div("spending-breakdown-controls time-overview-controls time-weekly-controls");
+	const previousWeek = new Button({ text: "Previous Week", className: "secondary" });
+	const nextWeek = new Button({ text: "Next Week", className: "secondary" });
+	const weekInput = document.createElement("input");
+	weekInput.id = "time-weekly-date-input";
+	weekInput.type = "date";
+	weekInput.value = selectedDate;
+	weekInput.max = formatDateInput();
+	const weekLabel = field("Week", weekInput);
+	controls.append(previousWeek.root, weekLabel, nextWeek.root);
+
+	const status = div("status");
+	const results = div("time-overview-results");
+	const pageBlock = document.createElement("section");
+	pageBlock.className = "time-block";
+	pageBlock.append(controls, status, results);
+	page.append(pageBlock);
+
+	const setSelectedDate = (date: string) => {
+		selectedDate = date;
+		weekInput.value = selectedDate;
+		const selectedWeekStart = startOfLocalWeek(
+			localDateFromInput(selectedDate) ?? new Date(),
+		);
+		const currentWeekStart = startOfLocalWeek(new Date());
+		nextWeek.root.disabled = selectedWeekStart >= currentWeekStart;
+		updateTimeWeeklyUrl(selectedDate);
+	};
+
+	const load = async (weekDate: string) => {
+		setSelectedDate(weekDate);
+		setStatus(status, "Loading weekly time...");
+		renderTimeWeeklyReport(null, results);
+		try {
+			const days = getTimeWeeklyDays(weekDate);
+			const reports = await Promise.all(
+				days.map((day) => {
+					if (Date.parse(day.from) >= Date.now()) {
+						return Promise.resolve(createEmptyTimeReport(day.from, day.to));
+					}
+					return timeApi.fetchReport(day.from, day.to);
+				}),
+			);
+			const loadedDays = days.map((day, index) => ({
+				...day,
+				report: reports[index] ?? createEmptyTimeReport(day.from, day.to),
+			}));
+			renderTimeWeeklyReport(loadedDays, results);
+			setStatus(status, "Loaded weekly client time.");
+		} catch (error) {
+			setStatus(
+				status,
+				error instanceof Error ? error.message : "Failed to load weekly time.",
+				true,
+			);
+		}
+	};
+
+	previousWeek.onClick = () => {
+		const date = localDateFromInput(selectedDate) ?? new Date();
+		date.setDate(date.getDate() - 7);
+		void load(formatDateInput(date));
+	};
+
+	nextWeek.onClick = () => {
+		const date = localDateFromInput(selectedDate) ?? new Date();
+		date.setDate(date.getDate() + 7);
+		const clippedDate = new Date(Math.min(date.getTime(), Date.now()));
+		void load(formatDateInput(clippedDate));
+	};
+
+	weekInput.addEventListener("change", () => {
+		const date = weekInput.value || formatDateInput();
+		void load(date);
+	});
+
+	void load(selectedDate);
+};
+
+export const renderTimeMonthlyPage = (page: HTMLElement) => {
+	let selectedMonth = getCurrentTimeMonthlyDate();
+	let selectedDate = formatDateInput();
+	let loadedDays: TimeWeeklyDayReport[] = [];
+	const controls = div("spending-breakdown-controls time-overview-controls time-weekly-controls");
+	const previousMonth = new Button({ text: "Previous Month", className: "secondary" });
+	const nextMonth = new Button({ text: "Next Month", className: "secondary" });
+	const monthInput = document.createElement("input");
+	monthInput.id = "time-monthly-date-input";
+	monthInput.type = "month";
+	monthInput.value = selectedMonth;
+	monthInput.max = formatMonthInput();
+	const monthLabel = field("Month", monthInput);
+	controls.append(previousMonth.root, monthLabel, nextMonth.root);
+
+	const status = div("status");
+	const results = div("time-overview-results");
+	const pageBlock = document.createElement("section");
+	pageBlock.className = "time-block";
+	pageBlock.append(controls, status, results);
+	page.append(pageBlock);
+
+	const setSelectedMonth = (month: string) => {
+		selectedMonth = month;
+		monthInput.value = selectedMonth;
+		const selectedMonthStart = startOfLocalMonth(
+			localMonthFromInput(selectedMonth) ?? new Date(),
+		);
+		const currentMonthStart = startOfLocalMonth(new Date());
+		nextMonth.root.disabled = selectedMonthStart >= currentMonthStart;
+		updateTimeMonthlyUrl(selectedMonth);
+	};
+
+	const defaultSelectedDate = (days: TimeWeeklyDayReport[]) => {
+		const today = formatDateInput();
+		return days.some((day) => day.date === today)
+			? today
+			: (days.find((day) => day.baselineSeconds > 0) ?? days[0])?.date ?? today;
+	};
+
+	const renderLoadedDays = () => {
+		renderTimeMonthlyReport(loadedDays, results, selectedDate, (date) => {
+			selectedDate = date;
+			renderLoadedDays();
+		});
+	};
+
+	const load = async (monthDate: string) => {
+		setSelectedMonth(monthDate);
+		setStatus(status, "Loading monthly time...");
+		renderTimeMonthlyReport(null, results);
+		try {
+			const days = getTimeMonthlyDays(monthDate);
+			const reports = await Promise.all(
+				days.map((day) => {
+					if (Date.parse(day.from) >= Date.now()) {
+						return Promise.resolve(createEmptyTimeReport(day.from, day.to));
+					}
+					return timeApi.fetchReport(day.from, day.to);
+				}),
+			);
+			loadedDays = days.map((day, index) => ({
+				...day,
+				report: reports[index] ?? createEmptyTimeReport(day.from, day.to),
+			}));
+			if (!loadedDays.some((day) => day.date === selectedDate)) {
+				selectedDate = defaultSelectedDate(loadedDays);
+			}
+			renderLoadedDays();
+			setStatus(status, "Loaded monthly client time.");
+		} catch (error) {
+			setStatus(
+				status,
+				error instanceof Error ? error.message : "Failed to load monthly time.",
+				true,
+			);
+		}
+	};
+
+	previousMonth.onClick = () => {
+		const date = localMonthFromInput(selectedMonth) ?? new Date();
+		date.setMonth(date.getMonth() - 1);
+		void load(formatMonthInput(date));
+	};
+
+	nextMonth.onClick = () => {
+		const date = localMonthFromInput(selectedMonth) ?? new Date();
+		date.setMonth(date.getMonth() + 1);
+		const clippedDate = new Date(Math.min(date.getTime(), Date.now()));
+		void load(formatMonthInput(clippedDate));
+	};
+
+	monthInput.addEventListener("change", () => {
+		const date = monthInput.value || formatMonthInput();
+		void load(date);
+	});
+
+	void load(selectedMonth);
 };

@@ -169,6 +169,8 @@ export const server = (options: ServerOptions = {}) => {
 			"/todos": index,
 			"/time": index,
 			"/time/overview": index,
+			"/time/monthly": index,
+			"/time/weekly": index,
 			"/recipes": index,
 			"/recipes/new": index,
 			"/recipes/:id": index,

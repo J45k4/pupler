@@ -161,6 +161,20 @@ describe("Pupler API e2e", () => {
 		);
 		expect(timeOverviewPage.body).toContain("<title>Pupler</title>");
 
+		const timeWeeklyPage = await server.call<string>("/time/weekly");
+		expect(timeWeeklyPage.response.status).toBe(200);
+		expect(timeWeeklyPage.response.headers.get("content-type")).toContain(
+			"text/html",
+		);
+		expect(timeWeeklyPage.body).toContain("<title>Pupler</title>");
+
+		const timeMonthlyPage = await server.call<string>("/time/monthly");
+		expect(timeMonthlyPage.response.status).toBe(200);
+		expect(timeMonthlyPage.response.headers.get("content-type")).toContain(
+			"text/html",
+		);
+		expect(timeMonthlyPage.body).toContain("<title>Pupler</title>");
+
 		const loginPage = await server.call<string>("/login");
 		expect(loginPage.response.status).toBe(200);
 		expect(loginPage.response.headers.get("content-type")).toContain(

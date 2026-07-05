@@ -55,6 +55,8 @@ export const primaryNavItems: NavItem[] = [
 		children: [
 			{ href: "/time", label: "Timer" },
 			{ href: "/time/overview", label: "Overview" },
+			{ href: "/time/weekly", label: "Weekly" },
+			{ href: "/time/monthly", label: "Monthly" },
 		],
 	},
 	{ href: "/recipes", label: "Recipes", mobileLabel: "Recipes" },
