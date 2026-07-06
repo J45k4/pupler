@@ -54,6 +54,7 @@ import { deriveFilesPath } from "./api/core";
 import index from "./web/index.html";
 
 const notFoundPage = Bun.file(new URL("./web/404.html", import.meta.url));
+const favicon = Bun.file(new URL("./web/favicon.png", import.meta.url));
 
 type ServerOptions = {
 	dbPath?: string;
@@ -143,6 +144,9 @@ export const server = (options: ServerOptions = {}) => {
 			"/api/spending": spendingRoute(db),
 			"/health": new Response("ok"),
 			"/version": Response.json(versionPayload()),
+			"/favicon.png": new Response(favicon, {
+				headers: { "Content-Type": "image/png" },
+			}),
 			"/api/*": Response.json(
 				{ error: "Route not found" },
 				{ status: 404 },

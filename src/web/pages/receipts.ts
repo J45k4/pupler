@@ -7,6 +7,7 @@ import {
 	renderPage,
 	renderUploadDropzone,
 } from "../app";
+import { renderModal } from "../ui/modal";
 
 export const renderReceiptsPage = () => {
 	const defaultPurchasedAt = new Date(
@@ -57,28 +58,13 @@ export const renderReceiptsPage = () => {
 				<div id="receipt-results" class="results"></div>
 			</section>
 
-			<div class="receipt-create-modal" id="receipt-create-modal" hidden>
-				<div
-					class="receipt-create-modal__backdrop"
-					data-receipt-create-modal-close
-				></div>
-				<div
-					class="receipt-create-modal__dialog card panel"
-					role="dialog"
-					aria-modal="true"
-					aria-labelledby="receipt-create-modal-title"
-				>
-					<div class="section-header">
-						<h2 id="receipt-create-modal-title">Create Receipt</h2>
-						<button
-							class="secondary"
-							type="button"
-							aria-label="Close create receipt modal"
-							data-receipt-create-modal-close
-						>
-							Close
-						</button>
-					</div>
+			${renderModal({
+				id: "receipt-create-modal",
+				title: "Create Receipt",
+				titleId: "receipt-create-modal-title",
+				closeDataAttribute: "data-receipt-create-modal-close",
+				className: "receipt-create-modal",
+				children: `
 					<form id="receipt-form">
 						<label>
 							Store Name
@@ -126,31 +112,16 @@ export const renderReceiptsPage = () => {
 						</div>
 					</form>
 					<div id="receipt-create-status" class="status"></div>
-				</div>
-			</div>
+				`,
+			})}
 
-			<div class="receipt-create-modal" id="group-create-modal" hidden>
-				<div
-					class="receipt-create-modal__backdrop"
-					data-group-create-modal-close
-				></div>
-				<div
-					class="receipt-create-modal__dialog card panel"
-					role="dialog"
-					aria-modal="true"
-					aria-labelledby="group-create-modal-title"
-				>
-					<div class="section-header">
-						<h2 id="group-create-modal-title">New Group</h2>
-						<button
-							class="secondary"
-							type="button"
-							aria-label="Close new group modal"
-							data-group-create-modal-close
-						>
-							Close
-						</button>
-					</div>
+			${renderModal({
+				id: "group-create-modal",
+				title: "New Group",
+				titleId: "group-create-modal-title",
+				closeDataAttribute: "data-group-create-modal-close",
+				className: "receipt-create-modal",
+				children: `
 					<form id="group-create-form">
 						<label>
 							Group Name
@@ -168,8 +139,8 @@ export const renderReceiptsPage = () => {
 						</div>
 					</form>
 					<div id="group-create-status" class="status"></div>
-				</div>
-			</div>
+				`,
+			})}
 		`,
 	);
 

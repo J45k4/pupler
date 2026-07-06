@@ -45,6 +45,14 @@ describe("Pupler API e2e", () => {
 		expect(page.body).toContain("/_bun/client/");
 	});
 
+	test("serves the app favicon", async () => {
+		const server = await startServer();
+
+		const favicon = await server.call<Blob>("/favicon.png");
+		expect(favicon.response.status).toBe(200);
+		expect(favicon.response.headers.get("content-type")).toContain("image/png");
+	});
+
 	test("serves the app shell for known browser pages", async () => {
 		const server = await startServer();
 
@@ -195,6 +203,7 @@ describe("Pupler API e2e", () => {
 			"text/html",
 		);
 		expect(settingsPage.body).toContain("<title>Pupler</title>");
+
 	});
 
 	test("serves the app shell for receipt pages", async () => {

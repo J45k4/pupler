@@ -7,6 +7,7 @@ import {
 	renderUnitSelect,
 	renderUploadDropzone,
 } from "../app";
+import { renderModal } from "../ui/modal";
 
 export const renderProductsPage = () => {
 	renderPage(
@@ -34,25 +35,14 @@ export const renderProductsPage = () => {
 				</div>
 			</section>
 
-			<div class="product-create-modal" id="product-create-modal" hidden>
-				<div class="product-create-modal__backdrop" data-product-modal-close></div>
-				<div
-					class="product-create-modal__dialog card panel"
-					role="dialog"
-					aria-modal="true"
-					aria-label="Create product"
-				>
-					<div class="section-header section-header--end">
-						<h2>Create Product</h2>
-						<button
-							class="secondary"
-							type="button"
-							aria-label="Close create product modal"
-							data-product-modal-close
-						>
-							Close
-						</button>
-					</div>
+			${renderModal({
+				id: "product-create-modal",
+				title: "Create Product",
+				ariaLabel: "Create product",
+				closeDataAttribute: "data-product-modal-close",
+				headerClassName: "section-header--end",
+				className: "product-create-modal",
+				children: `
 					<form id="product-form">
 						<label>
 							Name
@@ -106,8 +96,8 @@ export const renderProductsPage = () => {
 						</div>
 					</form>
 					<div id="product-modal-status" class="status"></div>
-				</div>
-			</div>
+				`,
+			})}
 		`,
 	);
 

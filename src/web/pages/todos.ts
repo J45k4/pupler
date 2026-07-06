@@ -6,6 +6,7 @@ import {
 	setStatus,
 } from "../app";
 import type { Todo } from "../app";
+import { renderModal } from "../ui/modal";
 
 const TodoStatus = {
 	Open: 1,
@@ -333,25 +334,13 @@ export const renderTodosPage = () => {
 				</div>
 			</section>
 
-			<div class="todo-create-modal" id="todo-create-modal" hidden>
-				<div class="todo-create-modal__backdrop" data-todo-modal-close></div>
-				<div
-					class="todo-create-modal__dialog card panel"
-					role="dialog"
-					aria-modal="true"
-					aria-labelledby="todo-create-modal-title"
-				>
-					<div class="section-header">
-						<h2 id="todo-create-modal-title">Add Todo</h2>
-						<button
-							class="secondary"
-							type="button"
-							aria-label="Close add todo modal"
-							data-todo-modal-close
-						>
-							Close
-						</button>
-					</div>
+			${renderModal({
+				id: "todo-create-modal",
+				title: "Add Todo",
+				titleId: "todo-create-modal-title",
+				closeDataAttribute: "data-todo-modal-close",
+				className: "todo-create-modal",
+				children: `
 					<form id="todo-form">
 						<label>
 							Todo
@@ -385,8 +374,8 @@ export const renderTodosPage = () => {
 						</div>
 					</form>
 					<div id="todo-modal-status" class="status"></div>
-				</div>
-			</div>
+				`,
+			})}
 		`,
 	);
 

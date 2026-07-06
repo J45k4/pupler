@@ -4,7 +4,7 @@ import {
 	logout,
 } from "./auth";
 import { escapeHtml } from "./lib/html";
-import { renderNavbar } from "./navbar";
+import { attachNavigationMenu, renderNavbar } from "./navbar";
 import {
 	navigate,
 } from "./router";
@@ -341,76 +341,6 @@ const render = (html: string) => {
 	document.body.innerHTML = html;
 };
 
-const installNavbarToggle = () => {
-	const header = document.querySelector<HTMLElement>(".site-header");
-	const toggle = document.querySelector<HTMLButtonElement>(".navbar-toggle");
-	const navbar = document.getElementById("primary-navigation");
-	if (!header || !toggle || !navbar) {
-		return;
-	}
-
-	const controller = new AbortController();
-	navbarAbortController = controller;
-	const { signal } = controller;
-
-	const setOpen = (open: boolean) => {
-		document.documentElement.classList.toggle("nav-open", open);
-		document.body.classList.toggle("nav-open", open);
-		header.classList.toggle("site-header--nav-open", open);
-		toggle.setAttribute("aria-expanded", String(open));
-		toggle.setAttribute("aria-label", open ? "Close navigation" : "Open navigation");
-	};
-
-	toggle.addEventListener(
-		"click",
-		() => {
-			setOpen(!header.classList.contains("site-header--nav-open"));
-		},
-		{ signal },
-	);
-
-	navbar.addEventListener(
-		"click",
-		(event) => {
-			if (event.target instanceof Element && event.target.closest("a")) {
-				setOpen(false);
-			}
-		},
-		{ signal },
-	);
-
-	document.addEventListener(
-		"click",
-		(event) => {
-			if (!(event.target instanceof Node) || header.contains(event.target)) {
-				return;
-			}
-			setOpen(false);
-		},
-		{ signal },
-	);
-
-	document.addEventListener(
-		"keydown",
-		(event) => {
-			if (event.key === "Escape") {
-				setOpen(false);
-			}
-		},
-		{ signal },
-	);
-
-	window.addEventListener(
-		"resize",
-		() => {
-			if (window.matchMedia("(min-width: 861px)").matches) {
-				setOpen(false);
-			}
-		},
-		{ signal },
-	);
-};
-
 export const renderAppShell = (shellClassName = "") => {
 	const shellClasses = [
 		...new Set(["page-shell", "page-shell--wide", shellClassName].filter(Boolean)),
@@ -419,7 +349,8 @@ export const renderAppShell = (shellClassName = "") => {
 		${renderNavbar(window.location.pathname, getCurrentUser())}
 		<main class="${shellClasses}"></main>
 	`);
-	installNavbarToggle();
+	navbarAbortController = new AbortController();
+	attachNavigationMenu(navbarAbortController.signal);
 	document
 		.querySelector(".account-menu__logout")
 		?.addEventListener("click", async () => {
@@ -430,26 +361,6 @@ export const renderAppShell = (shellClassName = "") => {
 				console.error(error);
 			}
 		});
-	requestAnimationFrame(() => {
-		const activeLink = document.querySelector<HTMLElement>(
-			".navbar__link--active",
-		);
-		const navbar = activeLink?.closest<HTMLElement>(".navbar");
-		if (!activeLink || !navbar) {
-			return;
-		}
-
-		activeLink.scrollIntoView({
-			behavior: "auto",
-			block: "nearest",
-			inline: "center",
-		});
-
-		if (window.scrollX !== 0) {
-			window.scrollTo({ left: 0, top: window.scrollY, behavior: "auto" });
-		}
-	});
-
 	const main = document.querySelector<HTMLElement>("main");
 	if (!main) {
 		throw new Error("App shell main element was not rendered.");
