@@ -98,6 +98,7 @@ type TimePageState = {
 const TIME_OVERVIEW_SPANS = [
 	{ value: "today", label: "Today" },
 	{ value: "this-week", label: "This Week" },
+	{ value: "last-week", label: "Last Week" },
 	{ value: "custom-day", label: "Selected Day" },
 	{ value: "last-2-weeks", label: "Last 2 Weeks" },
 	{ value: "last-30-days", label: "Last 30 Days" },
@@ -343,6 +344,35 @@ const parseDateTimeLocalInput = (value: string) => {
 	return Number.isNaN(date.getTime()) ? null : date.toISOString();
 };
 
+const moveDateTimeLocalInputIntoPast = (
+	input: HTMLInputElement,
+	minutes: number,
+) => {
+	const current = input.value.trim() ? new Date(input.value) : new Date();
+	if (Number.isNaN(current.getTime())) return;
+	current.setMinutes(current.getMinutes() - minutes);
+	input.value = formatDateTimeLocalInput(current);
+	input.dispatchEvent(new Event("input", { bubbles: true }));
+};
+
+const timeAdjustmentButtons = (label: string, input: HTMLInputElement) => {
+	const root = div("time-adjustments");
+	for (const minutes of [30, 60]) {
+		const button = new Button({
+			text: `-${minutes} min`,
+			className: "secondary time-adjustments__button",
+			type: "button",
+		});
+		button.root.setAttribute(
+			"aria-label",
+			`Move ${label.toLowerCase()} ${minutes} minutes into the past`,
+		);
+		button.onClick = () => moveDateTimeLocalInputIntoPast(input, minutes);
+		root.append(button.root);
+	}
+	return root;
+};
+
 const startOfLocalDay = (date: Date) =>
 	new Date(date.getFullYear(), date.getMonth(), date.getDate());
 
@@ -425,6 +455,7 @@ const getCurrentTimeMonthlyDate = () => {
 
 const getTimeOverviewPeriod = (selection: TimeOverviewSelection) => {
 	const to = new Date();
+	const thisWeekStart = startOfLocalWeek(to);
 	const from = (() => {
 		switch (selection.span.value) {
 			case "today":
@@ -432,7 +463,12 @@ const getTimeOverviewPeriod = (selection: TimeOverviewSelection) => {
 			case "custom-day":
 				return localDateFromInput(selection.day) ?? startOfLocalDay(to);
 			case "this-week":
-				return startOfLocalWeek(to);
+				return thisWeekStart;
+			case "last-week": {
+				const date = new Date(thisWeekStart);
+				date.setDate(date.getDate() - 7);
+				return date;
+			}
 			case "last-2-weeks": {
 				const date = startOfLocalDay(to);
 				date.setDate(date.getDate() - 13);
@@ -455,6 +491,9 @@ const getTimeOverviewPeriod = (selection: TimeOverviewSelection) => {
 			from: from.toISOString(),
 			to: new Date(Math.max(from.getTime(), clippedEndMs)).toISOString(),
 		};
+	}
+	if (selection.span.value === "last-week") {
+		return { from: from.toISOString(), to: thisWeekStart.toISOString() };
 	}
 	return { from: from.toISOString(), to: to.toISOString() };
 };
@@ -510,6 +549,8 @@ const getTimeOverviewBaselineSeconds = (selection: TimeOverviewSelection) => {
 			return DAY_SECONDS;
 		case "this-week":
 			return countLocalDaysInclusive(startOfLocalWeek(today), today) * DAY_SECONDS;
+		case "last-week":
+			return 7 * DAY_SECONDS;
 		case "last-2-weeks":
 			return 14 * DAY_SECONDS;
 		case "last-30-days":
@@ -1365,6 +1406,7 @@ const createRunningEditModal = (
 		field("Project (optional)", projectSelect.root),
 		field("Description", description),
 		field("Started At", startedAt),
+		timeAdjustmentButtons("Started At", startedAt),
 	);
 
 	if (previousEndedAt) {
@@ -1884,7 +1926,11 @@ const createTimeEntryRow = (
 		: "";
 
 	const row = div("row");
-	row.append(field("Start", startedAt), field("End", endedAt));
+	const startField = field("Start", startedAt);
+	startField.append(timeAdjustmentButtons("Start", startedAt));
+	const endField = field("End", endedAt);
+	endField.append(timeAdjustmentButtons("End", endedAt));
+	row.append(startField, endField);
 
 	const actions = div("actions");
 	const save = new Button({ text: "Save", className: "primary", type: "submit" });
@@ -2393,6 +2439,7 @@ const getTimePeriodChartData = (days: TimeWeeklyDayReport[]) => {
 
 const createTimeWeeklyLegend = (
 	clients: TimeOverviewItem[],
+	dayCount: number,
 	emptyText: string,
 ) => {
 	const legend = div("time-weekly-legend");
@@ -2405,7 +2452,17 @@ const createTimeWeeklyLegend = (
 			const row = div("time-weekly-legend__row");
 			const label = div("time-entry-row__title");
 			label.append(timeColor(client.color), text("strong", client.name));
-			row.append(label, text("span", formatDuration(client.totalSeconds)));
+			const total = div("time-weekly-legend__total");
+			total.append(
+				text("strong", formatDuration(client.totalSeconds)),
+				text(
+					"span",
+					`Avg/day ${formatDuration(
+						dayCount > 0 ? client.totalSeconds / dayCount : 0,
+					)}`,
+				),
+			);
+			row.append(label, total);
 			legend.append(row);
 		}
 	}
@@ -2454,7 +2511,7 @@ const createTimeWeeklyChart = (
 		bars.append(column);
 	}
 
-	root.append(bars, createTimeWeeklyLegend(clients, emptyText));
+	root.append(bars, createTimeWeeklyLegend(clients, days.length, emptyText));
 	return root;
 };
 
