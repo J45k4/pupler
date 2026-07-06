@@ -1712,6 +1712,11 @@ body.modal-open {
 	backdrop-filter: blur(4px);
 }
 
+.time-entry-create-modal--range-preview .time-entry-create-modal__backdrop {
+	background: rgba(20, 14, 10, 0.28);
+	backdrop-filter: blur(1px);
+}
+
 .product-create-modal__dialog,
 .todo-create-modal__dialog,
 .time-entry-create-modal__dialog,
@@ -3161,8 +3166,49 @@ body.modal-open {
 	font-size: 0.85rem;
 }
 
+.time-weekly-toolbar {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 1rem;
+	margin-bottom: 1rem;
+}
+
+.time-weekly-toolbar .status {
+	flex: 1 1 auto;
+	min-width: 0;
+	margin-right: auto;
+}
+
+.time-weekly-toolbar .status:empty {
+	display: none;
+}
+
 .time-weekly-controls {
 	align-items: end;
+	flex: 0 0 auto;
+	margin-bottom: 0;
+}
+
+.time-weekly-controls label {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	min-width: 0;
+	max-width: none;
+	white-space: nowrap;
+}
+
+.time-weekly-controls label input,
+.time-weekly-controls label select {
+	width: auto;
+	min-width: 10rem;
+}
+
+.time-weekly-controls > input,
+.time-weekly-controls > select {
+	width: auto;
+	min-width: 10rem;
 }
 
 .time-weekly-controls > button {
@@ -3285,6 +3331,186 @@ body.modal-open {
 	color: var(--muted);
 	font-size: 0.82rem;
 	white-space: nowrap;
+}
+
+.time-weekly-detail {
+	display: grid;
+	gap: 0;
+	overflow-x: auto;
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	background: rgba(255, 255, 255, 0.45);
+	--time-weekly-hour-height: 4rem;
+}
+
+.time-weekly-detail__header,
+.time-weekly-detail__body {
+	display: grid;
+	grid-template-columns: 4.5rem repeat(7, minmax(9.5rem, 1fr));
+	min-width: 72rem;
+}
+
+.time-weekly-detail__header {
+	position: sticky;
+	top: 0;
+	z-index: 2;
+	overflow-y: auto;
+	background: #e8eef2;
+	border-bottom: 1px solid var(--line);
+	scrollbar-gutter: stable;
+}
+
+.time-weekly-detail__corner,
+.time-weekly-detail__day-heading {
+	min-height: 3.75rem;
+	padding: 0.65rem 0.75rem;
+}
+
+.time-weekly-detail__day-heading {
+	display: grid;
+	align-content: center;
+	gap: 0.2rem;
+	border-left: 1px solid rgba(175, 198, 216, 0.55);
+	text-align: center;
+}
+
+.time-weekly-detail__day-heading strong {
+	font-size: 0.85rem;
+	font-weight: 700;
+}
+
+.time-weekly-detail__day-heading span {
+	color: var(--muted);
+	font-size: 0.8rem;
+}
+
+.time-weekly-detail__body {
+	max-height: 42rem;
+	overflow-y: auto;
+	scrollbar-gutter: stable;
+}
+
+.time-weekly-detail__hours,
+.time-weekly-detail__day {
+	min-height: calc(var(--time-weekly-hour-height) * 24);
+}
+
+.time-weekly-detail__hours {
+	display: grid;
+	grid-template-rows: repeat(24, var(--time-weekly-hour-height));
+	background: rgba(255, 255, 255, 0.55);
+	color: var(--muted);
+	font-size: 0.78rem;
+	text-align: right;
+}
+
+.time-weekly-detail__hours span {
+	padding: 0.35rem 0.55rem 0 0;
+	border-top: 1px dashed rgba(175, 198, 216, 0.7);
+}
+
+.time-weekly-detail__day {
+	position: relative;
+	border-left: 1px solid rgba(175, 198, 216, 0.55);
+	background:
+		repeating-linear-gradient(
+			to bottom,
+			rgba(175, 198, 216, 0.45) 0,
+			rgba(175, 198, 216, 0.45) 1px,
+			transparent 1px,
+			transparent var(--time-weekly-hour-height)
+		);
+}
+
+.time-weekly-detail-entry {
+	position: absolute;
+	top: var(--entry-top);
+	left: 0.35rem;
+	right: 0.35rem;
+	display: grid;
+	align-content: start;
+	gap: 0.25rem;
+	min-height: 2rem;
+	height: max(var(--entry-height), 2rem);
+	overflow: hidden;
+	padding: 0.45rem 0.5rem;
+	border-left: 3px solid var(--time-color, var(--accent-2));
+	border-radius: 6px;
+	background: rgba(239, 244, 247, 0.96);
+	color: var(--text);
+	box-shadow: 0 2px 8px rgba(20, 14, 10, 0.06);
+}
+
+.time-weekly-detail-entry strong,
+.time-weekly-detail-entry span {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.time-weekly-detail-entry strong {
+	font-size: 0.82rem;
+	font-weight: 700;
+}
+
+.time-weekly-detail-entry__project,
+.time-weekly-detail-entry__meta {
+	display: flex;
+	align-items: center;
+	gap: 0.35rem;
+	min-width: 0;
+	font-size: 0.76rem;
+}
+
+.time-weekly-detail-entry__project {
+	color: var(--ink);
+}
+
+.time-weekly-detail-entry__project .time-color {
+	width: 0.55rem;
+	height: 0.55rem;
+	box-shadow: none;
+}
+
+.time-weekly-detail-entry__meta {
+	justify-content: space-between;
+	color: var(--muted);
+}
+
+.time-weekly-detail-selection {
+	position: absolute;
+	top: var(--selection-top);
+	left: 0.25rem;
+	right: 0.25rem;
+	z-index: 3;
+	display: grid;
+	align-content: start;
+	gap: 0.35rem;
+	min-height: 2rem;
+	height: max(var(--selection-height), 2rem);
+	padding: 0.45rem;
+	border: 1px solid rgba(47, 125, 225, 0.82);
+	border-radius: 6px;
+	background: rgba(47, 125, 225, 0.14);
+	box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+}
+
+.time-weekly-detail-selection__label {
+	color: #1f4f8f;
+	font-size: 0.76rem;
+	font-weight: 700;
+	white-space: nowrap;
+}
+
+.time-weekly-detail-selection__add {
+	justify-self: start;
+	width: auto;
+	padding: 0.35rem 0.7rem;
+	font-size: 0.78rem;
+}
+
+.time-weekly-detail__empty {
+	margin: 1rem;
 }
 
 .time-monthly-calendar-layout {
@@ -3489,8 +3715,30 @@ body.modal-open {
 		justify-self: center;
 	}
 
+	.time-weekly-toolbar {
+		align-items: stretch;
+		flex-direction: column;
+	}
+
 	.time-weekly-controls > button {
 		width: 100%;
+	}
+
+	.time-weekly-controls label {
+		align-items: stretch;
+		flex-direction: column;
+	}
+
+	.time-weekly-controls label input,
+	.time-weekly-controls label select {
+		width: 100%;
+		min-width: 0;
+	}
+
+	.time-weekly-controls > input,
+	.time-weekly-controls > select {
+		width: 100%;
+		min-width: 0;
 	}
 
 	.time-weekly-chart {

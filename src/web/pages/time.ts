@@ -136,6 +136,13 @@ type TimeWeeklyDayReport = {
 	report: TimeReport | null;
 };
 
+type TimeWeeklyViewMode = "summary" | "detail";
+
+type TimeEntryRangeInput = {
+	startedAt: string;
+	endedAt: string;
+};
+
 const DAY_SECONDS = 24 * 60 * 60;
 const UNKNOWN_TIME_KEY = "__unknown_time__";
 const UNKNOWN_TIME_COLOR = "#cbd5e1";
@@ -212,8 +219,15 @@ const timeApi = {
 	fetchProjects: () =>
 		timeApiJson<Project[]>("/api/projects?sort=name&order=asc"),
 
-	fetchEntries: () =>
-		timeApiJson<TimeEntry[]>("/api/time-entries?sort=started_at&order=desc"),
+	fetchEntries: (filters: { from?: string; to?: string } = {}) => {
+		const query = new URLSearchParams({
+			sort: "started_at",
+			order: "desc",
+		});
+		if (filters.from) query.set("from", filters.from);
+		if (filters.to) query.set("to", filters.to);
+		return timeApiJson<TimeEntry[]>(`/api/time-entries?${query.toString()}`);
+	},
 
 	fetchReport: (from: string, to: string) => {
 		const query = new URLSearchParams({ from, to });
@@ -580,13 +594,26 @@ const updateTimeOverviewUrl = (selection: TimeOverviewSelection) => {
 	window.history.replaceState({}, "", `${url.pathname}${url.search}`);
 };
 
-const updateTimeWeeklyUrl = (weekDate: string) => {
+const getCurrentTimeWeeklyViewMode = (): TimeWeeklyViewMode => {
+	const requestedView = new URL(window.location.href).searchParams.get("view");
+	return requestedView === "detail" ? "detail" : "summary";
+};
+
+const updateTimeWeeklyViewUrl = (
+	weekDate: string,
+	viewMode: TimeWeeklyViewMode,
+) => {
 	const url = new URL(window.location.href);
 	const today = formatDateInput();
 	if (weekDate === today) {
 		url.searchParams.delete("week");
 	} else {
 		url.searchParams.set("week", weekDate);
+	}
+	if (viewMode === "summary") {
+		url.searchParams.delete("view");
+	} else {
+		url.searchParams.set("view", viewMode);
 	}
 	window.history.replaceState({}, "", `${url.pathname}${url.search}`);
 };
@@ -1193,7 +1220,10 @@ type TimePageContext = {
 	status: HTMLElement;
 };
 
-const createTimeEntryCreateModal = (context: TimePageContext) => {
+const createTimeEntryCreateModal = (
+	context: TimePageContext,
+	options: { onEntryAdded?: () => void | Promise<void> } = {},
+) => {
 	const root = document.createElement("div");
 	root.className = "time-entry-create-modal";
 	root.hidden = true;
@@ -1269,6 +1299,7 @@ const createTimeEntryCreateModal = (context: TimePageContext) => {
 
 	const close = () => {
 		root.hidden = true;
+		root.classList.remove("time-entry-create-modal--range-preview");
 		document.body.classList.remove("modal-open");
 		form.reset();
 		clientSelect.clear();
@@ -1276,13 +1307,14 @@ const createTimeEntryCreateModal = (context: TimePageContext) => {
 		setLocalStatus("");
 	};
 
-	const open = () => {
-		const range = defaultTimeEntryRange();
+	const open = (range?: TimeEntryRangeInput) => {
+		const nextRange = range ?? defaultTimeEntryRange();
 		const state = context.store.get();
 		clientSelect.setOptions(clientOptions(state.clients));
 		projectSelect.setOptions(choiceOptions(state.choices));
-		startedAt.value = range.startedAt;
-		endedAt.value = range.endedAt;
+		startedAt.value = nextRange.startedAt;
+		endedAt.value = nextRange.endedAt;
+		root.classList.toggle("time-entry-create-modal--range-preview", range !== undefined);
 		root.hidden = false;
 		document.body.classList.add("modal-open");
 		setLocalStatus("");
@@ -1323,6 +1355,7 @@ const createTimeEntryCreateModal = (context: TimePageContext) => {
 			});
 			close();
 			setStatus(context.status, "Entry added.");
+			void options.onEntryAdded?.();
 		} catch (error) {
 			setLocalStatus(
 				error instanceof Error ? error.message : "Failed to add entry.",
@@ -2515,6 +2548,251 @@ const createTimeWeeklyChart = (
 	return root;
 };
 
+const formatTimeOfDay = (date: Date) =>
+	new Intl.DateTimeFormat(undefined, {
+		hour: "2-digit",
+		minute: "2-digit",
+	}).format(date);
+
+const projectForWeeklyEntry = (entry: TimeEntry) =>
+	entry.project ??
+	(entry.project_id === null
+		? null
+		: {
+				id: entry.project_id,
+				client_id: null,
+				name: "Unknown project",
+				color: UNKNOWN_TIME_COLOR,
+				archived_at: null,
+				created_at: "",
+				updated_at: "",
+			});
+
+const createTimeWeeklyDetailEntry = (
+	entry: TimeEntry,
+	day: TimeWeeklyDayReport,
+) => {
+	const dayStartMs = Date.parse(day.from);
+	const dayEndMs = Date.parse(day.to);
+	const entryStartMs = Date.parse(entry.started_at);
+	const entryEndMs = Date.parse(entry.ended_at ?? new Date().toISOString());
+	const startMs = Math.max(dayStartMs, entryStartMs);
+	const endMs = Math.min(dayEndMs, entryEndMs);
+	if (endMs <= startMs || dayEndMs <= dayStartMs) return null;
+
+	const startDate = new Date(startMs);
+	const endDate = new Date(endMs);
+	const startMinute = startDate.getHours() * 60 + startDate.getMinutes();
+	const durationMinutes = Math.max(1, (endMs - startMs) / 60000);
+	const project = projectForWeeklyEntry(entry);
+	const client = project?.client ?? null;
+	const title = entry.description?.trim() || "No description";
+	const root = div("time-weekly-detail-entry");
+	root.style.setProperty("--entry-top", `${(startMinute / 1440) * 100}%`);
+	root.style.setProperty("--entry-height", `${(durationMinutes / 1440) * 100}%`);
+	root.style.setProperty("--time-color", project?.color ?? UNKNOWN_TIME_COLOR);
+	root.title = `${title} - ${formatTimeOfDay(startDate)} to ${formatTimeOfDay(endDate)}`;
+
+	const titleElement = text("strong", title);
+	const projectLine = div("time-weekly-detail-entry__project");
+	projectLine.append(
+		timeColor(project?.color ?? UNKNOWN_TIME_COLOR),
+		text("span", `${project?.name ?? "No project"}${client ? ` - ${client.name}` : ""}`),
+	);
+	const meta = div("time-weekly-detail-entry__meta");
+	meta.append(
+		text("span", `${formatTimeOfDay(startDate)} - ${formatTimeOfDay(endDate)}`),
+		text("span", formatDuration(Math.floor((endMs - startMs) / 1000))),
+	);
+	root.append(titleElement, projectLine, meta);
+	return root;
+};
+
+const createTimeWeeklyDetail = (
+	days: TimeWeeklyDayReport[],
+	entries: TimeEntry[],
+	onAddRange: (range: TimeEntryRangeInput) => void = () => {},
+) => {
+	const root = div("time-weekly-detail");
+	const header = div("time-weekly-detail__header");
+	header.append(div("time-weekly-detail__corner"));
+	for (const day of days) {
+		const date = localDateFromInput(day.date) ?? new Date(day.from);
+		const dayHeading = div("time-weekly-detail__day-heading");
+		dayHeading.append(
+			text("strong", `${formatWeekday(date)}, ${formatShortDate(date)}`),
+			text("span", formatDuration(day.report?.total_seconds ?? 0)),
+		);
+		header.append(dayHeading);
+	}
+
+	const body = div("time-weekly-detail__body");
+	const hours = div("time-weekly-detail__hours");
+	for (let hour = 0; hour < 24; hour += 1) {
+		const label = text("span", `${String(hour).padStart(2, "0")}:00`);
+		hours.append(label);
+	}
+	body.append(hours);
+
+	let activeSelection:
+		| {
+				day: TimeWeeklyDayReport;
+				column: HTMLElement;
+				element: HTMLElement;
+				startMinute: number;
+				endMinute: number;
+				dragging: boolean;
+		  }
+		| null = null;
+
+	const snapMinute = (minute: number) =>
+		Math.max(0, Math.min(24 * 60, Math.round(minute / 15) * 15));
+
+	const minuteFromPointer = (column: HTMLElement, event: PointerEvent) => {
+		const rect = column.getBoundingClientRect();
+		return snapMinute(((event.clientY - rect.top) / rect.height) * 24 * 60);
+	};
+
+	const selectionRange = (selection: NonNullable<typeof activeSelection>) => {
+		const startMinute = Math.min(selection.startMinute, selection.endMinute);
+		const endMinute = Math.max(selection.startMinute, selection.endMinute);
+		return {
+			startMinute,
+			endMinute,
+			durationMinutes: endMinute - startMinute,
+		};
+	};
+
+	const rangeInputForSelection = (selection: NonNullable<typeof activeSelection>) => {
+		const { startMinute, endMinute } = selectionRange(selection);
+		const dayStart = new Date(selection.day.from);
+		return {
+			startedAt: formatDateTimeLocalInput(
+				new Date(dayStart.getTime() + startMinute * 60 * 1000),
+			),
+			endedAt: formatDateTimeLocalInput(
+				new Date(dayStart.getTime() + endMinute * 60 * 1000),
+			),
+		};
+	};
+
+	const updateSelectionElement = (selection: NonNullable<typeof activeSelection>) => {
+		const { startMinute, durationMinutes } = selectionRange(selection);
+		selection.element.style.setProperty(
+			"--selection-top",
+			`${(startMinute / 1440) * 100}%`,
+		);
+		selection.element.style.setProperty(
+			"--selection-height",
+			`${(Math.max(15, durationMinutes) / 1440) * 100}%`,
+		);
+		const label = selection.element.querySelector<HTMLElement>(
+			".time-weekly-detail-selection__label",
+		);
+		if (label) {
+			label.textContent = `${formatTimeOfDay(
+				new Date(new Date(selection.day.from).getTime() + startMinute * 60 * 1000),
+			)} - ${formatDuration(durationMinutes * 60)}`;
+		}
+	};
+
+	const clearSelections = () => {
+		root
+			.querySelectorAll(".time-weekly-detail-selection")
+			.forEach((element) => element.remove());
+		activeSelection = null;
+	};
+
+	for (const day of days) {
+		const column = div("time-weekly-detail__day");
+		column.addEventListener("pointerdown", (event) => {
+			if (event.button !== 0) return;
+			if (
+				event.target instanceof Element &&
+				event.target.closest(".time-weekly-detail-entry, .time-weekly-detail-selection")
+			) {
+				return;
+			}
+			event.preventDefault();
+			clearSelections();
+			const selection = div("time-weekly-detail-selection");
+			const label = div("time-weekly-detail-selection__label");
+			selection.append(label);
+			column.append(selection);
+			activeSelection = {
+				day,
+				column,
+				element: selection,
+				startMinute: minuteFromPointer(column, event),
+				endMinute: minuteFromPointer(column, event),
+				dragging: true,
+			};
+			column.setPointerCapture(event.pointerId);
+			updateSelectionElement(activeSelection);
+		});
+		column.addEventListener("pointermove", (event) => {
+			if (
+				!activeSelection ||
+				activeSelection.column !== column ||
+				!activeSelection.dragging
+			) {
+				return;
+			}
+			activeSelection.endMinute = minuteFromPointer(column, event);
+			updateSelectionElement(activeSelection);
+		});
+		column.addEventListener("pointerup", (event) => {
+			if (!activeSelection || activeSelection.column !== column) return;
+			activeSelection.endMinute = minuteFromPointer(column, event);
+			activeSelection.dragging = false;
+			updateSelectionElement(activeSelection);
+			const { durationMinutes } = selectionRange(activeSelection);
+			if (durationMinutes < 15) {
+				clearSelections();
+				return;
+			}
+			const addButton = new Button({
+				text: "Add",
+				className: "primary time-weekly-detail-selection__add",
+				type: "button",
+			});
+			const selectedRange = rangeInputForSelection(activeSelection);
+			const openSelectedRange = () => {
+				onAddRange(selectedRange);
+			};
+			addButton.root.addEventListener("pointerdown", (buttonEvent) => {
+				buttonEvent.preventDefault();
+				buttonEvent.stopPropagation();
+				openSelectedRange();
+			});
+			addButton.root.addEventListener("click", (buttonEvent) => {
+				buttonEvent.preventDefault();
+				buttonEvent.stopPropagation();
+			});
+			activeSelection.element.append(addButton.root);
+			column.releasePointerCapture(event.pointerId);
+		});
+		column.addEventListener("pointercancel", () => {
+			if (activeSelection?.column === column) clearSelections();
+		});
+		for (const entry of entries) {
+			const entryElement = createTimeWeeklyDetailEntry(entry, day);
+			if (entryElement) column.append(entryElement);
+		}
+		body.append(column);
+	}
+
+	if (!entries.length) {
+		const empty = div("empty time-weekly-detail__empty");
+		empty.textContent = "No time entries in this week.";
+		root.append(header, body, empty);
+		return root;
+	}
+
+	root.append(header, body);
+	return root;
+};
+
 const createTimeMonthlyDayDetails = (
 	day: TimeWeeklyDayReport | undefined,
 	clients: TimeOverviewItem[],
@@ -2669,6 +2947,9 @@ const createTimeMonthlyCalendar = (
 const renderTimeWeeklyReport = (
 	days: TimeWeeklyDayReport[] | null,
 	resultsRoot: HTMLElement,
+	viewMode: TimeWeeklyViewMode = "summary",
+	entries: TimeEntry[] = [],
+	onAddRange: (range: TimeEntryRangeInput) => void = () => {},
 ) => {
 	resultsRoot.replaceChildren();
 	if (!days) {
@@ -2677,7 +2958,11 @@ const renderTimeWeeklyReport = (
 		resultsRoot.append(empty);
 		return;
 	}
-	resultsRoot.append(createTimeWeeklySummary(days), createTimeWeeklyChart(days));
+	if (viewMode === "detail") {
+		resultsRoot.append(createTimeWeeklyDetail(days, entries, onAddRange));
+	} else {
+		resultsRoot.append(createTimeWeeklyChart(days));
+	}
 };
 
 const renderTimeMonthlyReport = (
@@ -2866,6 +3151,16 @@ export const renderTimeOverviewPage = (page: HTMLElement) => {
 
 export const renderTimeWeeklyPage = (page: HTMLElement) => {
 	let selectedDate = getCurrentTimeWeeklyDate();
+	let selectedViewMode = getCurrentTimeWeeklyViewMode();
+	let loadedDays: TimeWeeklyDayReport[] | null = null;
+	let loadedEntries: TimeEntry[] = [];
+	const status = div("status");
+	const store = new TimeStore(createTimePageState([], [], []));
+	const actions = new TimeActions(store, status);
+	const entryCreateModal = createTimeEntryCreateModal(
+		{ store, actions, status },
+		{ onEntryAdded: () => load(selectedDate) },
+	);
 	const controls = div("spending-breakdown-controls time-overview-controls time-weekly-controls");
 	const previousWeek = new Button({ text: "Previous Week", className: "secondary" });
 	const nextWeek = new Button({ text: "Next Week", className: "secondary" });
@@ -2874,15 +3169,30 @@ export const renderTimeWeeklyPage = (page: HTMLElement) => {
 	weekInput.type = "date";
 	weekInput.value = selectedDate;
 	weekInput.max = formatDateInput();
-	const weekLabel = field("Week", weekInput);
-	controls.append(previousWeek.root, weekLabel, nextWeek.root);
+	weekInput.setAttribute("aria-label", "Week");
+	const viewSelect = document.createElement("select");
+	viewSelect.id = "time-weekly-view-select";
+	viewSelect.value = selectedViewMode;
+	viewSelect.setAttribute("aria-label", "View");
+	for (const option of [
+		{ value: "summary", label: "Summary" },
+		{ value: "detail", label: "Detail" },
+	] satisfies { value: TimeWeeklyViewMode; label: string }[]) {
+		const element = document.createElement("option");
+		element.value = option.value;
+		element.textContent = option.label;
+		element.selected = option.value === selectedViewMode;
+		viewSelect.append(element);
+	}
+	controls.append(previousWeek.root, weekInput, viewSelect, nextWeek.root);
 
-	const status = div("status");
 	const results = div("time-overview-results");
+	const toolbar = div("time-weekly-toolbar");
+	toolbar.append(status, controls);
 	const pageBlock = document.createElement("section");
 	pageBlock.className = "time-block";
-	pageBlock.append(controls, status, results);
-	page.append(pageBlock);
+	pageBlock.append(toolbar, results);
+	page.append(pageBlock, entryCreateModal.root);
 
 	const setSelectedDate = (date: string) => {
 		selectedDate = date;
@@ -2892,29 +3202,48 @@ export const renderTimeWeeklyPage = (page: HTMLElement) => {
 		);
 		const currentWeekStart = startOfLocalWeek(new Date());
 		nextWeek.root.disabled = selectedWeekStart >= currentWeekStart;
-		updateTimeWeeklyUrl(selectedDate);
+		updateTimeWeeklyViewUrl(selectedDate, selectedViewMode);
 	};
 
 	const load = async (weekDate: string) => {
 		setSelectedDate(weekDate);
 		setStatus(status, "Loading weekly time...");
-		renderTimeWeeklyReport(null, results);
+		renderTimeWeeklyReport(null, results, selectedViewMode, [], entryCreateModal.open);
 		try {
 			const days = getTimeWeeklyDays(weekDate);
-			const reports = await Promise.all(
-				days.map((day) => {
-					if (Date.parse(day.from) >= Date.now()) {
-						return Promise.resolve(createEmptyTimeReport(day.from, day.to));
-					}
-					return timeApi.fetchReport(day.from, day.to);
-				}),
+			const reportsPromise = Promise.all(
+				days.map((day) =>
+					Date.parse(day.from) >= Date.now()
+						? Promise.resolve(createEmptyTimeReport(day.from, day.to))
+						: timeApi.fetchReport(day.from, day.to),
+				),
 			);
-			const loadedDays = days.map((day, index) => ({
+			const entriesPromise = timeApi.fetchEntries({
+				from: days[0]?.from,
+				to: days[days.length - 1]?.to,
+			});
+			const clientsPromise = timeApi.fetchClients();
+			const projectsPromise = timeApi.fetchProjects();
+			const [reports, entries, clients, projects] = await Promise.all([
+				reportsPromise,
+				entriesPromise,
+				clientsPromise,
+				projectsPromise,
+			]);
+			loadedDays = days.map((day, index) => ({
 				...day,
 				report: reports[index] ?? createEmptyTimeReport(day.from, day.to),
 			}));
-			renderTimeWeeklyReport(loadedDays, results);
-			setStatus(status, "Loaded weekly client time.");
+			loadedEntries = entries;
+			store.setAllData(clients, projects, entries);
+			renderTimeWeeklyReport(
+				loadedDays,
+				results,
+				selectedViewMode,
+				loadedEntries,
+				entryCreateModal.open,
+			);
+			setStatus(status, "");
 		} catch (error) {
 			setStatus(
 				status,
@@ -2940,6 +3269,20 @@ export const renderTimeWeeklyPage = (page: HTMLElement) => {
 	weekInput.addEventListener("change", () => {
 		const date = weekInput.value || formatDateInput();
 		void load(date);
+	});
+
+	viewSelect.addEventListener("change", () => {
+		selectedViewMode = viewSelect.value === "detail" ? "detail" : "summary";
+		viewSelect.value = selectedViewMode;
+		updateTimeWeeklyViewUrl(selectedDate, selectedViewMode);
+		renderTimeWeeklyReport(
+			loadedDays,
+			results,
+			selectedViewMode,
+			loadedEntries,
+			entryCreateModal.open,
+		);
+		setStatus(status, "");
 	});
 
 	void load(selectedDate);
