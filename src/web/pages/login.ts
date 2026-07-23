@@ -42,11 +42,6 @@ export const renderLoginPage = () => {
 		`
 			<section class="login-page">
 				<div class="card panel login-panel">
-					<div class="page-heading page-heading--compact">
-						<div>
-							<h1 class="page-title">Login</h1>
-						</div>
-					</div>
 					<form id="login-form" autocomplete="on">
 						<label>
 							Username

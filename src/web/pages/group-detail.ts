@@ -18,7 +18,6 @@ const renderGroupDetail = (group: Group, receipts: PurchaseReceipt[]) => {
 		<section class="page-heading page-heading--compact">
 			<div>
 				<span class="eyebrow">Group</span>
-				<h1 class="page-title">${escapeHtml(group.name)}</h1>
 			</div>
 			<a class="secondary action-link" href="/receipts" data-link>Back To Receipts</a>
 		</section>

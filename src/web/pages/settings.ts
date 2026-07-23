@@ -52,12 +52,6 @@ const attachSettingsEvents = () => {
 export const renderSettingsPage = () => {
 	renderPage(
 		`
-			<section class="page-heading page-heading--compact">
-				<div>
-					<h1 class="page-title">Settings</h1>
-				</div>
-			</section>
-
 			<section class="workspace workspace--single">
 				<div class="card panel settings-panel">
 					<div class="section-header">

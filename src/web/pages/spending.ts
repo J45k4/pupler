@@ -651,9 +651,6 @@ export const renderSpendingOverviewPage = () => {
 	renderPage(
 		`
 			<section class="page-heading page-heading--compact">
-				<div>
-					<h1 class="page-title">Overview</h1>
-				</div>
 				<div class="actions">
 					<a class="secondary action-link" href="/spending" data-link>Breakdown</a>
 					<a class="secondary action-link" href="/receipts" data-link>Receipts</a>

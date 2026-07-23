@@ -237,12 +237,6 @@ const attachClientEvents = () => {
 
 export const renderClientsPage = () => {
 	renderPage(`
-		<section class="page-heading page-heading--compact">
-			<div>
-				<h1 class="page-title">Clients</h1>
-			</div>
-		</section>
-
 		<section class="workspace clients-workspace">
 			<div class="card panel">
 				<div class="section-header">

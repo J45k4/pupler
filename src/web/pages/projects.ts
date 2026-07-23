@@ -321,12 +321,6 @@ const attachProjectEvents = () => {
 
 export const renderProjectsPage = () => {
 	renderPage(`
-		<section class="page-heading page-heading--compact">
-			<div>
-				<h1 class="page-title">Projects</h1>
-			</div>
-		</section>
-
 		<section class="workspace projects-workspace">
 			<div class="card panel">
 				<div class="section-header">

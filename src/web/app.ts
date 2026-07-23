@@ -609,9 +609,6 @@ export const renderRecipeDetail = (recipe: Recipe) => {
 
 	page.innerHTML = `
 		<section class="page-heading page-heading--compact">
-			<div>
-				<h1 class="page-title">${recipe.name}</h1>
-			</div>
 			<a class="secondary action-link" href="/recipes" data-link>Back To Recipes</a>
 		</section>
 
@@ -940,7 +937,6 @@ export const renderProductDetail = (product: Product) => {
 		<section class="page-heading page-heading--compact">
 			<div>
 				<span class="eyebrow">Product</span>
-				<h1 class="page-title">${escapeHtml(product.name)}</h1>
 			</div>
 			<a class="secondary action-link" href="/products" data-link>Back To Products</a>
 		</section>
@@ -2715,7 +2711,6 @@ export const renderReceiptDetail = (
 		<section class="page-heading page-heading--compact">
 			<div>
 				<span class="eyebrow">Receipt</span>
-				<h1 class="page-title">${escapeHtml(receipt.store_name)}</h1>
 			</div>
 			<a class="secondary action-link" href="/receipts" data-link>Back To Receipts</a>
 		</section>
@@ -6545,7 +6540,6 @@ export const renderInventoryItemDetail = (
 		<section class="page-heading page-heading--compact">
 			<div>
 				<span class="eyebrow">Inventory Item</span>
-				<h1 class="page-title">${escapeHtml(item.name)}</h1>
 			</div>
 			<a class="secondary action-link" href="/inventory" data-link>Back To Inventory</a>
 		</section>

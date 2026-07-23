@@ -10,7 +10,6 @@ export const renderRecipeCreatePage = () => {
 			<section class="page-heading page-heading--compact">
 				<div>
 					<span class="eyebrow">Recipes</span>
-					<h1 class="page-title">Add recipe</h1>
 					<p class="page-copy">
 						Add the recipe basics, ingredients, and cooking steps in one place.
 					</p>

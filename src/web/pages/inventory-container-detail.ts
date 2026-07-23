@@ -72,9 +72,6 @@ export const renderInventoryContainerDetailPage = (params: Record<string, string
 
 			page.innerHTML = `
 				<section class="page-heading page-heading--compact">
-					<div>
-						<h1 class="page-title">${container.name}</h1>
-					</div>
 					<a class="secondary action-link" href="/inventory" data-link>Back To Inventory</a>
 				</section>
 
