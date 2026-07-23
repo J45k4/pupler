@@ -1,4 +1,4 @@
-import { escapeHtml, renderPage, setStatus } from "../app";
+import { renderPage, setStatus } from "../app";
 import { attachModalControls, renderModal } from "../ui/modal";
 import { SearchSelect, type SearchSelectOption } from "../ui/search-select";
 
@@ -32,6 +32,50 @@ let projectsPageState: ProjectsPageState = {
 	projects: [],
 };
 let projectCreateClientSelect: SearchSelect | null = null;
+let activeProjectActionsMenu: HTMLElement | null = null;
+let activeProjectActionsTrigger: HTMLButtonElement | null = null;
+let projectActionsMenuEventsAttached = false;
+
+const closeProjectActionsMenu = () => {
+	activeProjectActionsMenu?.remove();
+	activeProjectActionsTrigger?.setAttribute("aria-expanded", "false");
+	activeProjectActionsMenu = null;
+	activeProjectActionsTrigger = null;
+};
+
+const positionProjectActionsMenu = (
+	menu: HTMLElement,
+	trigger: HTMLButtonElement,
+) => {
+	const triggerBounds = trigger.getBoundingClientRect();
+	const viewportMargin = 12;
+	let top = triggerBounds.bottom + 6;
+	let left = triggerBounds.right - menu.offsetWidth;
+
+	if (top + menu.offsetHeight > window.innerHeight - viewportMargin) {
+		top = triggerBounds.top - menu.offsetHeight - 6;
+	}
+	menu.style.top = `${Math.max(viewportMargin, top)}px`;
+	menu.style.left = `${Math.max(viewportMargin, left)}px`;
+};
+
+const attachProjectActionsMenuEvents = () => {
+	if (projectActionsMenuEventsAttached) return;
+	projectActionsMenuEventsAttached = true;
+	document.addEventListener("click", (event) => {
+		const target = event.target;
+		if (!(target instanceof Node)) return;
+		if (
+			activeProjectActionsMenu?.contains(target) ||
+			activeProjectActionsTrigger?.contains(target)
+		) {
+			return;
+		}
+		closeProjectActionsMenu();
+	});
+	window.addEventListener("resize", closeProjectActionsMenu);
+	window.addEventListener("scroll", closeProjectActionsMenu, true);
+};
 
 const apiJson = async <T>(path: string, options: RequestInit = {}) => {
 	const response = await fetch(path, {
@@ -91,6 +135,7 @@ const selectedClientId = async (clientSelect: SearchSelect) => {
 };
 
 const renderProjectRows = () => {
+	closeProjectActionsMenu();
 	const results = document.getElementById("project-results");
 	if (!results) return;
 	const showArchived = document.getElementById("projects-show-archived");
@@ -108,46 +153,45 @@ const renderProjectRows = () => {
 		return;
 	}
 
+	const table = document.createElement("table");
+	table.className = "project-table";
+	table.innerHTML = `
+		<thead>
+			<tr>
+				<th scope="col">Project</th>
+				<th scope="col">Color</th>
+				<th scope="col">Client</th>
+				<th scope="col">Status</th>
+				<th scope="col">Actions</th>
+			</tr>
+		</thead>
+	`;
+	const body = document.createElement("tbody");
+
 	for (const project of projects) {
 		const isArchived = project.archived_at !== null;
-		const row = document.createElement("div");
-		row.className = `project-row${isArchived ? " project-row--archived" : ""}`;
+		const row = document.createElement("tr");
+		row.className = isArchived ? "project-table__row--archived" : "";
 
-		const summary = document.createElement("div");
-		summary.className = "project-row__summary";
-		summary.innerHTML = `
-			<div class="time-entry-row__title">
-				<span class="time-color" style="--time-color: ${escapeHtml(project.color)}"></span>
-				<strong>${escapeHtml(project.name)}</strong>
-				<span class="project-row__client">${project.client?.name ? escapeHtml(project.client.name) : "No client"}</span>
-				${isArchived ? '<span class="tag tag--neutral">Archived</span>' : ""}
-			</div>
-		`;
-
-		const form = document.createElement("form");
-		form.className = "project-row__form";
-		form.dataset.projectId = String(project.id);
-		form.hidden = true;
-
-		const nameLabel = document.createElement("label");
-		nameLabel.textContent = "Name";
+		const nameCell = document.createElement("td");
+		nameCell.className = "project-table__name";
 		const nameInput = document.createElement("input");
 		nameInput.name = "name";
 		nameInput.value = project.name;
+		nameInput.setAttribute("aria-label", `Project name for ${project.name}`);
 		nameInput.required = true;
-		nameLabel.append(nameInput);
+		nameCell.append(nameInput);
 
-		const colorLabel = document.createElement("label");
-		colorLabel.textContent = "Color";
+		const colorCell = document.createElement("td");
 		const colorInput = document.createElement("input");
 		colorInput.name = "color";
 		colorInput.type = "color";
 		colorInput.value = project.color;
+		colorInput.setAttribute("aria-label", `Color for ${project.name}`);
 		colorInput.required = true;
-		colorLabel.append(colorInput);
+		colorCell.append(colorInput);
 
-		const clientLabel = document.createElement("label");
-		clientLabel.textContent = "Client";
+		const clientCell = document.createElement("td");
 		const clientSelect = new SearchSelect({
 			placeholder: "No client",
 			allowCreate: true,
@@ -156,23 +200,51 @@ const renderProjectRows = () => {
 		clientSelect
 			.setOptions(clientOptions(projectsPageState.clients, project.client_id))
 			.setValue(project.client_id === null ? null : String(project.client_id));
-		clientLabel.append(clientSelect.root);
+		clientCell.append(clientSelect.root);
 
-		const actions = document.createElement("div");
-		actions.className = "project-row__actions";
+		const statusCell = document.createElement("td");
+		statusCell.innerHTML = `<span class="${isArchived ? "tag tag--neutral" : "tag"}">${isArchived ? "Archived" : "Active"}</span>`;
+
+		const actionsCell = document.createElement("td");
+		const actionsTrigger = document.createElement("button");
+		actionsTrigger.className = "secondary project-table__actions-trigger";
+		actionsTrigger.type = "button";
+		actionsTrigger.textContent = "Actions";
+		actionsTrigger.setAttribute("aria-haspopup", "menu");
+		actionsTrigger.setAttribute("aria-expanded", "false");
+		actionsTrigger.setAttribute("aria-label", `Actions for ${project.name}`);
+		const actionsMenu = document.createElement("div");
+		actionsMenu.className = "project-actions-menu";
+		actionsMenu.setAttribute("role", "menu");
 		const save = document.createElement("button");
 		save.className = "secondary";
-		save.type = "submit";
+		save.type = "button";
 		save.textContent = "Save";
 		const clear = document.createElement("button");
 		clear.className = "secondary";
 		clear.type = "button";
 		clear.textContent = "Clear Client";
-		actions.append(save, clear);
+		const archive = document.createElement("button");
+		archive.className = "secondary";
+		archive.type = "button";
+		archive.textContent = isArchived ? "Restore" : "Archive";
+		actionsMenu.append(save, clear, archive);
+		actionsCell.append(actionsTrigger);
+		actionsTrigger.addEventListener("click", (event) => {
+			event.stopPropagation();
+			const isOpen = activeProjectActionsMenu === actionsMenu;
+			closeProjectActionsMenu();
+			if (isOpen) return;
 
-		form.append(nameLabel, colorLabel, clientLabel, actions);
-		form.addEventListener("submit", async (event) => {
-			event.preventDefault();
+			document.body.append(actionsMenu);
+			activeProjectActionsMenu = actionsMenu;
+			activeProjectActionsTrigger = actionsTrigger;
+			actionsTrigger.setAttribute("aria-expanded", "true");
+			positionProjectActionsMenu(actionsMenu, actionsTrigger);
+		});
+		actionsMenu.addEventListener("click", (event) => event.stopPropagation());
+
+		save.addEventListener("click", async () => {
 			const name = nameInput.value.trim();
 			if (!name) {
 				setStatus("projects-status", "Project name is required.", true);
@@ -214,19 +286,34 @@ const renderProjectRows = () => {
 				);
 			}
 		});
-		const edit = document.createElement("button");
-		edit.className = "secondary project-row__edit";
-		edit.type = "button";
-		edit.textContent = "Edit";
-		edit.addEventListener("click", () => {
-			form.hidden = !form.hidden;
-			row.classList.toggle("project-row--editing", !form.hidden);
-			edit.textContent = form.hidden ? "Edit" : "Close";
-			if (!form.hidden) nameInput.focus();
+		archive.addEventListener("click", async () => {
+			try {
+				await apiJson<Project>(`/api/projects/${project.id}`, {
+					method: "PATCH",
+					body: JSON.stringify({
+						archived_at: isArchived ? null : new Date().toISOString(),
+					}),
+				});
+				setStatus("projects-status", isArchived ? "Project restored." : "Project archived.");
+				await loadProjects();
+			} catch (error) {
+				setStatus(
+					"projects-status",
+					error instanceof Error ? error.message : "Failed to update project.",
+					true,
+				);
+			}
 		});
-		row.append(summary, edit, form);
-		results.append(row);
+
+		row.append(nameCell, colorCell, clientCell, statusCell, actionsCell);
+		body.append(row);
 	}
+
+	table.append(body);
+	const tableWrap = document.createElement("div");
+	tableWrap.className = "project-table-wrap";
+	tableWrap.append(table);
+	results.append(tableWrap);
 };
 
 const loadProjects = async () => {
@@ -253,6 +340,14 @@ const loadProjects = async () => {
 };
 
 const attachProjectEvents = () => {
+	attachProjectActionsMenuEvents();
+	const projectCreateModal = attachModalControls({
+		modalId: "project-create-modal",
+		openButtonId: "open-project-create-modal",
+		closeSelector: "[data-project-create-modal-close]",
+		focusSelector: "input[name='name']",
+		onOpen: () => setStatus("project-create-status", ""),
+	});
 	const createClientSelect = new SearchSelect({
 		placeholder: "No client",
 		allowCreate: true,
@@ -260,25 +355,6 @@ const attachProjectEvents = () => {
 	});
 	projectCreateClientSelect = createClientSelect;
 	document.getElementById("project-create-client")?.replaceWith(createClientSelect.root);
-	const projectModal = attachModalControls({
-		modalId: "project-create-modal",
-		openButtonId: "open-project-create-modal",
-		closeSelector: "[data-close-project-create-modal]",
-		focusSelector: "input[name='name']",
-		onOpen: () => {
-			const form = document.getElementById("project-create-form");
-			if (form instanceof HTMLFormElement) {
-				form.reset();
-				const colorInput = form.querySelector<HTMLInputElement>(
-					"input[name='color']",
-				);
-				if (colorInput) colorInput.value = "#2d7c6f";
-			}
-			createClientSelect.clear();
-			setStatus("project-create-status", "");
-		},
-	});
-
 	document
 		.getElementById("project-create-form")
 		?.addEventListener("submit", async (event) => {
@@ -308,7 +384,7 @@ const attachProjectEvents = () => {
 				const colorInput = form.querySelector<HTMLInputElement>("input[name='color']");
 				if (colorInput) colorInput.value = "#2d7c6f";
 				createClientSelect.clear();
-				projectModal.close();
+				projectCreateModal.close();
 				setStatus("projects-status", "Project created.");
 				await loadProjects();
 			} catch (error) {
@@ -329,26 +405,27 @@ const attachProjectEvents = () => {
 
 export const renderProjectsPage = () => {
 	renderPage(`
-		<section class="workspace workspace--single">
+		<section class="workspace workspace--single projects-workspace">
 			<div class="card panel">
-				<div class="section-header section-header--end">
-					<label class="inline-toggle">
-						<input id="projects-show-archived" type="checkbox" />
-						Show archived
-					</label>
-					<button class="primary" id="open-project-create-modal" type="button">New Project</button>
+				<div class="section-header">
+					<h2>Projects</h2>
+					<div class="project-header-actions">
+						<label class="inline-toggle">
+							<input id="projects-show-archived" type="checkbox" />
+							Show archived
+						</label>
+						<button class="primary" id="open-project-create-modal" type="button">New project</button>
+					</div>
 				</div>
-				<div id="project-results" class="project-list"></div>
 				<div id="projects-status" class="status" role="status"></div>
+				<div id="project-results" class="project-list"></div>
 			</div>
 		</section>
 
 		${renderModal({
 			id: "project-create-modal",
 			title: "New Project",
-			ariaLabel: "Create project",
-			closeDataAttribute: "data-close-project-create-modal",
-			headerClassName: "section-header--end",
+			closeDataAttribute: "data-project-create-modal-close",
 			className: "project-create-modal",
 			children: `
 				<form id="project-create-form">
@@ -366,7 +443,6 @@ export const renderProjectsPage = () => {
 					</label>
 					<div class="actions">
 						<button class="primary" type="submit">Create Project</button>
-						<button class="secondary" type="button" data-close-project-create-modal>Cancel</button>
 					</div>
 				</form>
 				<div id="project-create-status" class="status" role="status"></div>

@@ -2866,8 +2866,7 @@ body.modal-open {
 	box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.7);
 }
 
-.clients-workspace,
-.projects-workspace {
+.clients-workspace {
 	align-items: start;
 	grid-template-columns: minmax(18rem, 24rem) minmax(0, 1fr);
 }
@@ -2879,8 +2878,7 @@ body.modal-open {
 	margin-top: 1rem;
 }
 
-.client-row,
-.project-row {
+.client-row {
 	display: grid;
 	gap: 1rem;
 	grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.4fr);
@@ -2889,60 +2887,21 @@ body.modal-open {
 	border-bottom: 1px solid var(--line);
 }
 
-/* Keep Projects a true list until a row is deliberately opened for editing. */
-.project-row {
-	grid-template-columns: minmax(0, 1fr) auto;
-	gap: 0.5rem;
-	padding: 0.6rem 0;
-}
-
-.project-row--editing {
-	grid-template-columns: minmax(0, 1fr) auto;
-}
-
-.project-row__summary {
-	min-width: 0;
-}
-
-.project-row__summary .time-entry-row__title {
-	min-width: 0;
-}
-
-
-.project-row__client {
-	min-width: 0;
-	overflow: hidden;
-	color: var(--muted);
-	font-size: 0.85rem;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.project-row__client::before {
-	content: "·";
-	margin-right: 0.6rem;
-}
-
-.client-row:first-child,
-.project-row:first-child {
+.client-row:first-child {
 	padding-top: 0;
 }
 
-.client-row:last-child,
-.project-row:last-child {
+.client-row:last-child {
 	padding-bottom: 0;
 	border-bottom: 0;
 }
 
-.client-row--archived,
-.project-row--archived {
+.client-row--archived {
 	opacity: 0.68;
 }
 
 .client-row__summary,
-.client-row__form,
-.project-row__summary,
-.project-row__form {
+.client-row__form {
 	min-width: 0;
 }
 
@@ -2953,26 +2912,7 @@ body.modal-open {
 	align-items: end;
 }
 
-.project-row__form {
-	display: grid;
-	gap: 0.75rem;
-	grid-template-columns: minmax(0, 1fr) 5rem minmax(12rem, 0.9fr) auto;
-	align-items: end;
-	grid-column: 1 / -1;
-}
-
-.project-row__form[hidden] {
-	display: none;
-}
-
-.project-row__edit {
-	margin: 0;
-	align-self: center;
-	padding: 0.45rem 0.75rem;
-}
-
-.client-row__actions,
-.project-row__actions {
+.client-row__actions {
 	display: flex;
 	flex-wrap: wrap;
 	gap: 0.5rem;
@@ -3018,6 +2958,106 @@ body.modal-open {
 
 .client-project-row .tag {
 	margin-left: auto;
+}
+
+.project-header-actions {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+}
+
+.project-header-actions {
+	flex-wrap: wrap;
+	justify-content: flex-end;
+}
+
+.project-table-wrap {
+	margin-top: 1rem;
+	overflow-x: auto;
+}
+
+.project-table {
+	width: 100%;
+	min-width: 46rem;
+	border-collapse: collapse;
+}
+
+.project-table th,
+.project-table td {
+	padding: 0.7rem;
+	text-align: left;
+	vertical-align: middle;
+}
+
+.project-table th {
+	color: var(--muted);
+	font-size: 0.78rem;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+}
+
+.project-table tbody tr {
+	border-top: 1px solid var(--line);
+}
+
+.project-table__row--archived {
+	opacity: 0.68;
+}
+
+.project-table th:nth-child(1),
+.project-table td:nth-child(1) {
+	width: 28%;
+}
+
+.project-table th:nth-child(2),
+.project-table td:nth-child(2) {
+	width: 5.5rem;
+}
+
+.project-table th:nth-child(3),
+.project-table td:nth-child(3) {
+	width: 25%;
+}
+
+.project-table th:nth-child(4),
+.project-table td:nth-child(4) {
+	width: 6.5rem;
+}
+
+.project-table input,
+.project-table .search-select__input {
+	padding: 0.65rem 0.75rem;
+}
+
+.project-table input[type="color"] {
+	width: 3.25rem;
+	min-width: 3.25rem;
+	padding: 0.25rem;
+}
+
+.project-table__actions-trigger {
+	padding: 0.6rem 0.8rem;
+	font-size: 0.86rem;
+}
+
+.project-actions-menu {
+	position: fixed;
+	z-index: 50;
+	display: grid;
+	gap: 0.25rem;
+	min-width: 9rem;
+	padding: 0.35rem;
+	border: 1px solid rgba(81, 56, 36, 0.16);
+	border-radius: 14px;
+	background: rgba(255, 252, 247, 0.98);
+	box-shadow: var(--shadow);
+}
+
+.project-actions-menu button {
+	width: 100%;
+	padding: 0.6rem 0.8rem;
+	font-size: 0.86rem;
+	text-align: left;
 }
 
 .time-action-row,
@@ -3799,8 +3839,7 @@ body.modal-open {
 	}
 
 	.client-row,
-	.client-row__form,
-	.project-row__form {
+	.client-row__form {
 		grid-template-columns: 1fr;
 	}
 
