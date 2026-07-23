@@ -290,6 +290,26 @@ model User {
 	@@map("users")
 }
 
+model ExternalIntegration {
+	id                         Int                  @id @default(autoincrement())
+	provider                   Int
+	name                       String
+	status                     Int                  @default(1)
+	config_json                String               @map("config_json")
+	credentials_encrypted_json String               @map("credentials_encrypted_json")
+	created_at                 String               @map("created_at")
+	updated_at                 String               @map("updated_at")
+	schedules                  ImportSchedule[]
+	jobs                       Job[]
+	clockify_project_links     ClockifyProjectLink[]
+	clockify_time_entry_links  ClockifyTimeEntryLink[]
+
+	@@unique([provider, name], map: "external_integrations_provider_name_key")
+	@@index([provider], map: "idx_external_integrations_provider")
+	@@index([status], map: "idx_external_integrations_status")
+	@@map("external_integrations")
+}
+
 model UserSession {
 	id             Int    @id @default(autoincrement())
 	user_id        Int    @map("user_id")
@@ -328,6 +348,7 @@ model Project {
 	updated_at   String      @map("updated_at")
 	client       Client?     @relation(fields: [client_id], references: [id], onDelete: SetNull)
 	time_entries TimeEntry[]
+	clockify_project_links ClockifyProjectLink[]
 
 	@@index([client_id], map: "idx_projects_client_id")
 	@@index([name], map: "idx_projects_name")
@@ -346,10 +367,103 @@ model TimeEntry {
 	updated_at  String       @map("updated_at")
 	user        User?        @relation(fields: [user_id], references: [id], onDelete: SetNull)
 	project     Project?     @relation(fields: [project_id], references: [id])
+	clockify_time_entry_links ClockifyTimeEntryLink[]
 
 	@@index([user_id], map: "idx_time_entries_user_id")
 	@@index([project_id], map: "idx_time_entries_project_id")
 	@@index([started_at], map: "idx_time_entries_started_at")
 	@@index([ended_at], map: "idx_time_entries_ended_at")
 	@@map("time_entries")
+}
+
+model ImportSchedule {
+	id             Int                  @id @default(autoincrement())
+	integration_id Int                  @map("integration_id")
+	type           Int
+	status         Int                  @default(1)
+	name           String
+	cadence        Int
+	timezone       String
+	cursor_json    String?              @map("cursor_json")
+	params_json    String               @map("params_json")
+	next_run_at    String?              @map("next_run_at")
+	last_run_at    String?              @map("last_run_at")
+	last_job_id    Int?                 @map("last_job_id")
+	created_at     String               @map("created_at")
+	updated_at     String               @map("updated_at")
+	integration    ExternalIntegration  @relation(fields: [integration_id], references: [id], onDelete: Cascade)
+	jobs           Job[]
+
+	@@index([integration_id], map: "idx_import_schedules_integration_id")
+	@@index([type, status], map: "idx_import_schedules_type_status")
+	@@index([next_run_at], map: "idx_import_schedules_next_run_at")
+	@@map("import_schedules")
+}
+
+model Job {
+	id             Int                  @id @default(autoincrement())
+	schedule_id    Int?                 @map("schedule_id")
+	integration_id Int?                 @map("integration_id")
+	type           Int
+	status         Int                  @default(1)
+	params_json    String               @map("params_json")
+	cursor_json    String?              @map("cursor_json")
+	total_rows     Int                  @default(0) @map("total_rows")
+	processed_rows Int                  @default(0) @map("processed_rows")
+	result_json    String?              @map("result_json")
+	error_json     String?              @map("error_json")
+	error_message  String?              @map("error_message")
+	started_at     String?              @map("started_at")
+	finished_at    String?              @map("finished_at")
+	created_at     String               @map("created_at")
+	updated_at     String               @map("updated_at")
+	schedule       ImportSchedule?      @relation(fields: [schedule_id], references: [id], onDelete: SetNull)
+	integration    ExternalIntegration? @relation(fields: [integration_id], references: [id], onDelete: SetNull)
+
+	@@index([schedule_id], map: "idx_jobs_schedule_id")
+	@@index([integration_id], map: "idx_jobs_integration_id")
+	@@index([type, status], map: "idx_jobs_type_status")
+	@@index([created_at], map: "idx_jobs_created_at")
+	@@map("jobs")
+}
+
+model ClockifyProjectLink {
+	id                   Int                 @id @default(autoincrement())
+	integration_id        Int                 @map("integration_id")
+	project_id            Int                 @map("project_id")
+	clockify_workspace_id String              @map("clockify_workspace_id")
+	clockify_project_id   String              @map("clockify_project_id")
+	clockify_client_id    String?             @map("clockify_client_id")
+	clockify_name         String              @map("clockify_name")
+	clockify_client_name  String?             @map("clockify_client_name")
+	last_seen_at          String              @map("last_seen_at")
+	created_at            String              @map("created_at")
+	updated_at            String              @map("updated_at")
+	integration           ExternalIntegration @relation(fields: [integration_id], references: [id], onDelete: Cascade)
+	project               Project             @relation(fields: [project_id], references: [id], onDelete: Cascade)
+
+	@@unique([integration_id, clockify_workspace_id, clockify_project_id], map: "clockify_project_links_external_key")
+	@@unique([integration_id, project_id], map: "clockify_project_links_project_key")
+	@@index([project_id], map: "idx_clockify_project_links_project_id")
+	@@map("clockify_project_links")
+}
+
+model ClockifyTimeEntryLink {
+	id                    Int                 @id @default(autoincrement())
+	integration_id         Int                 @map("integration_id")
+	time_entry_id          Int                 @map("time_entry_id")
+	clockify_workspace_id  String              @map("clockify_workspace_id")
+	clockify_time_entry_id String              @map("clockify_time_entry_id")
+	clockify_project_id    String?             @map("clockify_project_id")
+	clockify_user_id       String?             @map("clockify_user_id")
+	last_seen_at           String              @map("last_seen_at")
+	created_at             String              @map("created_at")
+	updated_at             String              @map("updated_at")
+	integration            ExternalIntegration @relation(fields: [integration_id], references: [id], onDelete: Cascade)
+	time_entry             TimeEntry           @relation(fields: [time_entry_id], references: [id], onDelete: Cascade)
+
+	@@unique([integration_id, clockify_workspace_id, clockify_time_entry_id], map: "clockify_time_entry_links_external_key")
+	@@unique([integration_id, time_entry_id], map: "clockify_time_entry_links_time_entry_key")
+	@@index([time_entry_id], map: "idx_clockify_time_entry_links_time_entry_id")
+	@@map("clockify_time_entry_links")
 }

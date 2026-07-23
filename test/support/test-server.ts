@@ -96,6 +96,7 @@ export class TestServer {
 				...process.env,
 				PORT: String(port),
 				DB_PATH: dbPath,
+				PUPLER_DISABLE_JOB_WORKER: "true",
 			},
 			stdout: "pipe",
 			stderr: "pipe",

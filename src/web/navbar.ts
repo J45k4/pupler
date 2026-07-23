@@ -90,6 +90,9 @@ const navigationEntries: NavigationEntry[] = [
 	{ href: "/time/monthly", label: "Monthly Time", group: "Time", keywords: "month time report" },
 	{ href: "/recipes", label: "Recipes", group: "Cooking", keywords: "meals" },
 	{ href: "/recipes/new", label: "New Recipe", group: "Cooking", keywords: "create recipe" },
+	{ href: "/integrations", label: "Integrations", group: "Settings", keywords: "clockify imports external" },
+	{ href: "/import-schedules", label: "Import Schedules", group: "Settings", keywords: "clockify schedules imports cadence" },
+	{ href: "/jobs", label: "Jobs", group: "Settings", keywords: "background jobs imports history" },
 	{ href: "/settings", label: "Settings", group: "Settings", keywords: "password account" },
 ];
 
@@ -97,6 +100,7 @@ const quickNavigationEntries = [
 	{ href: "/", label: "Activity", icon: "⌁" },
 	{ href: "/time", label: "Time", icon: "◴" },
 	{ href: "/spending/overview", label: "Reports", icon: "◐" },
+	{ href: "/integrations", label: "Everything", icon: "◉" },
 ];
 
 const activeNavigationEntry = (currentPath: string) =>
@@ -123,6 +127,7 @@ const renderAccountMenu = (user: NavbarUser | null) => {
 			<div class="account-menu__dropdown">
 				<div class="account-menu__username">${label}</div>
 				<a class="account-menu__link" href="/settings" data-link>Settings</a>
+				<a class="account-menu__link" href="/integrations" data-link>Integrations</a>
 				<button class="account-menu__logout" type="button">Logout</button>
 			</div>
 		</div>

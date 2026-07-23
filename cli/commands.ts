@@ -399,6 +399,8 @@ const HELP_TEXT = `Pupler CLI
 Usage:
   bun ./cli/cli.ts <resource> <command> [args] [flags]
   bun ./cli/cli.ts config <command> [args]
+  bun ./cli/cli.ts integrations clockify configure [flags]
+  bun ./cli/cli.ts imports clockify <command> [flags]
 
 Resources:
   ${RESOURCE_NAMES}
@@ -411,6 +413,9 @@ Examples:
   bun ./cli/cli.ts products create --name Milk --category food --is-perishable true --ingredient-id 1
   bun ./cli/cli.ts receipts create --store-name Prisma --purchased-at 2026-04-14T08:00:00Z --currency EUR --group-id 1
   bun ./cli/cli.ts receipt-items create --receipt-id 1 --product-id 2 --quantity 1 --unit pcs
+  bun ./cli/cli.ts integrations clockify configure --workspace-id abc --api-key-env CLOCKIFY_API_KEY
+  bun ./cli/cli.ts imports clockify schedule --integration-id 1 --name Daily --cadence daily
+  bun ./cli/cli.ts imports clockify run --schedule-id 1
 
 Global flags:
   --base-url <url>   Override PUPLER_BASE_URL, the config file, or the default http://localhost:5995
@@ -419,6 +424,18 @@ Global flags:
 `;
 
 const CONFIG_COMMANDS = ["show", "path", "get-url", "set-url", "clear-url"];
+const IMPORT_SCHEDULE_CADENCES: Record<string, number> = {
+	manual: 1,
+	hourly: 2,
+	daily: 3,
+	weekly: 4,
+};
+const JOB_STATUS = {
+	Pending: 1,
+	Running: 2,
+	Completed: 3,
+	Failed: 4,
+} as const;
 
 const toFlagName = (field: string) => field.replace(/_/g, "-");
 const normalizeFlagName = (value: string) => value.replace(/-/g, "_");
@@ -1104,6 +1121,171 @@ const runConfigCommand = async (
 	};
 };
 
+const renderIntegrationsHelp = () => `Pupler CLI: integrations
+
+Usage:
+  bun ./cli/cli.ts integrations clockify configure --workspace-id <id> --api-key-env <env>
+
+Commands:
+  clockify configure
+`;
+
+const runIntegrationsCommand = async (
+	args: string[],
+	globalOptions: GlobalOptions,
+): Promise<CommandResult> => {
+	if (!args.length || args[0] === "help" || globalOptions.help) {
+		return { message: renderIntegrationsHelp() };
+	}
+	if (args[0] !== "clockify" || args[1] !== "configure") {
+		throw new CliError(`Unknown integrations command \`${args.join(" ")}\``);
+	}
+	const parsed = parseArgs(args.slice(2));
+	ensureNoExtraPositionals(parsed.positionals, 0);
+	const apiKeyEnv = parsed.flags.api_key_env === undefined
+		? undefined
+		: ensureStringFlag(parsed.flags.api_key_env, "api_key_env");
+	const apiKey = parsed.flags.api_key === undefined
+		? apiKeyEnv
+			? process.env[apiKeyEnv]
+			: undefined
+		: ensureStringFlag(parsed.flags.api_key, "api_key");
+	if (!apiKey) {
+		throw new CliError(
+			apiKeyEnv
+				? `Environment variable \`${apiKeyEnv}\` is not set`
+				: "Provide `--api-key-env` or `--api-key`",
+		);
+	}
+	const payload = await requestJson({
+		baseUrl: resolveRequestBaseUrl(globalOptions),
+		path: "/api/external-integrations/clockify",
+		method: "POST",
+		body: {
+			name: parsed.flags.name === undefined
+				? "default"
+				: ensureStringFlag(parsed.flags.name, "name"),
+			workspace_id: ensureStringFlag(parsed.flags.workspace_id, "workspace_id"),
+			api_key: apiKey,
+			...(parsed.flags.api_base_url === undefined
+				? {}
+				: { api_base_url: ensureStringFlag(parsed.flags.api_base_url, "api_base_url") }),
+			...(parsed.flags.reports_base_url === undefined
+				? {}
+				: {
+					reports_base_url: ensureStringFlag(
+						parsed.flags.reports_base_url,
+						"reports_base_url",
+					),
+				}),
+		},
+	});
+	return { payload };
+};
+
+const parseCadence = (value: FlagValue | undefined) => {
+	const raw = value === undefined ? "manual" : ensureStringFlag(value, "cadence");
+	const cadence = IMPORT_SCHEDULE_CADENCES[raw.trim().toLowerCase()];
+	if (!cadence) {
+		throw new CliError("Cadence must be one of manual, hourly, daily, weekly");
+	}
+	return cadence;
+};
+
+const renderImportsHelp = () => `Pupler CLI: imports
+
+Usage:
+  bun ./cli/cli.ts imports clockify schedule --integration-id <id> --name <name> [flags]
+  bun ./cli/cli.ts imports clockify run --schedule-id <id> [--no-wait]
+
+Clockify schedule flags:
+  --cadence <manual|hourly|daily|weekly>
+  --timezone <timezone>
+  --lookback-days <integer|null>
+  --dry-run true|false
+  --next-run-at <ISO timestamp|null>
+`;
+
+const waitForJob = async (baseUrl: string, jobId: number) => {
+	for (;;) {
+		const job = await requestJson({
+			baseUrl,
+			path: `/api/jobs/${jobId}`,
+		}) as { status: number; error_message?: string | null };
+		if (job.status === JOB_STATUS.Completed) return job;
+		if (job.status === JOB_STATUS.Failed) {
+			throw new CliError(job.error_message ?? `Job ${jobId} failed`);
+		}
+		await Bun.sleep(1000);
+	}
+};
+
+const runImportsCommand = async (
+	args: string[],
+	globalOptions: GlobalOptions,
+): Promise<CommandResult> => {
+	if (!args.length || args[0] === "help" || globalOptions.help) {
+		return { message: renderImportsHelp() };
+	}
+	if (args[0] !== "clockify") {
+		throw new CliError(`Unknown imports provider \`${args[0]}\``);
+	}
+	const command = args[1];
+	if (!command) return { message: renderImportsHelp() };
+	const parsed = parseArgs(args.slice(2));
+	const baseUrl = resolveRequestBaseUrl(globalOptions);
+
+	if (command === "schedule") {
+		ensureNoExtraPositionals(parsed.positionals, 0);
+		const payload = await requestJson({
+			baseUrl,
+			path: "/api/import-schedules",
+			method: "POST",
+			body: {
+				integration_id: parseInteger(
+					ensureStringFlag(parsed.flags.integration_id, "integration_id"),
+				),
+				name: ensureStringFlag(parsed.flags.name, "name"),
+				cadence: parseCadence(parsed.flags.cadence),
+				timezone: parsed.flags.timezone === undefined
+					? "UTC"
+					: ensureStringFlag(parsed.flags.timezone, "timezone"),
+				lookback_days: parsed.flags.lookback_days === undefined
+					? 14
+					: ensureStringFlag(parsed.flags.lookback_days, "lookback_days") === "null"
+						? null
+						: parseInteger(ensureStringFlag(parsed.flags.lookback_days, "lookback_days")),
+				dry_run: parsed.flags.dry_run === undefined
+					? false
+					: parseBoolean(ensureStringFlag(parsed.flags.dry_run, "dry_run")),
+				next_run_at: parsed.flags.next_run_at === undefined
+					? null
+					: parseFieldValue("next_run_at", { type: "timestamp", nullable: true }, parsed.flags.next_run_at),
+			},
+		});
+		return { payload };
+	}
+
+	if (command === "run") {
+		ensureNoExtraPositionals(parsed.positionals, 0);
+		const scheduleId = parseInteger(
+			ensureStringFlag(parsed.flags.schedule_id, "schedule_id"),
+		);
+		const job = await requestJson({
+			baseUrl,
+			path: `/api/import-schedules/${scheduleId}/run`,
+			method: "POST",
+			body: {},
+		}) as { id: number };
+		if (parsed.flags.no_wait !== undefined) {
+			return { payload: job };
+		}
+		return { payload: await waitForJob(baseUrl, job.id) };
+	}
+
+	throw new CliError(`Unknown imports clockify command \`${command}\``);
+};
+
 export const renderRootHelp = () => HELP_TEXT;
 
 export const runCliCommand = async (
@@ -1116,6 +1298,14 @@ export const runCliCommand = async (
 
 	if (args[0] === "config") {
 		return runConfigCommand(args.slice(1), globalOptions);
+	}
+
+	if (args[0] === "integrations") {
+		return runIntegrationsCommand(args.slice(1), globalOptions);
+	}
+
+	if (args[0] === "imports") {
+		return runImportsCommand(args.slice(1), globalOptions);
 	}
 
 	const resourceName = args[0];

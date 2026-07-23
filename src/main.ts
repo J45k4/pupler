@@ -3,10 +3,17 @@ import {
 	authLogoutRoute,
 	authPasswordRoute,
 	authSessionRoute,
+	clockifyIntegrationRoute,
+	clockifyIntegrationOptionsRoute,
 	ingredientDetailRoute,
 	ingredientsCollectionRoute,
+	externalIntegrationDetailRoute,
+	externalIntegrationsCollectionRoute,
 	groupDetailRoute,
 	groupsCollectionRoute,
+	importScheduleDetailRoute,
+	importScheduleRunRoute,
+	importSchedulesCollectionRoute,
 	inventoryContainerDetailRoute,
 	inventoryContainersCollectionRoute,
 	inventoryItemDetailRoute,
@@ -35,6 +42,9 @@ import {
 	shoppingListItemDetailRoute,
 	shoppingListItemsCollectionRoute,
 	spendingRoute,
+	jobDetailRoute,
+	jobsCollectionRoute,
+	startJobWorker,
 	timeEntriesCollectionRoute,
 	timeEntryDetailRoute,
 	timeEntryStartRoute,
@@ -90,6 +100,9 @@ export const server = (options: ServerOptions = {}) => {
 		: undefined;
 	const port = options.port ?? (Number.isFinite(envPort) ? envPort : 5995);
 	const db = openDatabase(dbPath, filesPath);
+	if (process.env.PUPLER_DISABLE_JOB_WORKER !== "true") {
+		void startJobWorker(db);
+	}
 
 	return Bun.serve({
 		port,
@@ -98,6 +111,15 @@ export const server = (options: ServerOptions = {}) => {
 			"/api/auth/logout": authLogoutRoute(db),
 			"/api/auth/password": authPasswordRoute(db),
 			"/api/auth/session": authSessionRoute(db),
+			"/api/external-integrations": externalIntegrationsCollectionRoute(db),
+			"/api/external-integrations/clockify": clockifyIntegrationRoute(db),
+			"/api/external-integrations/:id/clockify-options": clockifyIntegrationOptionsRoute(db),
+			"/api/external-integrations/:id": externalIntegrationDetailRoute(db),
+			"/api/import-schedules": importSchedulesCollectionRoute(db),
+			"/api/import-schedules/:id/run": importScheduleRunRoute(db),
+			"/api/import-schedules/:id": importScheduleDetailRoute(db),
+			"/api/jobs": jobsCollectionRoute(db),
+			"/api/jobs/:id": jobDetailRoute(db),
 			"/api/groups": groupsCollectionRoute(db),
 			"/api/groups/:id": groupDetailRoute(db),
 			"/api/ingredients": ingredientsCollectionRoute(db),
@@ -154,6 +176,10 @@ export const server = (options: ServerOptions = {}) => {
 			"/": index,
 			"/login": index,
 			"/settings": index,
+			"/integrations": index,
+			"/import-schedules/:id": index,
+			"/import-schedules": index,
+			"/jobs": index,
 			"/expirations": index,
 			"/inventory": index,
 			"/inventory/expirations": index,
