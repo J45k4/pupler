@@ -30,6 +30,9 @@ export {
 	productsCollectionRoute,
 } from "./products";
 export {
+	productStatsRoute,
+} from "./product-stats";
+export {
 	inventoryItemDetailRoute,
 	inventoryItemImageDetailRoute,
 	inventoryItemImagesCollectionRoute,
@@ -80,6 +83,7 @@ export {
 } from "./clients";
 export {
 	projectDetailRoute,
+	projectMergeRoute,
 	projectsCollectionRoute,
 } from "./projects";
 export {

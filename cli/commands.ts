@@ -394,6 +394,7 @@ const RESOURCE_MAP = new Map(RESOURCES.map((resource) => [resource.command, reso
 const RESOURCE_NAMES = RESOURCES.map((resource) => resource.command).join(", ");
 const CRUD_COMMANDS = ["list", "get", "create", "replace", "update", "delete"];
 const TIME_ENTRY_COMMANDS = [...CRUD_COMMANDS, "start", "stop"];
+const PROJECT_COMMANDS = [...CRUD_COMMANDS, "merge"];
 const HELP_TEXT = `Pupler CLI
 
 Usage:
@@ -444,6 +445,17 @@ const renderFieldFlags = (fields: Record<string, FieldSpec>) =>
 		.join("\n");
 
 const renderResourceExamples = (resource: ResourceConfig) => {
+	if (resource.command === "projects") {
+		return `
+Common project workflows:
+  # Move all time entries from project 8 into keeper project 3, then archive project 8
+  bun ./cli/cli.ts projects merge 3 --source-id 8
+
+  # Delete the duplicate after moving its time entries
+  bun ./cli/cli.ts projects merge 3 --source-id 8 --delete-source true --archive-source false
+`;
+	}
+
 	if (resource.command !== "inventory-items") {
 		return "";
 	}
@@ -693,6 +705,8 @@ const renderResourceHelp = (resource: ResourceConfig) => {
 	const fields = renderFieldFlags(resource.fields);
 	const commands = resource.command === "time-entries"
 		? [...TIME_ENTRY_COMMANDS]
+		: resource.command === "projects"
+			? [...PROJECT_COMMANDS]
 		: [...CRUD_COMMANDS];
 	if (resource.hasPicture) {
 		commands.push("picture");
@@ -773,6 +787,17 @@ Writable flags:
 
 Writable flags:
   --ended-at <ISO timestamp>
+`;
+		case "merge":
+			if (resource.command !== "projects") {
+				throw new CliError(`Unknown command \`${command}\``);
+			}
+			return `Usage: bun ./cli/cli.ts projects merge <keeper-id> --source-id <integer> [flags]
+
+Flags:
+  --source-id <integer>
+  --archive-source <true|false>
+  --delete-source <true|false>
 `;
 		default:
 			throw new CliError(`Unknown command \`${command}\``);
@@ -929,6 +954,55 @@ const runTimeEntryCommand = async (
 	throw new CliError(`Unknown command \`${command}\``);
 };
 
+const buildProjectMergePayload = (flags: Record<string, FlagValue>) => {
+	const allowedFields: Record<string, FieldSpec> = {
+		source_id: { type: "integer" },
+		archive_source: { type: "boolean" },
+		delete_source: { type: "boolean" },
+	};
+	const payload: Record<string, unknown> = {};
+
+	for (const [key, value] of Object.entries(flags)) {
+		const field = allowedFields[key];
+		if (!field) {
+			throw new CliError(`Unknown flag \`--${toFlagName(key)}\` for \`projects merge\``);
+		}
+		payload[key] = parseFieldValue(key, field, value);
+	}
+
+	if (payload.source_id === undefined) {
+		throw new CliError("Flag `--source-id` requires a value");
+	}
+
+	return payload;
+};
+
+const runProjectCommand = async (
+	resource: ResourceConfig,
+	command: string,
+	args: string[],
+	globalOptions: GlobalOptions,
+): Promise<CommandResult> => {
+	if (globalOptions.help || command === "help") {
+		return { message: renderCommandHelp(resource, command) };
+	}
+
+	if (command !== "merge") {
+		throw new CliError(`Unknown command \`${command}\``);
+	}
+
+	const parsed = parseArgs(args);
+	const id = requireId(parsed.positionals, resource.command, command);
+	ensureNoExtraPositionals(parsed.positionals, 1);
+	const payload = await requestJson({
+		baseUrl: resolveRequestBaseUrl(globalOptions),
+		path: `${resource.path}/${id}/merge`,
+		method: "POST",
+		body: buildProjectMergePayload(parsed.flags),
+	});
+	return { payload };
+};
+
 const runResourceCommand = async (
 	resource: ResourceConfig,
 	command: string,
@@ -941,6 +1015,10 @@ const runResourceCommand = async (
 
 	if (resource.command === "time-entries" && ["start", "stop"].includes(command)) {
 		return runTimeEntryCommand(resource, command, args, globalOptions);
+	}
+
+	if (resource.command === "projects" && command === "merge") {
+		return runProjectCommand(resource, command, args, globalOptions);
 	}
 
 	if (!CRUD_COMMANDS.includes(command)) {

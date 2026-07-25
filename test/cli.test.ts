@@ -314,6 +314,68 @@ describe("Pupler CLI", () => {
 		expect(listedBody[0]?.id).toBe(startedBody.id);
 	});
 
+	test("merges projects from the CLI", async () => {
+		const server = await startServer();
+
+		const keeper = await server.call<{ id: number }>("/api/projects", {
+			method: "POST",
+			body: {
+				name: "puppybot",
+				color: "#2d7c6f",
+				archived_at: null,
+			},
+		});
+		const duplicate = await server.call<{ id: number }>("/api/projects", {
+			method: "POST",
+			body: {
+				name: "puppybot",
+				color: "#6f5aa8",
+				archived_at: null,
+			},
+		});
+		const entry = await server.call<{ id: number }>("/api/time-entries", {
+			method: "POST",
+			body: {
+				project_id: duplicate.body.id,
+				started_at: "2026-05-26T08:00:00.000Z",
+				ended_at: "2026-05-26T09:00:00.000Z",
+			},
+		});
+
+		const merged = await runCli(
+			[
+				"projects",
+				"merge",
+				String(keeper.body.id),
+				"--json",
+				"--source-id",
+				String(duplicate.body.id),
+			],
+			{ baseUrl: server.baseUrl },
+		);
+		expect(merged.exitCode).toBe(0);
+		const mergedBody = JSON.parse(merged.stdout) as {
+			moved_time_entry_count: number;
+			source_archived: boolean;
+			source_deleted: boolean;
+			target: { id: number };
+		};
+		expect(mergedBody.target.id).toBe(keeper.body.id);
+		expect(mergedBody.moved_time_entry_count).toBe(1);
+		expect(mergedBody.source_archived).toBe(true);
+		expect(mergedBody.source_deleted).toBe(false);
+
+		const moved = await server.call<{ project_id: number }>(
+			`/api/time-entries/${entry.body.id}`,
+		);
+		expect(moved.body.project_id).toBe(keeper.body.id);
+
+		const help = await runCli(["projects", "merge", "--help"]);
+		expect(help.exitCode).toBe(0);
+		expect(help.stdout).toContain("projects merge <keeper-id>");
+		expect(help.stdout).toContain("--source-id <integer>");
+	});
+
 	test("creates and lists products as JSON", async () => {
 		const server = await startServer();
 		const ingredient = await server.call<{ id: number }>("/api/ingredients", {

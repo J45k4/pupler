@@ -78,7 +78,7 @@ const renderClientRows = () => {
 					<div class="client-row__summary">
 						<div class="time-entry-row__title">
 							<span class="time-color" style="--time-color: ${escapeHtml(client.color)}"></span>
-							<strong>${escapeHtml(client.name)}</strong>
+							<a class="client-row__link" href="/clients/${client.id}" data-link>${escapeHtml(client.name)}</a>
 							<span class="${isArchived ? "tag tag--neutral" : "tag"}">${isArchived ? "Archived" : "Active"}</span>
 						</div>
 						<div class="section-copy">${escapeHtml(projectSummary(client, clientsPageState.projects))}</div>

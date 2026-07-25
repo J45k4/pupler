@@ -30,7 +30,15 @@ const escapeHtml = (value: string) =>
 
 export const primaryNavItems: NavItem[] = [
 	{ href: "/", label: "Overview", mobileLabel: "Home" },
-	{ href: "/products", label: "Products", mobileLabel: "Products" },
+	{
+		href: "/products",
+		label: "Products",
+		mobileLabel: "Products",
+		children: [
+			{ href: "/products", label: "Lookup" },
+			{ href: "/products/stats", label: "Stats" },
+		],
+	},
 	{ href: "/clients", label: "Clients", mobileLabel: "Clients" },
 	{ href: "/projects", label: "Projects", mobileLabel: "Projects" },
 	{
@@ -50,7 +58,7 @@ export const primaryNavItems: NavItem[] = [
 			{ href: "/spending/overview", label: "Overview" },
 			{ href: "/spending", label: "Breakdown" },
 			{ href: "/spending/monthly", label: "Monthly" },
-			{ href: "/spending/items", label: "Last Items" },
+			{ href: "/spending/items", label: "Receipt Items" },
 		],
 	},
 	{ href: "/receipts", label: "Receipts", mobileLabel: "Receipts" },
@@ -71,32 +79,27 @@ export const primaryNavItems: NavItem[] = [
 ];
 
 const navigationEntries: NavigationEntry[] = [
+	{ href: "/clients", label: "Clients", group: "Time", keywords: "customers" },
+	{ href: "/inventory/expirations", label: "Expirations", group: "Inventory", keywords: "expires food" },
+	{ href: "/inventory", label: "Inventory", group: "Inventory", keywords: "stock storage containers" },
+	{ href: "/spending/items", label: "Receipt Items", group: "Spending", keywords: "recent purchases search product store category" },
+	{ href: "/spending/monthly", label: "Monthly Spending", group: "Spending", keywords: "month chart" },
+	{ href: "/time/monthly", label: "Monthly Time", group: "Time", keywords: "month time report" },
+	{ href: "/recipes/new", label: "New Recipe", group: "Cooking", keywords: "create recipe" },
 	{ href: "/", label: "Overview", group: "Activity", keywords: "home dashboard" },
 	{ href: "/products", label: "Products", group: "Catalog", keywords: "barcode product lookup" },
-	{ href: "/clients", label: "Clients", group: "Time", keywords: "customers" },
+	{ href: "/products/stats", label: "Product Stats", group: "Catalog", keywords: "bought used usage table" },
 	{ href: "/projects", label: "Projects", group: "Time", keywords: "work project clockify" },
-	{ href: "/inventory", label: "Inventory", group: "Inventory", keywords: "stock storage containers" },
-	{ href: "/inventory/expirations", label: "Expirations", group: "Inventory", keywords: "expires food" },
 	{ href: "/receipts", label: "Receipts", group: "Spending", keywords: "purchases receipt" },
-	{ href: "/spending/overview", label: "Spending Overview", group: "Spending", keywords: "money report" },
-	{ href: "/spending", label: "Spending Breakdown", group: "Spending", keywords: "categories costs" },
-	{ href: "/spending/monthly", label: "Monthly Spending", group: "Spending", keywords: "month chart" },
-	{ href: "/spending/items", label: "Last Purchased Items", group: "Spending", keywords: "recent purchases" },
-	{ href: "/shoppinglist", label: "Shopping List", group: "Planning", keywords: "shopping groceries" },
-	{ href: "/todos", label: "Todos", group: "Planning", keywords: "tasks" },
-	{ href: "/time", label: "Timer", group: "Time", keywords: "time tracking start timer" },
-	{ href: "/time/overview", label: "Time Overview", group: "Time", keywords: "time report" },
-	{ href: "/time/weekly", label: "Weekly Time", group: "Time", keywords: "week time report" },
-	{ href: "/time/monthly", label: "Monthly Time", group: "Time", keywords: "month time report" },
 	{ href: "/recipes", label: "Recipes", group: "Cooking", keywords: "meals" },
-	{ href: "/recipes/new", label: "New Recipe", group: "Cooking", keywords: "create recipe" },
 	{ href: "/settings", label: "Settings", group: "Settings", keywords: "password account" },
-];
-
-const quickNavigationEntries = [
-	{ href: "/", label: "Activity", icon: "⌁" },
-	{ href: "/time", label: "Time", icon: "◴" },
-	{ href: "/spending/overview", label: "Reports", icon: "◐" },
+	{ href: "/shoppinglist", label: "Shopping List", group: "Planning", keywords: "shopping groceries" },
+	{ href: "/spending", label: "Spending Breakdown", group: "Spending", keywords: "categories costs" },
+	{ href: "/spending/overview", label: "Spending Overview", group: "Spending", keywords: "money report" },
+	{ href: "/time/overview", label: "Time Overview", group: "Time", keywords: "time report" },
+	{ href: "/time", label: "Timer", group: "Time", keywords: "time tracking start timer" },
+	{ href: "/todos", label: "Todos", group: "Planning", keywords: "tasks" },
+	{ href: "/time/weekly", label: "Weekly Time", group: "Time", keywords: "week time report" },
 ];
 
 const activeNavigationEntry = (currentPath: string) =>
@@ -150,18 +153,6 @@ export const renderNavbar = (currentPath: string, user: NavbarUser | null = null
 						<span class="navigation-hub__label">${escapeHtml(activeEntry.label)}</span>
 					</button>
 					<div class="navigation-menu card" id="navigation-hub-menu" hidden>
-						<div class="navigation-menu__quick">
-							${quickNavigationEntries
-								.map(
-									(entry) => `
-										<a class="navigation-menu__quick-link" href="${entry.href}" data-link>
-											<span class="navigation-menu__quick-icon">${entry.icon}</span>
-											<span>${escapeHtml(entry.label)}</span>
-										</a>
-									`,
-								)
-								.join("")}
-						</div>
 						<input
 							class="navigation-menu__search"
 							id="navigation-menu-search"

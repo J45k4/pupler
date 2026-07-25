@@ -1,4 +1,5 @@
 import { escapeHtml, renderPage, setStatus } from "../app";
+import { attachModalControls, renderModal } from "../ui/modal";
 import { SearchSelect, type SearchSelectOption } from "../ui/search-select";
 
 type Client = {
@@ -118,14 +119,15 @@ const renderProjectRows = () => {
 			<div class="time-entry-row__title">
 				<span class="time-color" style="--time-color: ${escapeHtml(project.color)}"></span>
 				<strong>${escapeHtml(project.name)}</strong>
-				<span class="${isArchived ? "tag tag--neutral" : "tag"}">${isArchived ? "Archived" : "Active"}</span>
+				<span class="project-row__client">${project.client?.name ? escapeHtml(project.client.name) : "No client"}</span>
+				${isArchived ? '<span class="tag tag--neutral">Archived</span>' : ""}
 			</div>
-			<div class="section-copy">${project.client?.name ? `Client: ${escapeHtml(project.client.name)}` : "No client"}</div>
 		`;
 
 		const form = document.createElement("form");
 		form.className = "project-row__form";
 		form.dataset.projectId = String(project.id);
+		form.hidden = true;
 
 		const nameLabel = document.createElement("label");
 		nameLabel.textContent = "Name";
@@ -166,11 +168,7 @@ const renderProjectRows = () => {
 		clear.className = "secondary";
 		clear.type = "button";
 		clear.textContent = "Clear Client";
-		const archive = document.createElement("button");
-		archive.className = "secondary";
-		archive.type = "button";
-		archive.textContent = isArchived ? "Restore" : "Archive";
-		actions.append(save, clear, archive);
+		actions.append(save, clear);
 
 		form.append(nameLabel, colorLabel, clientLabel, actions);
 		form.addEventListener("submit", async (event) => {
@@ -216,26 +214,17 @@ const renderProjectRows = () => {
 				);
 			}
 		});
-		archive.addEventListener("click", async () => {
-			try {
-				await apiJson<Project>(`/api/projects/${project.id}`, {
-					method: "PATCH",
-					body: JSON.stringify({
-						archived_at: isArchived ? null : new Date().toISOString(),
-					}),
-				});
-				setStatus("projects-status", isArchived ? "Project restored." : "Project archived.");
-				await loadProjects();
-			} catch (error) {
-				setStatus(
-					"projects-status",
-					error instanceof Error ? error.message : "Failed to update project.",
-					true,
-				);
-			}
+		const edit = document.createElement("button");
+		edit.className = "secondary project-row__edit";
+		edit.type = "button";
+		edit.textContent = "Edit";
+		edit.addEventListener("click", () => {
+			form.hidden = !form.hidden;
+			row.classList.toggle("project-row--editing", !form.hidden);
+			edit.textContent = form.hidden ? "Edit" : "Close";
+			if (!form.hidden) nameInput.focus();
 		});
-
-		row.append(summary, form);
+		row.append(summary, edit, form);
 		results.append(row);
 	}
 };
@@ -271,6 +260,24 @@ const attachProjectEvents = () => {
 	});
 	projectCreateClientSelect = createClientSelect;
 	document.getElementById("project-create-client")?.replaceWith(createClientSelect.root);
+	const projectModal = attachModalControls({
+		modalId: "project-create-modal",
+		openButtonId: "open-project-create-modal",
+		closeSelector: "[data-close-project-create-modal]",
+		focusSelector: "input[name='name']",
+		onOpen: () => {
+			const form = document.getElementById("project-create-form");
+			if (form instanceof HTMLFormElement) {
+				form.reset();
+				const colorInput = form.querySelector<HTMLInputElement>(
+					"input[name='color']",
+				);
+				if (colorInput) colorInput.value = "#2d7c6f";
+			}
+			createClientSelect.clear();
+			setStatus("project-create-status", "");
+		},
+	});
 
 	document
 		.getElementById("project-create-form")
@@ -301,7 +308,8 @@ const attachProjectEvents = () => {
 				const colorInput = form.querySelector<HTMLInputElement>("input[name='color']");
 				if (colorInput) colorInput.value = "#2d7c6f";
 				createClientSelect.clear();
-				setStatus("project-create-status", "Project created.");
+				projectModal.close();
+				setStatus("projects-status", "Project created.");
 				await loadProjects();
 			} catch (error) {
 				setStatus(
@@ -321,11 +329,28 @@ const attachProjectEvents = () => {
 
 export const renderProjectsPage = () => {
 	renderPage(`
-		<section class="workspace projects-workspace">
+		<section class="workspace workspace--single">
 			<div class="card panel">
-				<div class="section-header">
-					<h2>New Project</h2>
+				<div class="section-header section-header--end">
+					<label class="inline-toggle">
+						<input id="projects-show-archived" type="checkbox" />
+						Show archived
+					</label>
+					<button class="primary" id="open-project-create-modal" type="button">New Project</button>
 				</div>
+				<div id="project-results" class="project-list"></div>
+				<div id="projects-status" class="status" role="status"></div>
+			</div>
+		</section>
+
+		${renderModal({
+			id: "project-create-modal",
+			title: "New Project",
+			ariaLabel: "Create project",
+			closeDataAttribute: "data-close-project-create-modal",
+			headerClassName: "section-header--end",
+			className: "project-create-modal",
+			children: `
 				<form id="project-create-form">
 					<label>
 						Name
@@ -341,23 +366,12 @@ export const renderProjectsPage = () => {
 					</label>
 					<div class="actions">
 						<button class="primary" type="submit">Create Project</button>
+						<button class="secondary" type="button" data-close-project-create-modal>Cancel</button>
 					</div>
-					<div id="project-create-status" class="status" role="status"></div>
 				</form>
-			</div>
-
-			<div class="card panel">
-				<div class="section-header">
-					<h2>Projects</h2>
-					<label class="inline-toggle">
-						<input id="projects-show-archived" type="checkbox" />
-						Show archived
-					</label>
-				</div>
-				<div id="projects-status" class="status" role="status"></div>
-				<div id="project-results" class="project-list"></div>
-			</div>
-		</section>
+				<div id="project-create-status" class="status" role="status"></div>
+			`,
+		})}
 	`);
 
 	attachProjectEvents();

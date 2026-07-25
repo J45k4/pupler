@@ -30,6 +30,11 @@ type SpendingLineItem = {
 	amount: number | null;
 };
 
+type SpendingSearchLineItem = SpendingLineItem & {
+	category: string;
+	currency: string;
+};
+
 type SpendingProductGroup = {
 	product_id: number | null;
 	product_name: string;
@@ -109,6 +114,8 @@ const spendingRangeEmptyMessage = (option: SpendingRangeOption) =>
 
 const allTimeSpendingRangeOption = () => getSpendingRangeOption("all");
 
+let spendingItemsBreakdown: SpendingBreakdown | null = null;
+
 const attachSpendingBreakdownPageEvents = () => {
 	const rangeSelect = document.getElementById("spending-range-select");
 	if (!(rangeSelect instanceof HTMLSelectElement)) {
@@ -179,7 +186,7 @@ const groupSpendingItemsByProduct = (
 	});
 };
 
-const flattenSpendingItems = (breakdown: SpendingBreakdown) =>
+const flattenSpendingItems = (breakdown: SpendingBreakdown): SpendingSearchLineItem[] =>
 	breakdown.categories
 		.flatMap((category) =>
 			category.items.map((item) => ({
@@ -552,17 +559,54 @@ const renderMonthlySpendingChart = (breakdown: SpendingBreakdown | null) => {
 		: '<div class="empty">No monthly totals recorded yet.</div>';
 };
 
-const renderLastSpendingItems = (breakdown: SpendingBreakdown | null) => {
+const receiptItemMatchesSearch = (
+	item: SpendingSearchLineItem,
+	query: string,
+) => {
+	const normalizedQuery = query.trim().toLowerCase();
+	if (!normalizedQuery) {
+		return true;
+	}
+
+	const haystack = [
+		item.product_name,
+		item.store_name,
+		item.category,
+		item.unit,
+		String(item.quantity),
+		String(item.receipt_id),
+		formatReceiptDateTime(item.purchased_at),
+		formatMoney(item.amount, item.currency),
+	].join(" ").toLowerCase();
+
+	return normalizedQuery
+		.split(/\s+/)
+		.every((term) => haystack.includes(term));
+};
+
+const renderLastSpendingItems = (
+	breakdown: SpendingBreakdown | null,
+	query = "",
+) => {
 	const root = document.getElementById("spending-items-results");
 	if (!root) {
-		return;
+		return { filtered: 0, shown: 0, total: 0 };
 	}
 	if (!breakdown || breakdown.item_count === 0) {
 		root.innerHTML = '<div class="empty">No receipt items recorded yet.</div>';
-		return;
+		return { filtered: 0, shown: 0, total: 0 };
 	}
 
-	const items = flattenSpendingItems(breakdown).slice(0, 50);
+	const filteredItems = flattenSpendingItems(breakdown).filter((item) =>
+		receiptItemMatchesSearch(item, query),
+	);
+	if (!filteredItems.length) {
+		root.innerHTML = '<div class="empty">No receipt items match that search.</div>';
+		return { filtered: 0, shown: 0, total: breakdown.item_count };
+	}
+
+	const limit = query.trim() ? 100 : 50;
+	const items = filteredItems.slice(0, limit);
 	root.innerHTML = `
 		<div class="spending-items-list">
 			${items
@@ -583,6 +627,55 @@ const renderLastSpendingItems = (breakdown: SpendingBreakdown | null) => {
 				.join("")}
 		</div>
 	`;
+
+	return {
+		filtered: filteredItems.length,
+		shown: items.length,
+		total: breakdown.item_count,
+	};
+};
+
+const updateSpendingItemsStatus = (
+	breakdown: SpendingBreakdown | null,
+	query = "",
+) => {
+	const stats = renderLastSpendingItems(breakdown, query);
+	const trimmedQuery = query.trim();
+	if (!breakdown || breakdown.item_count === 0) {
+		setStatus("spending-items-status", "No receipt items recorded yet.");
+		return;
+	}
+	if (!stats.filtered) {
+		setStatus("spending-items-status", "No receipt items match that search.");
+		return;
+	}
+	setStatus(
+		"spending-items-status",
+		trimmedQuery
+			? `${stats.shown} of ${stats.filtered} matching receipt item(s), ${stats.total} total.`
+			: `${stats.shown} of ${stats.total} receipt item(s).`,
+	);
+};
+
+const attachSpendingItemsPageEvents = () => {
+	const search = document.getElementById("spending-items-search");
+	const clear = document.getElementById("spending-items-clear");
+	if (!(search instanceof HTMLInputElement)) {
+		return;
+	}
+
+	const renderFromSearch = () => {
+		updateSpendingItemsStatus(spendingItemsBreakdown, search.value);
+	};
+
+	search.addEventListener("input", renderFromSearch);
+	if (clear instanceof HTMLButtonElement) {
+		clear.addEventListener("click", () => {
+			search.value = "";
+			search.focus();
+			renderFromSearch();
+		});
+	}
 };
 
 const loadSpendingBreakdownPage = async (
@@ -708,7 +801,16 @@ export const renderSpendingItemsPage = () => {
 			<section class="workspace workspace--single">
 				<div class="spending-breakdown-panel">
 					<div class="section-header">
-						<h2>Last Items</h2>
+						<h2>Receipt Items</h2>
+					</div>
+					<div class="toolbar">
+						<input
+							id="spending-items-search"
+							type="search"
+							placeholder="Search product, store, category, receipt id"
+							autocomplete="off"
+						/>
+						<button class="secondary" id="spending-items-clear" type="button">Clear</button>
 					</div>
 					<div id="spending-items-results"></div>
 					<div id="spending-items-status" class="status"></div>
@@ -717,18 +819,20 @@ export const renderSpendingItemsPage = () => {
 		`,
 	);
 
+	spendingItemsBreakdown = null;
+	attachSpendingItemsPageEvents();
 	setStatus("spending-items-status", "Loading receipt items...");
 	void fetchSpendingBreakdown(allTimeSpendingRangeOption())
 		.then((breakdown) => {
-			renderLastSpendingItems(breakdown);
-			setStatus(
-				"spending-items-status",
-				breakdown.item_count
-					? `${Math.min(50, breakdown.item_count)} of ${breakdown.item_count} receipt item(s).`
-					: "No receipt items recorded yet.",
+			spendingItemsBreakdown = breakdown;
+			const search = document.getElementById("spending-items-search");
+			updateSpendingItemsStatus(
+				breakdown,
+				search instanceof HTMLInputElement ? search.value : "",
 			);
 		})
 		.catch((error) => {
+			spendingItemsBreakdown = null;
 			renderLastSpendingItems(null);
 			setStatus(
 				"spending-items-status",

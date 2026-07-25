@@ -28,6 +28,7 @@ export const renderProductsPage = () => {
 						</select>
 						<input id="barcode-filter" placeholder="Scan barcode or type product name" />
 						<button class="secondary" id="filter-button" type="button">Find</button>
+						<a class="secondary action-link" href="/products/stats" data-link>Stats</a>
 						<button class="primary" id="open-product-modal-button" type="button">Add</button>
 					</div>
 					<div id="status" class="status"></div>

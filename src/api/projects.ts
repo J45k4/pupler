@@ -3,6 +3,7 @@ import type { BunRequest } from "bun";
 import {
 	assertKnownFields,
 	empty,
+	expectBoolean,
 	expectNullableTimestamp,
 	expectNullableInteger,
 	expectString,
@@ -35,6 +36,7 @@ const DEFAULT_SORT = [
 ];
 const SORT_FIELDS = new Set(["id", "client_id", "name", "color", "archived_at", "created_at", "updated_at"]);
 const WRITABLE_FIELDS = ["client_id", "name", "color", "archived_at"];
+const MERGE_FIELDS = ["source_id", "archive_source", "delete_source"];
 
 const PROJECT_INCLUDE = {
 	client: {
@@ -180,6 +182,93 @@ const parsePatchValues = (body: JsonObject) => {
 	values.updated_at = utcNow();
 	return values;
 };
+
+const parseMergeValues = (body: JsonObject) => {
+	assertKnownFields(body, MERGE_FIELDS);
+	const sourceId = requireBodyField(body, "source_id", expectNullableInteger);
+	if (sourceId === null) {
+		throw new HttpError(400, "Field `source_id` must be an integer");
+	}
+
+	const archiveSource = readOptionalBodyField(body, "archive_source", expectBoolean) ?? true;
+	const deleteSource = readOptionalBodyField(body, "delete_source", expectBoolean) ?? false;
+	if (archiveSource && deleteSource) {
+		throw new HttpError(400, "`archive_source` and `delete_source` cannot both be true");
+	}
+
+	return {
+		sourceId,
+		archiveSource,
+		deleteSource,
+	};
+};
+
+export const projectMergeRoute = (db: Database) =>
+	withErrorHandling(async (req: BunRequest<string>) => {
+		if (req.method !== "POST") {
+			throw new HttpError(405, "Method not allowed for this route");
+		}
+
+		const targetId = parseIdParam(req.params.id ?? "");
+		const { sourceId, archiveSource, deleteSource } = parseMergeValues(await readJsonObject(req));
+		if (sourceId === targetId) {
+			throw new HttpError(400, "Cannot merge a project into itself");
+		}
+
+		const result = await db.client.$transaction(async (tx) => {
+			const [target, source] = await Promise.all([
+				tx.project.findUnique({ where: { id: targetId }, include: PROJECT_INCLUDE }),
+				tx.project.findUnique({ where: { id: sourceId }, include: PROJECT_INCLUDE }),
+			]);
+			if (!target || !source) {
+				throw new HttpError(404, "Resource not found");
+			}
+
+			const now = utcNow();
+			const moved = await tx.timeEntry.updateMany({
+				where: { project_id: sourceId },
+				data: {
+					project_id: targetId,
+					updated_at: now,
+				},
+			});
+
+			const updatedTarget = await tx.project.update({
+				where: { id: targetId },
+				data: { updated_at: now },
+				include: PROJECT_INCLUDE,
+			});
+
+			let updatedSource = source;
+			if (deleteSource) {
+				await tx.project.delete({ where: { id: sourceId } });
+				updatedSource = {
+					...source,
+					archived_at: source.archived_at ?? now,
+					updated_at: now,
+				};
+			} else if (archiveSource) {
+				updatedSource = await tx.project.update({
+					where: { id: sourceId },
+					data: {
+						archived_at: source.archived_at ?? now,
+						updated_at: now,
+					},
+					include: PROJECT_INCLUDE,
+				});
+			}
+
+			return {
+				target: updatedTarget,
+				source: updatedSource,
+				moved_time_entry_count: moved.count,
+				source_deleted: deleteSource,
+				source_archived: !deleteSource && archiveSource,
+			};
+		});
+
+		return json(200, result);
+	});
 
 export const projectsCollectionRoute = (db: Database) =>
 	withErrorHandling(async (req: Request) => {

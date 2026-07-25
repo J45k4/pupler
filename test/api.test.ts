@@ -24,6 +24,7 @@ import {
 	productLinkDetailRoute,
 	productLinksCollectionRoute,
 	productPictureRoute,
+	productStatsRoute,
 	productsCollectionRoute,
 	receiptItemDetailRoute,
 	receiptItemsCollectionRoute,
@@ -46,6 +47,7 @@ import {
 	clientDetailRoute,
 	clientsCollectionRoute,
 	projectDetailRoute,
+	projectMergeRoute,
 	projectsCollectionRoute,
 	timeReportRoute,
 	todoDetailRoute,
@@ -98,6 +100,7 @@ const createRoutes = () => {
 			"/api/ingredients": ingredientsCollectionRoute(db),
 			"/api/ingredients/:id": ingredientDetailRoute(db),
 			"/api/products": productsCollectionRoute(db),
+			"/api/product-stats": productStatsRoute(db),
 			"/api/products/:id": productDetailRoute(db),
 			"/api/products/:id/picture": productPictureRoute(db),
 			"/api/product-links": productLinksCollectionRoute(db),
@@ -128,6 +131,7 @@ const createRoutes = () => {
 			"/api/clients": clientsCollectionRoute(db),
 			"/api/clients/:id": clientDetailRoute(db),
 			"/api/projects": projectsCollectionRoute(db),
+			"/api/projects/:id/merge": projectMergeRoute(db),
 			"/api/projects/:id": projectDetailRoute(db),
 			"/api/time-entries": timeEntriesCollectionRoute(db),
 			"/api/time-entries/start": timeEntryStartRoute(db),
@@ -158,6 +162,8 @@ const request = async (
 				? "/api/time-entries/start"
 				: pathname.match(/^\/api\/time-entries\/\d+\/stop$/)
 					? "/api/time-entries/:id/stop"
+				: pathname.match(/^\/api\/projects\/\d+\/merge$/)
+					? "/api/projects/:id/merge"
 			: pathname.match(/^\/api\/recipes\/\d+\/pictures$/)
 				? "/api/recipes/:id/pictures"
 				: pathname.match(/^\/api\/recipes\/\d+\/pictures\/\d+$/)
@@ -601,6 +607,106 @@ describe("Pupler API", () => {
 		expect(userReport.total_seconds).toBe(12600);
 	});
 
+	test("merges projects by moving time entries and archiving the source", async () => {
+		const routes = createRoutes();
+
+		const keeperResponse = await request(routes, "/api/projects", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: "puppybot",
+				color: "#2d7c6f",
+				archived_at: null,
+			}),
+		});
+		const keeper = await keeperResponse.json();
+
+		const duplicateResponse = await request(routes, "/api/projects", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: "puppybot",
+				color: "#6f5aa8",
+				archived_at: null,
+			}),
+		});
+		const duplicate = await duplicateResponse.json();
+
+		const keeperEntryResponse = await request(routes, "/api/time-entries", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				project_id: keeper.id,
+				started_at: "2026-05-26T08:00:00.000Z",
+				ended_at: "2026-05-26T09:00:00.000Z",
+			}),
+		});
+		expect(keeperEntryResponse.status).toBe(201);
+
+		const duplicateEntryResponse = await request(routes, "/api/time-entries", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				project_id: duplicate.id,
+				started_at: "2026-05-26T09:00:00.000Z",
+				ended_at: "2026-05-26T10:00:00.000Z",
+			}),
+		});
+		expect(duplicateEntryResponse.status).toBe(201);
+		const duplicateEntry = await duplicateEntryResponse.json();
+
+		const selfMergeResponse = await request(
+			routes,
+			`/api/projects/${keeper.id}/merge`,
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ source_id: keeper.id }),
+			},
+			{ id: String(keeper.id) },
+		);
+		expect(selfMergeResponse.status).toBe(400);
+
+		const mergeResponse = await request(
+			routes,
+			`/api/projects/${keeper.id}/merge`,
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ source_id: duplicate.id }),
+			},
+			{ id: String(keeper.id) },
+		);
+		expect(mergeResponse.status).toBe(200);
+		const merged = await mergeResponse.json();
+		expect(merged.target.id).toBe(keeper.id);
+		expect(merged.source.id).toBe(duplicate.id);
+		expect(merged.moved_time_entry_count).toBe(1);
+		expect(merged.source_deleted).toBe(false);
+		expect(merged.source_archived).toBe(true);
+		expect(merged.source.archived_at).not.toBeNull();
+
+		const movedEntryResponse = await request(
+			routes,
+			`/api/time-entries/${duplicateEntry.id}`,
+			{},
+			{ id: String(duplicateEntry.id) },
+		);
+		const movedEntry = await movedEntryResponse.json();
+		expect(movedEntry.project_id).toBe(keeper.id);
+		expect(movedEntry.project.name).toBe("puppybot");
+
+		const sourceResponse = await request(
+			routes,
+			`/api/projects/${duplicate.id}`,
+			{},
+			{ id: String(duplicate.id) },
+		);
+		expect(sourceResponse.status).toBe(200);
+		const source = await sourceResponse.json();
+		expect(source.archived_at).not.toBeNull();
+	});
+
 	test("reports unlabeled tracked time as a no-project bucket", async () => {
 		const routes = createRoutes();
 
@@ -996,6 +1102,145 @@ describe("Pupler API", () => {
 		const listed = await listResponse.json();
 		expect(listed).toHaveLength(1);
 		expect(listed[0].id).toBe(created.id);
+	});
+
+	test("summarizes product purchase and usage stats", async () => {
+		const routes = createRoutes();
+
+		const milkResponse = await request(routes, "/api/products", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: "Milk",
+				category: "food",
+				barcode: "stats-milk",
+				default_unit: "l",
+				is_perishable: true,
+			}),
+		});
+		const milk = await milkResponse.json();
+
+		const breadResponse = await request(routes, "/api/products", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: "Bread",
+				category: "food",
+				barcode: "stats-bread",
+				default_unit: "pcs",
+				is_perishable: true,
+			}),
+		});
+		const bread = await breadResponse.json();
+
+		const receiptResponse = await request(routes, "/api/receipts", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				store_name: "Prisma",
+				purchased_at: "2026-04-13T12:00:00.000Z",
+				currency: "EUR",
+				total_amount: 5.4,
+			}),
+		});
+		const receipt = await receiptResponse.json();
+
+		const milkLineResponse = await request(routes, "/api/receipt-items", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				receipt_id: receipt.id,
+				product_id: milk.id,
+				quantity: 2,
+				unit: "l",
+				unit_price: 1.2,
+				line_total: 2.4,
+			}),
+		});
+		const milkLine = await milkLineResponse.json();
+
+		await request(routes, "/api/receipt-items", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				receipt_id: receipt.id,
+				product_id: milk.id,
+				quantity: 1,
+				unit: "l",
+				unit_price: 1.2,
+				line_total: 1.2,
+			}),
+		});
+
+		await request(routes, "/api/inventory-items", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: "Milk carton",
+				ingredient_id: null,
+				product_id: milk.id,
+				receipt_item_id: milkLine.id,
+				container_id: null,
+				quantity: 1.5,
+				unit: "l",
+				purchased_at: null,
+				expires_at: null,
+				consumed_at: "2026-04-14T12:00:00.000Z",
+				notes: null,
+			}),
+		});
+
+		await request(routes, "/api/inventory-items", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				name: "Milk carton open",
+				ingredient_id: null,
+				product_id: milk.id,
+				receipt_item_id: milkLine.id,
+				container_id: null,
+				quantity: 0.5,
+				unit: "l",
+				purchased_at: null,
+				expires_at: null,
+				consumed_at: null,
+				notes: null,
+			}),
+		});
+
+		const statsResponse = await request(routes, "/api/product-stats");
+		expect(statsResponse.status).toBe(200);
+		const stats = await statsResponse.json();
+
+		const milkStats = stats.find(
+			(row: { product_id: number }) => row.product_id === milk.id,
+		);
+		expect(milkStats).toMatchObject({
+			product_id: milk.id,
+			product_name: "Milk",
+			category: "food",
+			default_unit: "l",
+			bought_count: 2,
+			total_cost_sort: 3.6,
+			used_count: 1,
+			used_sort_quantity: 1.5,
+		});
+		expect(milkStats.bought_quantities).toEqual([{ unit: "l", quantity: 3 }]);
+		expect(milkStats.total_costs).toEqual([{ currency: "EUR", total: 3.6 }]);
+		expect(milkStats.used_quantities).toEqual([{ unit: "l", quantity: 1.5 }]);
+
+		const breadStats = stats.find(
+			(row: { product_id: number }) => row.product_id === bread.id,
+		);
+		expect(breadStats).toMatchObject({
+			product_id: bread.id,
+			bought_count: 0,
+			total_cost_sort: 0,
+			used_count: 0,
+			used_sort_quantity: 0,
+		});
+		expect(breadStats.total_costs).toEqual([]);
+		expect(breadStats.used_quantities).toEqual([]);
 	});
 
 	test("creates and lists ingredients", async () => {
