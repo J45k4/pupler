@@ -1,7 +1,7 @@
+import { db } from "../db";
 import {
 	HttpError,
 	json,
-	withErrorHandling,
 	type Database,
 } from "./core";
 import { displayCurrency, displayMoneyAmount } from "../currency";
@@ -79,76 +79,75 @@ const costTotalsByCurrency = (
 		.sort((left, right) => left.currency.localeCompare(right.currency));
 };
 
-export const productStatsRoute = (db: Database) =>
-	withErrorHandling(async (req: Request) => {
-		if (req.method !== "GET") {
-			throw new HttpError(405, "Method not allowed for this route");
-		}
+export const productStatsRoute = async (req: Request) => {
+	if (req.method !== "GET") {
+		throw new HttpError(405, "Method not allowed for this route");
+	}
 
-		const url = new URL(req.url);
-		for (const key of url.searchParams.keys()) {
-			throw new HttpError(400, `Unknown query parameter \`${key}\``);
-		}
+	const url = new URL(req.url);
+	for (const key of url.searchParams.keys()) {
+		throw new HttpError(400, `Unknown query parameter \`${key}\``);
+	}
 
-		const products = await db.client.product.findMany({
-			select: {
-				id: true,
-				name: true,
-				category: true,
-				default_unit: true,
-				receipt_items: {
-					select: {
-						quantity: true,
-						unit: true,
-						unit_price: true,
-						line_total: true,
-						receipt: {
-							select: {
-								currency: true,
-							},
+	const products = await db.client.product.findMany({
+		select: {
+			id: true,
+			name: true,
+			category: true,
+			default_unit: true,
+			receipt_items: {
+				select: {
+					quantity: true,
+					unit: true,
+					unit_price: true,
+					line_total: true,
+					receipt: {
+						select: {
+							currency: true,
 						},
-					},
-				},
-				inventory_items: {
-					where: {
-						consumed_at: {
-							not: null,
-						},
-					},
-					select: {
-						quantity: true,
-						unit: true,
 					},
 				},
 			},
-			orderBy: [{ name: "asc" }, { id: "asc" }],
-		});
-
-		return json(
-			200,
-			products.map((product) => {
-				const usedQuantities = quantityTotalsByUnit(product.inventory_items);
-				const costTotals = costTotalsByCurrency(product.receipt_items);
-				return {
-					product_id: product.id,
-					product_name: product.name,
-					category: product.category,
-					default_unit: product.default_unit,
-					bought_count: product.receipt_items.length,
-					bought_quantities: quantityTotalsByUnit(product.receipt_items),
-					total_costs: costTotals,
-					total_cost_sort: roundedMoney(
-						costTotals.reduce((total, item) => total + item.total, 0),
-					),
-					used_count: product.inventory_items.length,
-					used_quantities: usedQuantities,
-					used_sort_quantity: roundedQuantity(
-						usedQuantities.reduce(
-							(total, item) => total + item.quantity,
-							0,
-						),
-					),
-				};
-			}),
-		);
+			inventory_items: {
+				where: {
+					consumed_at: {
+						not: null,
+					},
+				},
+				select: {
+					quantity: true,
+					unit: true,
+				},
+			},
+		},
+		orderBy: [{ name: "asc" }, { id: "asc" }],
 	});
+
+	return json(
+		200,
+		products.map((product) => {
+			const usedQuantities = quantityTotalsByUnit(product.inventory_items);
+			const costTotals = costTotalsByCurrency(product.receipt_items);
+			return {
+				product_id: product.id,
+				product_name: product.name,
+				category: product.category,
+				default_unit: product.default_unit,
+				bought_count: product.receipt_items.length,
+				bought_quantities: quantityTotalsByUnit(product.receipt_items),
+				total_costs: costTotals,
+				total_cost_sort: roundedMoney(
+					costTotals.reduce((total, item) => total + item.total, 0),
+				),
+				used_count: product.inventory_items.length,
+				used_quantities: usedQuantities,
+				used_sort_quantity: roundedQuantity(
+					usedQuantities.reduce(
+						(total, item) => total + item.quantity,
+						0,
+					),
+				),
+			};
+		}),
+	);
+};

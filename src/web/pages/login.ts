@@ -24,7 +24,8 @@ const attachLoginEvents = () => {
 		setStatus("login-status", "Signing in...");
 		try {
 			await login(usernameInput.value, passwordInput.value);
-			navigate("/");
+			const redirect = new URL(window.location.href).searchParams.get("redirect");
+			navigate(redirect && redirect.startsWith("/") ? redirect : "/");
 		} catch (error) {
 			setStatus(
 				"login-status",

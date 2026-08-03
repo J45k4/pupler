@@ -6,6 +6,8 @@ import { renderRootHelp, runCliCommand } from "./commands";
 
 const extractGlobalOptions = (argv: string[]) => {
 	let baseUrl: string | undefined;
+	let username: string | undefined;
+	let password: string | undefined;
 	let json = false;
 	let help = false;
 	const remaining: string[] = [];
@@ -35,6 +37,17 @@ const extractGlobalOptions = (argv: string[]) => {
 			index += 1;
 			continue;
 		}
+		if (
+			(current === "--username" || current === "--password") &&
+			remaining.length === 0
+		) {
+			const next = argv[index + 1];
+			if (!next) throw new CliError(`Flag \`${current}\` requires a value`);
+			if (current === "--username") username = next;
+			else password = next;
+			index += 1;
+			continue;
+		}
 
 		if (current.startsWith("--base-url=")) {
 			baseUrl = current.slice("--base-url=".length);
@@ -48,6 +61,8 @@ const extractGlobalOptions = (argv: string[]) => {
 		args: remaining,
 		options: {
 			baseUrlOverride: baseUrl,
+			username,
+			password,
 			help,
 			json,
 		},

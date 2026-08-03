@@ -1,5 +1,6 @@
 import type { BunRequest } from "bun";
 
+import { db } from "../db";
 import {
 	assertKnownFields,
 	empty,
@@ -20,7 +21,6 @@ import {
 	readOptionalBodyField,
 	requireBodyField,
 	utcNow,
-	withErrorHandling,
 	type Database,
 	type JsonObject,
 } from "./core";
@@ -188,79 +188,77 @@ const parsePatchValues = (body: JsonObject) => {
 	return values;
 };
 
-export const shoppingListItemsCollectionRoute = (db: Database) =>
-	withErrorHandling(async (req: Request) => {
-		if (req.method === "GET") {
-			const url = new URL(req.url);
-			return json(
-				200,
-				await db.client.shoppingListItem.findMany({
-					where: parseFilters(url),
-					orderBy: parseSort(url),
-					select: shoppingListItemDetailSelect,
-				}),
-			);
-		}
-		if (req.method === "POST") {
-			const values = parseCreateValues(await readJsonObject(req));
-			await validateIngredientProductRefs(db, values);
-			const created = await db.client.shoppingListItem.create({
-				data: values,
-			});
-			return json(
-				201,
-				await fetchShoppingListItemDetail(db, created.id),
-			);
-		}
-		throw new HttpError(405, "Method not allowed for this route");
-	});
+export const shoppingListItemsCollectionRoute = async (req: Request) => {
+	if (req.method === "GET") {
+		const url = new URL(req.url);
+		return json(
+			200,
+			await db.client.shoppingListItem.findMany({
+				where: parseFilters(url),
+				orderBy: parseSort(url),
+				select: shoppingListItemDetailSelect,
+			}),
+		);
+	}
+	if (req.method === "POST") {
+		const values = parseCreateValues(await readJsonObject(req));
+		await validateIngredientProductRefs(db, values);
+		const created = await db.client.shoppingListItem.create({
+			data: values,
+		});
+		return json(
+			201,
+			await fetchShoppingListItemDetail(db, created.id),
+		);
+	}
+	throw new HttpError(405, "Method not allowed for this route");
+};
 
-export const shoppingListItemDetailRoute = (db: Database) =>
-	withErrorHandling(async (req: BunRequest<string>) => {
-		const id = parseIdParam(req.params.id);
-		const existingRow = await fetchShoppingListItem(db, id);
-		if (!existingRow) throw new HttpError(404, "Resource not found");
+export const shoppingListItemDetailRoute = async (req: BunRequest<string>) => {
+	const id = parseIdParam(req.params.id);
+	const existingRow = await fetchShoppingListItem(db, id);
+	if (!existingRow) throw new HttpError(404, "Resource not found");
 
-		if (req.method === "GET") {
-			return json(200, await fetchShoppingListItemDetail(db, id));
-		}
-		if (req.method === "PUT") {
-			const values = parseReplaceValues(
-				await readJsonObject(req),
-				existingRow,
-			);
-			await validateIngredientProductRefs(db, values);
-			await db.client.shoppingListItem.update({
-				where: { id },
-				data: values,
-			});
-			return json(
-				200,
-				await fetchShoppingListItemDetail(db, id),
-			);
-		}
-		if (req.method === "PATCH") {
-			const values = parsePatchValues(await readJsonObject(req));
-			await validateIngredientProductRefs(db, {
-				ingredient_id:
-					(values.ingredient_id as number | null | undefined) ??
-					existingRow.ingredient_id,
-				product_id:
-					(values.product_id as number | null | undefined) ??
-					existingRow.product_id,
-			});
-			await db.client.shoppingListItem.update({
-				where: { id },
-				data: values,
-			});
-			return json(
-				200,
-				await fetchShoppingListItemDetail(db, id),
-			);
-		}
-		if (req.method === "DELETE") {
-			await db.client.shoppingListItem.delete({ where: { id } });
-			return empty(204);
-		}
-		throw new HttpError(405, "Method not allowed for this route");
-	});
+	if (req.method === "GET") {
+		return json(200, await fetchShoppingListItemDetail(db, id));
+	}
+	if (req.method === "PUT") {
+		const values = parseReplaceValues(
+			await readJsonObject(req),
+			existingRow,
+		);
+		await validateIngredientProductRefs(db, values);
+		await db.client.shoppingListItem.update({
+			where: { id },
+			data: values,
+		});
+		return json(
+			200,
+			await fetchShoppingListItemDetail(db, id),
+		);
+	}
+	if (req.method === "PATCH") {
+		const values = parsePatchValues(await readJsonObject(req));
+		await validateIngredientProductRefs(db, {
+			ingredient_id:
+				(values.ingredient_id as number | null | undefined) ??
+				existingRow.ingredient_id,
+			product_id:
+				(values.product_id as number | null | undefined) ??
+				existingRow.product_id,
+		});
+		await db.client.shoppingListItem.update({
+			where: { id },
+			data: values,
+		});
+		return json(
+			200,
+			await fetchShoppingListItemDetail(db, id),
+		);
+	}
+	if (req.method === "DELETE") {
+		await db.client.shoppingListItem.delete({ where: { id } });
+		return empty(204);
+	}
+	throw new HttpError(405, "Method not allowed for this route");
+};

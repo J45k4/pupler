@@ -1,5 +1,6 @@
 import type { BunRequest } from "bun";
 
+import { db } from "../db";
 import {
 	assertKnownFields,
 	empty,
@@ -16,7 +17,6 @@ import {
 	readOptionalBodyField,
 	requireBodyField,
 	utcNow,
-	withErrorHandling,
 	type Database,
 	type JsonObject,
 } from "./core";
@@ -203,128 +203,125 @@ const parseMergeValues = (body: JsonObject) => {
 	};
 };
 
-export const projectMergeRoute = (db: Database) =>
-	withErrorHandling(async (req: BunRequest<string>) => {
-		if (req.method !== "POST") {
-			throw new HttpError(405, "Method not allowed for this route");
+export const projectMergeRoute = async (req: BunRequest<string>) => {
+	if (req.method !== "POST") {
+		throw new HttpError(405, "Method not allowed for this route");
+	}
+
+	const targetId = parseIdParam(req.params.id ?? "");
+	const { sourceId, archiveSource, deleteSource } = parseMergeValues(await readJsonObject(req));
+	if (sourceId === targetId) {
+		throw new HttpError(400, "Cannot merge a project into itself");
+	}
+
+	const result = await db.client.$transaction(async (tx) => {
+		const [target, source] = await Promise.all([
+			tx.project.findUnique({ where: { id: targetId }, include: PROJECT_INCLUDE }),
+			tx.project.findUnique({ where: { id: sourceId }, include: PROJECT_INCLUDE }),
+		]);
+		if (!target || !source) {
+			throw new HttpError(404, "Resource not found");
 		}
 
-		const targetId = parseIdParam(req.params.id ?? "");
-		const { sourceId, archiveSource, deleteSource } = parseMergeValues(await readJsonObject(req));
-		if (sourceId === targetId) {
-			throw new HttpError(400, "Cannot merge a project into itself");
-		}
-
-		const result = await db.client.$transaction(async (tx) => {
-			const [target, source] = await Promise.all([
-				tx.project.findUnique({ where: { id: targetId }, include: PROJECT_INCLUDE }),
-				tx.project.findUnique({ where: { id: sourceId }, include: PROJECT_INCLUDE }),
-			]);
-			if (!target || !source) {
-				throw new HttpError(404, "Resource not found");
-			}
-
-			const now = utcNow();
-			const moved = await tx.timeEntry.updateMany({
-				where: { project_id: sourceId },
-				data: {
-					project_id: targetId,
-					updated_at: now,
-				},
-			});
-
-			const updatedTarget = await tx.project.update({
-				where: { id: targetId },
-				data: { updated_at: now },
-				include: PROJECT_INCLUDE,
-			});
-
-			let updatedSource = source;
-			if (deleteSource) {
-				await tx.project.delete({ where: { id: sourceId } });
-				updatedSource = {
-					...source,
-					archived_at: source.archived_at ?? now,
-					updated_at: now,
-				};
-			} else if (archiveSource) {
-				updatedSource = await tx.project.update({
-					where: { id: sourceId },
-					data: {
-						archived_at: source.archived_at ?? now,
-						updated_at: now,
-					},
-					include: PROJECT_INCLUDE,
-				});
-			}
-
-			return {
-				target: updatedTarget,
-				source: updatedSource,
-				moved_time_entry_count: moved.count,
-				source_deleted: deleteSource,
-				source_archived: !deleteSource && archiveSource,
-			};
+		const now = utcNow();
+		const moved = await tx.timeEntry.updateMany({
+			where: { project_id: sourceId },
+			data: {
+				project_id: targetId,
+				updated_at: now,
+			},
 		});
 
-		return json(200, result);
+		const updatedTarget = await tx.project.update({
+			where: { id: targetId },
+			data: { updated_at: now },
+			include: PROJECT_INCLUDE,
+		});
+
+		let updatedSource = source;
+		if (deleteSource) {
+			await tx.project.delete({ where: { id: sourceId } });
+			updatedSource = {
+				...source,
+				archived_at: source.archived_at ?? now,
+				updated_at: now,
+			};
+		} else if (archiveSource) {
+			updatedSource = await tx.project.update({
+				where: { id: sourceId },
+				data: {
+					archived_at: source.archived_at ?? now,
+					updated_at: now,
+				},
+				include: PROJECT_INCLUDE,
+			});
+		}
+
+		return {
+			target: updatedTarget,
+			source: updatedSource,
+			moved_time_entry_count: moved.count,
+			source_deleted: deleteSource,
+			source_archived: !deleteSource && archiveSource,
+		};
 	});
 
-export const projectsCollectionRoute = (db: Database) =>
-	withErrorHandling(async (req: Request) => {
-		if (req.method === "GET") {
-			const url = new URL(req.url);
-			return json(
-				200,
-				await db.client.project.findMany({
-					where: parseFilters(url),
-					orderBy: parseSort(url),
-					include: PROJECT_INCLUDE,
-				}),
-			);
-		}
-		if (req.method === "POST") {
-			return json(
-				201,
-				await db.client.project.create({
-					data: parseCreateValues(await readJsonObject(req)),
-					include: PROJECT_INCLUDE,
-				}),
-			);
-		}
-		throw new HttpError(405, "Method not allowed for this route");
-	});
+	return json(200, result);
+};
 
-export const projectDetailRoute = (db: Database) =>
-	withErrorHandling(async (req: BunRequest<string>) => {
-		const id = parseIdParam(req.params.id ?? "");
-		const existingRow = await fetchProject(db, id);
-		if (!existingRow) throw new HttpError(404, "Resource not found");
+export const projectsCollectionRoute = async (req: Request) => {
+	if (req.method === "GET") {
+		const url = new URL(req.url);
+		return json(
+			200,
+			await db.client.project.findMany({
+				where: parseFilters(url),
+				orderBy: parseSort(url),
+				include: PROJECT_INCLUDE,
+			}),
+		);
+	}
+	if (req.method === "POST") {
+		return json(
+			201,
+			await db.client.project.create({
+				data: parseCreateValues(await readJsonObject(req)),
+				include: PROJECT_INCLUDE,
+			}),
+		);
+	}
+	throw new HttpError(405, "Method not allowed for this route");
+};
 
-		if (req.method === "GET") return json(200, existingRow);
-		if (req.method === "PUT") {
-			return json(
-				200,
-				await db.client.project.update({
-					where: { id },
-					data: parseReplaceValues(await readJsonObject(req), existingRow),
-					include: PROJECT_INCLUDE,
-				}),
-			);
-		}
-		if (req.method === "PATCH") {
-			return json(
-				200,
-				await db.client.project.update({
-					where: { id },
-					data: parsePatchValues(await readJsonObject(req)),
-					include: PROJECT_INCLUDE,
-				}),
-			);
-		}
-		if (req.method === "DELETE") {
-			await db.client.project.delete({ where: { id } });
-			return empty(204);
-		}
-		throw new HttpError(405, "Method not allowed for this route");
-	});
+export const projectDetailRoute = async (req: BunRequest<string>) => {
+	const id = parseIdParam(req.params.id ?? "");
+	const existingRow = await fetchProject(db, id);
+	if (!existingRow) throw new HttpError(404, "Resource not found");
+
+	if (req.method === "GET") return json(200, existingRow);
+	if (req.method === "PUT") {
+		return json(
+			200,
+			await db.client.project.update({
+				where: { id },
+				data: parseReplaceValues(await readJsonObject(req), existingRow),
+				include: PROJECT_INCLUDE,
+			}),
+		);
+	}
+	if (req.method === "PATCH") {
+		return json(
+			200,
+			await db.client.project.update({
+				where: { id },
+				data: parsePatchValues(await readJsonObject(req)),
+				include: PROJECT_INCLUDE,
+			}),
+		);
+	}
+	if (req.method === "DELETE") {
+		await db.client.project.delete({ where: { id } });
+		return empty(204);
+	}
+	throw new HttpError(405, "Method not allowed for this route");
+};

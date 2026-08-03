@@ -6,10 +6,12 @@ export {
 } from "./core";
 export {
 	authLoginRoute,
+	authBootstrapRoute,
 	authLogoutRoute,
 	authPasswordRoute,
 	authSessionRoute,
 	requireAuthenticatedUser,
+	requireAdminUser,
 	resolveAuthenticatedUser,
 } from "./auth";
 export {
@@ -98,3 +100,4 @@ export {
 export {
 	spendingRoute,
 } from "./spending";
+export { createApiRoutes } from "./route-map";

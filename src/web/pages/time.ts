@@ -1,5 +1,6 @@
 import { Button, Label, UiComponent } from "../ui/component";
 import { SearchSelect, type SearchSelectOption } from "../ui/search-select";
+import { getCurrentUser } from "../auth";
 
 type Client = {
 	id: number;
@@ -3141,6 +3142,9 @@ const renderTimeMonthlyReport = (
 };
 
 export const renderTimePage = (page: HTMLElement) => {
+	if (!getCurrentUser()) {
+		return;
+	}
 	const status = div("status");
 	const store = new TimeStore(
 		createTimePageState([], [], []),

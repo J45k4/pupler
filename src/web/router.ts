@@ -109,6 +109,15 @@ const handleRoute = async (path: string) => {
 	if (!matcher) {
 		return;
 	}
+	if (path !== "/login" && !getCurrentUser()) {
+		const redirect = `/login?redirect=${encodeURIComponent(path)}`;
+		window.history.replaceState({}, "", redirect);
+		path = "/login";
+	}
+	if (path === "/login" && getCurrentUser()) {
+		path = "/";
+		window.history.replaceState({}, "", path);
+	}
 	const match = matcher.match(path);
 	if (!match) {
 		console.error("No route found for", path);
@@ -152,3 +161,4 @@ export const navigate = (path: string) => {
 	}
 	void handleRoute(path);
 };
+import { getCurrentUser } from "./auth";

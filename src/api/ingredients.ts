@@ -1,5 +1,6 @@
 import type { BunRequest } from "bun";
 
+import { db } from "../db";
 import {
 	assertKnownFields,
 	empty,
@@ -14,7 +15,6 @@ import {
 	readOptionalBodyField,
 	requireBodyField,
 	utcNow,
-	withErrorHandling,
 	type Database,
 	type JsonObject,
 } from "./core";
@@ -156,69 +156,67 @@ const parsePatchValues = (body: JsonObject) => {
 	return values;
 };
 
-export const ingredientsCollectionRoute = (db: Database) =>
-	withErrorHandling(async (req: Request) => {
-		if (req.method === "GET") {
-			const url = new URL(req.url);
-			const { where, nameExact, nameContains } = parseIngredientFilters(url);
-			const rows = await db.client.ingredient.findMany({
-				where,
-				orderBy: parseIngredientSort(url),
-			});
-			return json(
-				200,
-				filterIngredientsByName(rows, nameExact, nameContains),
-			);
-		}
+export const ingredientsCollectionRoute = async (req: Request) => {
+	if (req.method === "GET") {
+		const url = new URL(req.url);
+		const { where, nameExact, nameContains } = parseIngredientFilters(url);
+		const rows = await db.client.ingredient.findMany({
+			where,
+			orderBy: parseIngredientSort(url),
+		});
+		return json(
+			200,
+			filterIngredientsByName(rows, nameExact, nameContains),
+		);
+	}
 
-		if (req.method === "POST") {
-			return json(
-				201,
-				await db.client.ingredient.create({
-					data: parseCreateValues(await readJsonObject(req)),
-				}),
-			);
-		}
+	if (req.method === "POST") {
+		return json(
+			201,
+			await db.client.ingredient.create({
+				data: parseCreateValues(await readJsonObject(req)),
+			}),
+		);
+	}
 
-		throw new HttpError(405, "Method not allowed for this route");
-	});
+	throw new HttpError(405, "Method not allowed for this route");
+};
 
-export const ingredientDetailRoute = (db: Database) =>
-	withErrorHandling(async (req: BunRequest<string>) => {
-		const id = parseIdParam(req.params.id);
-		const existingRow = await fetchIngredient(db, id);
-		if (!existingRow) {
-			throw new HttpError(404, "Resource not found");
-		}
+export const ingredientDetailRoute = async (req: BunRequest<string>) => {
+	const id = parseIdParam(req.params.id);
+	const existingRow = await fetchIngredient(db, id);
+	if (!existingRow) {
+		throw new HttpError(404, "Resource not found");
+	}
 
-		if (req.method === "GET") {
-			return json(200, existingRow);
-		}
+	if (req.method === "GET") {
+		return json(200, existingRow);
+	}
 
-		if (req.method === "PUT") {
-			return json(
-				200,
-				await db.client.ingredient.update({
-					where: { id },
-					data: parseReplaceValues(await readJsonObject(req), existingRow),
-				}),
-			);
-		}
+	if (req.method === "PUT") {
+		return json(
+			200,
+			await db.client.ingredient.update({
+				where: { id },
+				data: parseReplaceValues(await readJsonObject(req), existingRow),
+			}),
+		);
+	}
 
-		if (req.method === "PATCH") {
-			return json(
-				200,
-				await db.client.ingredient.update({
-					where: { id },
-					data: parsePatchValues(await readJsonObject(req)),
-				}),
-			);
-		}
+	if (req.method === "PATCH") {
+		return json(
+			200,
+			await db.client.ingredient.update({
+				where: { id },
+				data: parsePatchValues(await readJsonObject(req)),
+			}),
+		);
+	}
 
-		if (req.method === "DELETE") {
-			await db.client.ingredient.delete({ where: { id } });
-			return empty(204);
-		}
+	if (req.method === "DELETE") {
+		await db.client.ingredient.delete({ where: { id } });
+		return empty(204);
+	}
 
-		throw new HttpError(405, "Method not allowed for this route");
-	});
+	throw new HttpError(405, "Method not allowed for this route");
+};

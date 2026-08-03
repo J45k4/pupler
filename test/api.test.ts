@@ -46,6 +46,7 @@ import {
 	timeEntryStopRoute,
 	clientDetailRoute,
 	clientsCollectionRoute,
+	createApiRoutes,
 	projectDetailRoute,
 	projectMergeRoute,
 	projectsCollectionRoute,
@@ -59,7 +60,8 @@ import {
 	resolveDatabasePath,
 	resolveFilesPath,
 	versionPayload,
-} from "../src/main";
+} from "../src/config";
+import { setDatabase } from "../src/db";
 import { applyTestSchema } from "./support/test-db";
 
 const dbs: ReturnType<typeof openDatabase>[] = [];
@@ -86,61 +88,64 @@ const createRoutes = () => {
 
 	const db = openDatabase(dbPath, filesPath);
 	dbs.push(db);
+	setDatabase(db);
 
 	return {
 		db,
 		filesPath: db.filesPath,
-		handlers: {
-			"/api/auth/login": authLoginRoute(db),
-			"/api/auth/logout": authLogoutRoute(db),
-			"/api/auth/password": authPasswordRoute(db),
-			"/api/auth/session": authSessionRoute(db),
-			"/api/groups": groupsCollectionRoute(db),
-			"/api/groups/:id": groupDetailRoute(db),
-			"/api/ingredients": ingredientsCollectionRoute(db),
-			"/api/ingredients/:id": ingredientDetailRoute(db),
-			"/api/products": productsCollectionRoute(db),
-			"/api/product-stats": productStatsRoute(db),
-			"/api/products/:id": productDetailRoute(db),
-			"/api/products/:id/picture": productPictureRoute(db),
-			"/api/product-links": productLinksCollectionRoute(db),
-			"/api/product-links/:id": productLinkDetailRoute(db),
-			"/api/receipts": receiptsCollectionRoute(db),
-			"/api/receipts/:id": receiptDetailRoute(db),
-			"/api/receipts/:id/picture": receiptPictureRoute(db),
-			"/api/recipes": recipesCollectionRoute(db),
-			"/api/recipes/:id": recipeDetailRoute(db),
-			"/api/recipes/:id/pictures": recipeImagesCollectionRoute(db),
-			"/api/recipes/:id/pictures/:pictureId": recipeImageDetailRoute(db),
-			"/api/recipe-ingredients": recipeIngredientsCollectionRoute(db),
-			"/api/recipe-ingredients/:id": recipeIngredientDetailRoute(db),
-			"/api/receipt-items": receiptItemsCollectionRoute(db),
-			"/api/receipt-items/:id": receiptItemDetailRoute(db),
-			"/api/inventory-containers": inventoryContainersCollectionRoute(db),
-			"/api/inventory-containers/:id": inventoryContainerDetailRoute(db),
-			"/api/inventory-items": inventoryItemsCollectionRoute(db),
-			"/api/inventory-items/:id/pictures": inventoryItemImagesCollectionRoute(db),
-			"/api/inventory-items/:id/pictures/:pictureId": inventoryItemImageDetailRoute(db),
-			"/api/inventory-items/:id": inventoryItemDetailRoute(db),
-			"/api/shopping-list-items": shoppingListItemsCollectionRoute(db),
-			"/api/shopping-list-items/:id": shoppingListItemDetailRoute(db),
-			"/api/todos": todosCollectionRoute(db),
-			"/api/todos/:id": todoDetailRoute(db),
-			"/api/users": usersCollectionRoute(db),
-			"/api/users/:id": userDetailRoute(db),
-			"/api/clients": clientsCollectionRoute(db),
-			"/api/clients/:id": clientDetailRoute(db),
-			"/api/projects": projectsCollectionRoute(db),
-			"/api/projects/:id/merge": projectMergeRoute(db),
-			"/api/projects/:id": projectDetailRoute(db),
-			"/api/time-entries": timeEntriesCollectionRoute(db),
-			"/api/time-entries/start": timeEntryStartRoute(db),
-			"/api/time-entries/:id/stop": timeEntryStopRoute(db),
-			"/api/time-entries/:id": timeEntryDetailRoute(db),
-			"/api/time-report": timeReportRoute(db),
-			"/api/spending": spendingRoute(db),
-			"/version": Response.json(versionPayload()),
-		},
+		handlers: createApiRoutes({
+			public: {
+				"/api/auth/login": authLoginRoute,
+				"/api/auth/logout": authLogoutRoute,
+				"/api/auth/password": authPasswordRoute,
+				"/api/auth/session": authSessionRoute,
+				"/api/groups": groupsCollectionRoute,
+				"/api/groups/:id": groupDetailRoute,
+				"/api/ingredients": ingredientsCollectionRoute,
+				"/api/ingredients/:id": ingredientDetailRoute,
+				"/api/products": productsCollectionRoute,
+				"/api/product-stats": productStatsRoute,
+				"/api/products/:id": productDetailRoute,
+				"/api/products/:id/picture": productPictureRoute,
+				"/api/product-links": productLinksCollectionRoute,
+				"/api/product-links/:id": productLinkDetailRoute,
+				"/api/receipts": receiptsCollectionRoute,
+				"/api/receipts/:id": receiptDetailRoute,
+				"/api/receipts/:id/picture": receiptPictureRoute,
+				"/api/recipes": recipesCollectionRoute,
+				"/api/recipes/:id": recipeDetailRoute,
+				"/api/recipes/:id/pictures": recipeImagesCollectionRoute,
+				"/api/recipes/:id/pictures/:pictureId": recipeImageDetailRoute,
+				"/api/recipe-ingredients": recipeIngredientsCollectionRoute,
+				"/api/recipe-ingredients/:id": recipeIngredientDetailRoute,
+				"/api/receipt-items": receiptItemsCollectionRoute,
+				"/api/receipt-items/:id": receiptItemDetailRoute,
+				"/api/inventory-containers": inventoryContainersCollectionRoute,
+				"/api/inventory-containers/:id": inventoryContainerDetailRoute,
+				"/api/inventory-items": inventoryItemsCollectionRoute,
+				"/api/inventory-items/:id/pictures": inventoryItemImagesCollectionRoute,
+				"/api/inventory-items/:id/pictures/:pictureId": inventoryItemImageDetailRoute,
+				"/api/inventory-items/:id": inventoryItemDetailRoute,
+				"/api/shopping-list-items": shoppingListItemsCollectionRoute,
+				"/api/shopping-list-items/:id": shoppingListItemDetailRoute,
+				"/api/todos": todosCollectionRoute,
+				"/api/todos/:id": todoDetailRoute,
+				"/api/users": usersCollectionRoute,
+				"/api/users/:id": userDetailRoute,
+				"/api/clients": clientsCollectionRoute,
+				"/api/clients/:id": clientDetailRoute,
+				"/api/projects": projectsCollectionRoute,
+				"/api/projects/:id/merge": projectMergeRoute,
+				"/api/projects/:id": projectDetailRoute,
+				"/api/time-entries": timeEntriesCollectionRoute,
+				"/api/time-entries/start": timeEntryStartRoute,
+				"/api/time-entries/:id/stop": timeEntryStopRoute,
+				"/api/time-entries/:id": timeEntryDetailRoute,
+				"/api/time-report": timeReportRoute,
+				"/api/spending": spendingRoute,
+				"/version": () => Response.json(versionPayload()),
+			},
+		}),
 	};
 };
 
@@ -272,6 +277,7 @@ describe("Pupler API", () => {
 				username: " alice ",
 				email: " alice@example.com ",
 				password_hash: " hashed-password ",
+				is_admin: true,
 			}),
 		});
 		expect(createResponse.status).toBe(201);
@@ -279,6 +285,7 @@ describe("Pupler API", () => {
 		expect(created.name).toBe("Alice");
 		expect(created.username).toBe("alice");
 		expect(created.email).toBe("alice@example.com");
+		expect(created.is_admin).toBeTrue();
 		expect(created.password_hash).toBeUndefined();
 
 		const listResponse = await request(routes, "/api/users?username=alice");
@@ -286,6 +293,7 @@ describe("Pupler API", () => {
 		const listed = await listResponse.json();
 		expect(listed).toHaveLength(1);
 		expect(listed[0].id).toBe(created.id);
+		expect(listed[0].is_admin).toBeTrue();
 		expect(listed[0].password_hash).toBeUndefined();
 
 		const updateResponse = await request(
@@ -297,6 +305,7 @@ describe("Pupler API", () => {
 				body: JSON.stringify({
 					email: null,
 					password_hash: "replacement-hash",
+					is_admin: false,
 				}),
 			},
 			{ id: String(created.id) },
@@ -304,6 +313,7 @@ describe("Pupler API", () => {
 		expect(updateResponse.status).toBe(200);
 		const updated = await updateResponse.json();
 		expect(updated.email).toBeNull();
+		expect(updated.is_admin).toBeFalse();
 		expect(updated.password_hash).toBeUndefined();
 
 		const deleteResponse = await request(
@@ -325,15 +335,13 @@ describe("Pupler API", () => {
 
 	test("authenticates users with server-managed cookie sessions", async () => {
 		const routes = createRoutes();
-		const passwordHash = await Bun.password.hash("correct horse battery staple");
-
 		const createResponse = await request(routes, "/api/users", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
 				name: "Alice",
 				username: "alice",
-				password_hash: passwordHash,
+				password: "correct horse battery staple",
 			}),
 		});
 		expect(createResponse.status).toBe(201);

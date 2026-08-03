@@ -1,9 +1,9 @@
+import { db } from "../db";
 import {
 	HttpError,
 	json,
 	parseIntegerQuery,
 	parseTimestampQuery,
-	withErrorHandling,
 	type Database,
 } from "./core";
 import { displayCurrency, displayMoneyAmount } from "../currency";
@@ -217,179 +217,178 @@ const dailyAverageTotals = (
 		})
 		.sort((left, right) => left.currency.localeCompare(right.currency));
 
-export const spendingRoute = (db: Database) =>
-	withErrorHandling(async (req: Request) => {
-		if (req.method !== "GET") {
-			throw new HttpError(405, "Method not allowed for this route");
-		}
+export const spendingRoute = async (req: Request) => {
+	if (req.method !== "GET") {
+		throw new HttpError(405, "Method not allowed for this route");
+	}
 
-		const url = new URL(req.url);
-		const period = parseSpendingQuery(url);
-		const items = await db.client.receiptItem.findMany({
-			where: {
-				receipt: {
-					purchased_at: {
-						...(period.from === null ? {} : { gte: period.from }),
-						lte: period.to,
-					},
+	const url = new URL(req.url);
+	const period = parseSpendingQuery(url);
+	const items = await db.client.receiptItem.findMany({
+		where: {
+			receipt: {
+				purchased_at: {
+					...(period.from === null ? {} : { gte: period.from }),
+					lte: period.to,
 				},
 			},
-			select: {
-				id: true,
-				quantity: true,
-				unit: true,
-				unit_price: true,
-				line_total: true,
-				receipt: {
-					select: {
-						id: true,
-						store_name: true,
-						purchased_at: true,
-						currency: true,
-					},
-				},
-				product: {
-					select: {
-						id: true,
-						name: true,
-						category: true,
-					},
+		},
+		select: {
+			id: true,
+			quantity: true,
+			unit: true,
+			unit_price: true,
+			line_total: true,
+			receipt: {
+				select: {
+					id: true,
+					store_name: true,
+					purchased_at: true,
+					currency: true,
 				},
 			},
-			orderBy: [{ receipt: { purchased_at: "desc" } }, { id: "asc" }],
-		});
-
-		const buckets = new Map<string, SpendingBucket>();
-		const spendingByCurrency = new Map<
-			string,
-			{ firstDay: number; total: number }
-		>();
-		const averageEndDay = calendarDayIndex(period.to);
-		const currentMonthStartDay = calendarMonthStartDayIndex(period.to);
-		const currentMonthTotals = new Map<string, number>();
-		let itemCount = 0;
-		let missingTotalCount = 0;
-
-		for (const item of items) {
-			itemCount += 1;
-			const category = normalizeCategory(item.product.category);
-			const sourceCurrency = item.receipt.currency;
-			const currency = displayCurrency(sourceCurrency);
-			const key = bucketKey(category, currency);
-			let bucket = buckets.get(key);
-			if (!bucket) {
-				bucket = {
-					category,
-					currency,
-					total: 0,
-					item_count: 0,
-					missing_total_count: 0,
-					items: [],
-				};
-				buckets.set(key, bucket);
-			}
-
-			bucket.item_count += 1;
-			const sourceAmount = receiptItemAmount(item);
-			const amount =
-				sourceAmount === null
-					? null
-					: displayMoneyAmount(sourceAmount, sourceCurrency);
-			bucket.items.push({
-				id: item.id,
-				receipt_id: item.receipt.id,
-				product_id: item.product.id,
-				store_name: item.receipt.store_name,
-				purchased_at: item.receipt.purchased_at,
-				product_name: item.product.name,
-				quantity: item.quantity,
-				unit: item.unit,
-				unit_price: item.unit_price,
-				line_total: item.line_total,
-				amount: amount === null ? null : roundedMoney(amount),
-			});
-			if (amount === null) {
-				bucket.missing_total_count += 1;
-				missingTotalCount += 1;
-				continue;
-			}
-			bucket.total += amount;
-
-			const itemDay = calendarDayIndex(item.receipt.purchased_at);
-			if (itemDay !== null) {
-				const spending = spendingByCurrency.get(currency);
-				if (spending) {
-					spending.firstDay = Math.min(spending.firstDay, itemDay);
-					spending.total += amount;
-				} else {
-					spendingByCurrency.set(currency, {
-						firstDay: itemDay,
-						total: amount,
-					});
-				}
-
-				if (
-					currentMonthStartDay !== null &&
-					averageEndDay !== null &&
-					itemDay >= currentMonthStartDay &&
-					itemDay <= averageEndDay
-				) {
-					currentMonthTotals.set(
-						currency,
-						(currentMonthTotals.get(currency) ?? 0) + amount,
-					);
-				}
-			}
-		}
-
-		const categories = [...buckets.values()]
-			.map((bucket) => ({
-				...bucket,
-				total: roundedMoney(bucket.total),
-			}))
-			.sort(
-				(left, right) =>
-					left.currency.localeCompare(right.currency) ||
-					right.total - left.total ||
-					left.category.localeCompare(right.category),
-			);
-
-		const currencyTotals = new Map<string, number>();
-		for (const bucket of categories) {
-			currencyTotals.set(
-				bucket.currency,
-				(currencyTotals.get(bucket.currency) ?? 0) + bucket.total,
-			);
-		}
-
-		return json(200, {
-			period,
-			item_count: itemCount,
-			missing_total_count: missingTotalCount,
-			currency_totals: [...currencyTotals.entries()]
-				.map(([currency, total]) => ({
-					currency,
-					total: roundedMoney(total),
-				}))
-				.sort((left, right) => left.currency.localeCompare(right.currency)),
-			monthly_average_totals: monthlyAverageTotals(
-				spendingByCurrency,
-				averageEndDay,
-			),
-			weekly_average_totals: weeklyAverageTotals(
-				spendingByCurrency,
-				averageEndDay,
-			),
-			daily_average_totals: dailyAverageTotals(
-				spendingByCurrency,
-				averageEndDay,
-			),
-			current_month_totals: [...currentMonthTotals.entries()]
-				.map(([currency, total]) => ({
-					currency,
-					total: roundedMoney(total),
-				}))
-				.sort((left, right) => left.currency.localeCompare(right.currency)),
-			categories,
-		});
+			product: {
+				select: {
+					id: true,
+					name: true,
+					category: true,
+				},
+			},
+		},
+		orderBy: [{ receipt: { purchased_at: "desc" } }, { id: "asc" }],
 	});
+
+	const buckets = new Map<string, SpendingBucket>();
+	const spendingByCurrency = new Map<
+		string,
+		{ firstDay: number; total: number }
+	>();
+	const averageEndDay = calendarDayIndex(period.to);
+	const currentMonthStartDay = calendarMonthStartDayIndex(period.to);
+	const currentMonthTotals = new Map<string, number>();
+	let itemCount = 0;
+	let missingTotalCount = 0;
+
+	for (const item of items) {
+		itemCount += 1;
+		const category = normalizeCategory(item.product.category);
+		const sourceCurrency = item.receipt.currency;
+		const currency = displayCurrency(sourceCurrency);
+		const key = bucketKey(category, currency);
+		let bucket = buckets.get(key);
+		if (!bucket) {
+			bucket = {
+				category,
+				currency,
+				total: 0,
+				item_count: 0,
+				missing_total_count: 0,
+				items: [],
+			};
+			buckets.set(key, bucket);
+		}
+
+		bucket.item_count += 1;
+		const sourceAmount = receiptItemAmount(item);
+		const amount =
+			sourceAmount === null
+				? null
+				: displayMoneyAmount(sourceAmount, sourceCurrency);
+		bucket.items.push({
+			id: item.id,
+			receipt_id: item.receipt.id,
+			product_id: item.product.id,
+			store_name: item.receipt.store_name,
+			purchased_at: item.receipt.purchased_at,
+			product_name: item.product.name,
+			quantity: item.quantity,
+			unit: item.unit,
+			unit_price: item.unit_price,
+			line_total: item.line_total,
+			amount: amount === null ? null : roundedMoney(amount),
+		});
+		if (amount === null) {
+			bucket.missing_total_count += 1;
+			missingTotalCount += 1;
+			continue;
+		}
+		bucket.total += amount;
+
+		const itemDay = calendarDayIndex(item.receipt.purchased_at);
+		if (itemDay !== null) {
+			const spending = spendingByCurrency.get(currency);
+			if (spending) {
+				spending.firstDay = Math.min(spending.firstDay, itemDay);
+				spending.total += amount;
+			} else {
+				spendingByCurrency.set(currency, {
+					firstDay: itemDay,
+					total: amount,
+				});
+			}
+
+			if (
+				currentMonthStartDay !== null &&
+				averageEndDay !== null &&
+				itemDay >= currentMonthStartDay &&
+				itemDay <= averageEndDay
+			) {
+				currentMonthTotals.set(
+					currency,
+					(currentMonthTotals.get(currency) ?? 0) + amount,
+				);
+			}
+		}
+	}
+
+	const categories = [...buckets.values()]
+		.map((bucket) => ({
+			...bucket,
+			total: roundedMoney(bucket.total),
+		}))
+		.sort(
+			(left, right) =>
+				left.currency.localeCompare(right.currency) ||
+				right.total - left.total ||
+				left.category.localeCompare(right.category),
+		);
+
+	const currencyTotals = new Map<string, number>();
+	for (const bucket of categories) {
+		currencyTotals.set(
+			bucket.currency,
+			(currencyTotals.get(bucket.currency) ?? 0) + bucket.total,
+		);
+	}
+
+	return json(200, {
+		period,
+		item_count: itemCount,
+		missing_total_count: missingTotalCount,
+		currency_totals: [...currencyTotals.entries()]
+			.map(([currency, total]) => ({
+				currency,
+				total: roundedMoney(total),
+			}))
+			.sort((left, right) => left.currency.localeCompare(right.currency)),
+		monthly_average_totals: monthlyAverageTotals(
+			spendingByCurrency,
+			averageEndDay,
+		),
+		weekly_average_totals: weeklyAverageTotals(
+			spendingByCurrency,
+			averageEndDay,
+		),
+		daily_average_totals: dailyAverageTotals(
+			spendingByCurrency,
+			averageEndDay,
+		),
+		current_month_totals: [...currentMonthTotals.entries()]
+			.map(([currency, total]) => ({
+				currency,
+				total: roundedMoney(total),
+			}))
+			.sort((left, right) => left.currency.localeCompare(right.currency)),
+		categories,
+	});
+};

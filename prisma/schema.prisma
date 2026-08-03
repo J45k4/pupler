@@ -282,6 +282,7 @@ model User {
 	username      String?       @unique
 	email         String?
 	password_hash String?       @map("password_hash")
+	is_admin      Boolean       @default(false) @map("is_admin")
 	created_at    String        @map("created_at")
 	updated_at    String        @map("updated_at")
 	time_entries  TimeEntry[]

@@ -1,5 +1,6 @@
 import type { BunRequest } from "bun";
 
+import { db } from "../db";
 import {
 	assertKnownFields,
 	empty,
@@ -17,7 +18,6 @@ import {
 	readOptionalBodyField,
 	requireBodyField,
 	utcNow,
-	withErrorHandling,
 	type Database,
 	type JsonObject,
 } from "./core";
@@ -223,94 +223,92 @@ const parsePatchValues = (body: JsonObject) => {
 	return values;
 };
 
-export const productsCollectionRoute = (db: Database) =>
-	withErrorHandling(async (req: Request) => {
-		if (req.method === "GET") {
-			const url = new URL(req.url);
-			const { where, nameExact, nameContains } = parseProductFilters(url);
-			const rows = await db.client.product.findMany({
-				where,
-				orderBy: parseProductSort(url),
-				select: productDetailSelect,
-			});
-			return json(200, filterProductsByName(rows, nameExact, nameContains));
-		}
+export const productsCollectionRoute = async (req: Request) => {
+	if (req.method === "GET") {
+		const url = new URL(req.url);
+		const { where, nameExact, nameContains } = parseProductFilters(url);
+		const rows = await db.client.product.findMany({
+			where,
+			orderBy: parseProductSort(url),
+			select: productDetailSelect,
+		});
+		return json(200, filterProductsByName(rows, nameExact, nameContains));
+	}
 
-		if (req.method === "POST") {
-			const values = parseCreateValues(await readJsonObject(req));
-			await ensureIngredientExists(db, values.ingredient_id);
-			const created = await db.client.product.create({
-				data: values,
-			});
-			return json(
-				201,
-				await fetchProductDetail(db, created.id),
+	if (req.method === "POST") {
+		const values = parseCreateValues(await readJsonObject(req));
+		await ensureIngredientExists(db, values.ingredient_id);
+		const created = await db.client.product.create({
+			data: values,
+		});
+		return json(
+			201,
+			await fetchProductDetail(db, created.id),
+		);
+	}
+
+	throw new HttpError(405, "Method not allowed for this route");
+};
+
+export const productDetailRoute = async (req: BunRequest<string>) => {
+	const id = parseIdParam(req.params.id);
+	const existingRow = await fetchProduct(db, id);
+	if (!existingRow) {
+		throw new HttpError(404, "Resource not found");
+	}
+
+	if (req.method === "GET") {
+		return json(200, await fetchProductDetail(db, id));
+	}
+
+	if (req.method === "PUT") {
+		const values = parseReplaceValues(
+			await readJsonObject(req),
+			existingRow,
+		);
+		await ensureIngredientExists(db, values.ingredient_id);
+		await db.client.product.update({
+			where: { id },
+			data: values,
+		});
+		return json(
+			200,
+			await fetchProductDetail(db, id),
+		);
+	}
+
+	if (req.method === "PATCH") {
+		const values = parsePatchValues(await readJsonObject(req));
+		if ("ingredient_id" in values) {
+			await ensureIngredientExists(
+				db,
+				values.ingredient_id as number | null,
 			);
 		}
+		await db.client.product.update({
+			where: { id },
+			data: values,
+		});
+		return json(
+			200,
+			await fetchProductDetail(db, id),
+		);
+	}
 
-		throw new HttpError(405, "Method not allowed for this route");
-	});
-
-export const productDetailRoute = (db: Database) =>
-	withErrorHandling(async (req: BunRequest<string>) => {
-		const id = parseIdParam(req.params.id);
-		const existingRow = await fetchProduct(db, id);
-		if (!existingRow) {
-			throw new HttpError(404, "Resource not found");
-		}
-
-		if (req.method === "GET") {
-			return json(200, await fetchProductDetail(db, id));
-		}
-
-		if (req.method === "PUT") {
-			const values = parseReplaceValues(
-				await readJsonObject(req),
-				existingRow,
-			);
-			await ensureIngredientExists(db, values.ingredient_id);
-			await db.client.product.update({
-				where: { id },
-				data: values,
+	if (req.method === "DELETE") {
+		const existingPicture = await fetchProductPicture(db, id);
+		await db.client.product.delete({ where: { id } });
+		if (existingPicture?.picture_file) {
+			await db.client.file.delete({
+				where: { id: existingPicture.picture_file.id },
 			});
-			return json(
-				200,
-				await fetchProductDetail(db, id),
-			);
+			await deleteStoredFileBestEffort(db, existingPicture.picture_file.path);
 		}
+		return empty(204);
+	}
 
-		if (req.method === "PATCH") {
-			const values = parsePatchValues(await readJsonObject(req));
-			if ("ingredient_id" in values) {
-				await ensureIngredientExists(
-					db,
-					values.ingredient_id as number | null,
-				);
-			}
-			await db.client.product.update({
-				where: { id },
-				data: values,
-			});
-			return json(
-				200,
-				await fetchProductDetail(db, id),
-			);
-		}
-
-		if (req.method === "DELETE") {
-			const existingPicture = await fetchProductPicture(db, id);
-			await db.client.product.delete({ where: { id } });
-			if (existingPicture?.picture_file) {
-				await db.client.file.delete({
-					where: { id: existingPicture.picture_file.id },
-				});
-				await deleteStoredFileBestEffort(db, existingPicture.picture_file.path);
-			}
-			return empty(204);
-		}
-
-		throw new HttpError(405, "Method not allowed for this route");
-	});
+	throw new HttpError(405, "Method not allowed for this route");
+};
 
 const fetchProductPicture = (db: Database, productId: number) =>
 	db.client.product.findUnique({
@@ -327,114 +325,113 @@ const fetchProductPicture = (db: Database, productId: number) =>
 		},
 	});
 
-export const productPictureRoute = (db: Database) =>
-	withErrorHandling(async (req: BunRequest<string>) => {
-		const productId = parseIdParam(req.params.id);
-		const product = await fetchProduct(db, productId);
-		if (!product) {
-			throw new HttpError(404, "Resource not found");
-		}
+export const productPictureRoute = async (req: BunRequest<string>) => {
+	const productId = parseIdParam(req.params.id);
+	const product = await fetchProduct(db, productId);
+	if (!product) {
+		throw new HttpError(404, "Resource not found");
+	}
 
-		if (req.method === "GET") {
-			const row = await fetchProductPicture(db, productId);
-			if (!row?.picture_file) {
-				throw new HttpError(404, "Product picture not found");
-			}
-			return new Response(
-				await readStoredFile(
-					db,
-					row.picture_file.path,
-					"Product picture not found",
-				),
-				{
-					status: 200,
-					headers: {
-						"Content-Type": row.picture_file.content_type,
-						"Cache-Control": "no-store",
-						...(row.picture_file.filename
-							? {
-									"Content-Disposition": `inline; filename="${row.picture_file.filename}"`,
-								}
-							: {}),
-					},
+	if (req.method === "GET") {
+		const row = await fetchProductPicture(db, productId);
+		if (!row?.picture_file) {
+			throw new HttpError(404, "Product picture not found");
+		}
+		return new Response(
+			await readStoredFile(
+				db,
+				row.picture_file.path,
+				"Product picture not found",
+			),
+			{
+				status: 200,
+				headers: {
+					"Content-Type": row.picture_file.content_type,
+					"Cache-Control": "no-store",
+					...(row.picture_file.filename
+						? {
+								"Content-Disposition": `inline; filename="${row.picture_file.filename}"`,
+							}
+						: {}),
 				},
-			);
+			},
+		);
+	}
+
+	if (req.method === "DELETE") {
+		const existingPicture = await fetchProductPicture(db, productId);
+		await db.client.product.update({
+			where: { id: productId },
+			data: {
+				picture_file_id: null,
+			},
+		});
+		if (existingPicture?.picture_file) {
+			await db.client.file.delete({
+				where: { id: existingPicture.picture_file.id },
+			});
+			await deleteStoredFileBestEffort(db, existingPicture.picture_file.path);
+		}
+		return empty(204);
+	}
+
+	if (req.method === "POST") {
+		const formData = await req.formData();
+		const uploaded = formData.get("file");
+		if (!(uploaded instanceof File)) {
+			throw new HttpError(400, "Multipart form-data must include a `file` field");
+		}
+		if (!uploaded.type.startsWith("image/")) {
+			throw new HttpError(400, "Uploaded file must be an image");
+		}
+		if (uploaded.size === 0) {
+			throw new HttpError(400, "Uploaded file may not be empty");
+		}
+		if (uploaded.size > MAX_PRODUCT_PICTURE_BYTES) {
+			throw new HttpError(413, "Uploaded file exceeds the 10 MB limit");
 		}
 
-		if (req.method === "DELETE") {
-			const existingPicture = await fetchProductPicture(db, productId);
+		const previousPicture = await fetchProductPicture(db, productId);
+		const storedFile = await writeUploadedFile(db, {
+			assetType: "product-pictures",
+			file: uploaded,
+			resourceId: productId,
+		});
+
+		try {
 			await db.client.product.update({
 				where: { id: productId },
 				data: {
-					picture_file_id: null,
-				},
-			});
-			if (existingPicture?.picture_file) {
-				await db.client.file.delete({
-					where: { id: existingPicture.picture_file.id },
-				});
-				await deleteStoredFileBestEffort(db, existingPicture.picture_file.path);
-			}
-			return empty(204);
-		}
-
-		if (req.method === "POST") {
-			const formData = await req.formData();
-			const uploaded = formData.get("file");
-			if (!(uploaded instanceof File)) {
-				throw new HttpError(400, "Multipart form-data must include a `file` field");
-			}
-			if (!uploaded.type.startsWith("image/")) {
-				throw new HttpError(400, "Uploaded file must be an image");
-			}
-			if (uploaded.size === 0) {
-				throw new HttpError(400, "Uploaded file may not be empty");
-			}
-			if (uploaded.size > MAX_PRODUCT_PICTURE_BYTES) {
-				throw new HttpError(413, "Uploaded file exceeds the 10 MB limit");
-			}
-
-			const previousPicture = await fetchProductPicture(db, productId);
-			const storedFile = await writeUploadedFile(db, {
-				assetType: "product-pictures",
-				file: uploaded,
-				resourceId: productId,
-			});
-
-			try {
-				await db.client.product.update({
-					where: { id: productId },
-					data: {
-						picture_file: {
-							create: {
-								path: storedFile.relativePath,
-								content_type: uploaded.type,
-								filename: uploaded.name || null,
-								size_bytes: uploaded.size,
-								created_at: utcNow(),
-							},
+					picture_file: {
+						create: {
+							path: storedFile.relativePath,
+							content_type: uploaded.type,
+							filename: uploaded.name || null,
+							size_bytes: uploaded.size,
+							created_at: utcNow(),
 						},
 					},
-				});
-			} catch (error) {
-				await deleteStoredFileBestEffort(db, storedFile.relativePath);
-				throw error;
-			}
-
-			if (previousPicture?.picture_file) {
-				await db.client.file.delete({
-					where: { id: previousPicture.picture_file.id },
-				});
-				await deleteStoredFileBestEffort(db, previousPicture.picture_file.path);
-			}
-
-			return json(200, {
-				product_id: productId,
-				content_type: uploaded.type,
-				filename: uploaded.name || null,
-				size: uploaded.size,
+				},
 			});
+		} catch (error) {
+			await deleteStoredFileBestEffort(db, storedFile.relativePath);
+			throw error;
 		}
 
-		throw new HttpError(405, "Method not allowed for this route");
-	});
+		if (previousPicture?.picture_file) {
+			await db.client.file.delete({
+				where: { id: previousPicture.picture_file.id },
+			});
+			await deleteStoredFileBestEffort(db, previousPicture.picture_file.path);
+		}
+
+		return json(200, {
+			product_id: productId,
+			content_type: uploaded.type,
+			filename: uploaded.name || null,
+			size: uploaded.size,
+		});
+	}
+
+	throw new HttpError(405, "Method not allowed for this route");
+};

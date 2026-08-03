@@ -1,5 +1,6 @@
 import type { BunRequest } from "bun";
 
+import { db } from "../db";
 import {
 	assertKnownFields,
 	empty,
@@ -17,7 +18,6 @@ import {
 	readOptionalBodyField,
 	requireBodyField,
 	utcNow,
-	withErrorHandling,
 	type Database,
 	type JsonObject,
 } from "./core";
@@ -143,85 +143,83 @@ const parsePatchValues = (body: JsonObject) => {
 	return values;
 };
 
-export const receiptItemsCollectionRoute = (db: Database) =>
-	withErrorHandling(async (req: Request) => {
-		if (req.method === "GET") {
-			const url = new URL(req.url);
-			return json(
-				200,
-				await db.client.receiptItem.findMany({
-					where: parseFilters(url),
-					orderBy: parseSort(url),
-				}),
-			);
-		}
+export const receiptItemsCollectionRoute = async (req: Request) => {
+	if (req.method === "GET") {
+		const url = new URL(req.url);
+		return json(
+			200,
+			await db.client.receiptItem.findMany({
+				where: parseFilters(url),
+				orderBy: parseSort(url),
+			}),
+		);
+	}
 
-		if (req.method === "POST") {
-			const values = parseCreateValues(await readJsonObject(req));
-			await ensureReceiptExists(db, values.receipt_id);
-			await ensureProductExists(db, values.product_id);
-			return json(
-				201,
-				await db.client.receiptItem.create({
-					data: values,
-				}),
-			);
-		}
+	if (req.method === "POST") {
+		const values = parseCreateValues(await readJsonObject(req));
+		await ensureReceiptExists(db, values.receipt_id);
+		await ensureProductExists(db, values.product_id);
+		return json(
+			201,
+			await db.client.receiptItem.create({
+				data: values,
+			}),
+		);
+	}
 
-		throw new HttpError(405, "Method not allowed for this route");
-	});
+	throw new HttpError(405, "Method not allowed for this route");
+};
 
-export const receiptItemDetailRoute = (db: Database) =>
-	withErrorHandling(async (req: BunRequest<string>) => {
-		const id = parseIdParam(req.params.id);
-		const existingRow = await fetchReceiptItem(db, id);
-		if (!existingRow) {
-			throw new HttpError(404, "Resource not found");
-		}
+export const receiptItemDetailRoute = async (req: BunRequest<string>) => {
+	const id = parseIdParam(req.params.id);
+	const existingRow = await fetchReceiptItem(db, id);
+	if (!existingRow) {
+		throw new HttpError(404, "Resource not found");
+	}
 
-		if (req.method === "GET") return json(200, existingRow);
-		if (req.method === "PUT") {
-			const values = parseReplaceValues(await readJsonObject(req), existingRow);
-			await ensureReceiptExists(db, values.receipt_id);
-			await ensureProductExists(db, values.product_id);
-			return json(
-				200,
-				await db.client.receiptItem.update({
-					where: { id },
-					data: values,
-				}),
-			);
-		}
-		if (req.method === "PATCH") {
-			const values = parsePatchValues(await readJsonObject(req));
-			await ensureReceiptExists(
-				db,
-				(values.receipt_id as number | undefined) ?? existingRow.receipt_id,
-			);
-			await ensureProductExists(
-				db,
-				(values.product_id as number | undefined) ?? existingRow.product_id,
-			);
-			return json(
-				200,
-				await db.client.receiptItem.update({
-					where: { id },
-					data: values,
-				}),
-			);
-		}
-		if (req.method === "DELETE") {
-			await db.client.$transaction([
-				db.client.inventoryItem.updateMany({
-					where: { receipt_item_id: id },
-					data: {
-						receipt_item_id: null,
-						updated_at: utcNow(),
-					},
-				}),
-				db.client.receiptItem.delete({ where: { id } }),
-			]);
-			return empty(204);
-		}
-		throw new HttpError(405, "Method not allowed for this route");
-	});
+	if (req.method === "GET") return json(200, existingRow);
+	if (req.method === "PUT") {
+		const values = parseReplaceValues(await readJsonObject(req), existingRow);
+		await ensureReceiptExists(db, values.receipt_id);
+		await ensureProductExists(db, values.product_id);
+		return json(
+			200,
+			await db.client.receiptItem.update({
+				where: { id },
+				data: values,
+			}),
+		);
+	}
+	if (req.method === "PATCH") {
+		const values = parsePatchValues(await readJsonObject(req));
+		await ensureReceiptExists(
+			db,
+			(values.receipt_id as number | undefined) ?? existingRow.receipt_id,
+		);
+		await ensureProductExists(
+			db,
+			(values.product_id as number | undefined) ?? existingRow.product_id,
+		);
+		return json(
+			200,
+			await db.client.receiptItem.update({
+				where: { id },
+				data: values,
+			}),
+		);
+	}
+	if (req.method === "DELETE") {
+		await db.client.$transaction([
+			db.client.inventoryItem.updateMany({
+				where: { receipt_item_id: id },
+				data: {
+					receipt_item_id: null,
+					updated_at: utcNow(),
+				},
+			}),
+			db.client.receiptItem.delete({ where: { id } }),
+		]);
+		return empty(204);
+	}
+	throw new HttpError(405, "Method not allowed for this route");
+};

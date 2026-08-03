@@ -1,5 +1,6 @@
 import type { BunRequest } from "bun";
 
+import { db } from "../db";
 import {
 	assertKnownFields,
 	empty,
@@ -17,7 +18,6 @@ import {
 	readOptionalBodyField,
 	requireBodyField,
 	utcNow,
-	withErrorHandling,
 	type Database,
 	type JsonObject,
 } from "./core";
@@ -311,136 +311,132 @@ const parsePatchValues = (body: JsonObject) => {
 	return values;
 };
 
-export const recipesCollectionRoute = (db: Database) =>
-	withErrorHandling(async (req: Request) => {
-		if (req.method === "GET") {
-			const url = new URL(req.url);
-			return json(
-				200,
-				await db.client.recipe.findMany({
-					where: parseFilters(url),
-					orderBy: parseSort(url),
-				}),
-			);
-		}
-		if (req.method === "POST") {
-			return json(
-				201,
-				await db.client.recipe.create({
-					data: parseCreateValues(await readJsonObject(req)),
-				}),
-			);
-		}
-		throw new HttpError(405, "Method not allowed for this route");
-	});
+export const recipesCollectionRoute = async (req: Request) => {
+	if (req.method === "GET") {
+		const url = new URL(req.url);
+		return json(
+			200,
+			await db.client.recipe.findMany({
+				where: parseFilters(url),
+				orderBy: parseSort(url),
+			}),
+		);
+	}
+	if (req.method === "POST") {
+		return json(
+			201,
+			await db.client.recipe.create({
+				data: parseCreateValues(await readJsonObject(req)),
+			}),
+		);
+	}
+	throw new HttpError(405, "Method not allowed for this route");
+};
 
-export const recipeDetailRoute = (db: Database) =>
-	withErrorHandling(async (req: BunRequest<string>) => {
-		const id = parseIdParam(req.params.id);
-		const existingRow = await fetchRecipe(db, id);
-		if (!existingRow) throw new HttpError(404, "Resource not found");
+export const recipeDetailRoute = async (req: BunRequest<string>) => {
+	const id = parseIdParam(req.params.id);
+	const existingRow = await fetchRecipe(db, id);
+	if (!existingRow) throw new HttpError(404, "Resource not found");
 
-		if (req.method === "GET") {
-			return json(200, await fetchRecipeDetail(db, id));
-		}
-		if (req.method === "PUT") {
-			await db.client.recipe.update({
-				where: { id },
-				data: parseReplaceValues(await readJsonObject(req), existingRow),
-			});
-			return json(200, await fetchRecipeDetail(db, id));
-		}
-		if (req.method === "PATCH") {
-			await db.client.recipe.update({
-				where: { id },
-				data: parsePatchValues(await readJsonObject(req)),
-			});
-			return json(200, await fetchRecipeDetail(db, id));
-		}
-		if (req.method === "DELETE") {
-			const images = await db.client.recipeImage.findMany({
-				where: { recipe_id: id },
-				select: { file: { select: { id: true, path: true } } },
-			});
-			await db.client.recipeImage.deleteMany({
-				where: { recipe_id: id },
-			});
-			await db.client.file.deleteMany({
-				where: {
-					id: {
-						in: images.map((image) => image.file.id),
-					},
+	if (req.method === "GET") {
+		return json(200, await fetchRecipeDetail(db, id));
+	}
+	if (req.method === "PUT") {
+		await db.client.recipe.update({
+			where: { id },
+			data: parseReplaceValues(await readJsonObject(req), existingRow),
+		});
+		return json(200, await fetchRecipeDetail(db, id));
+	}
+	if (req.method === "PATCH") {
+		await db.client.recipe.update({
+			where: { id },
+			data: parsePatchValues(await readJsonObject(req)),
+		});
+		return json(200, await fetchRecipeDetail(db, id));
+	}
+	if (req.method === "DELETE") {
+		const images = await db.client.recipeImage.findMany({
+			where: { recipe_id: id },
+			select: { file: { select: { id: true, path: true } } },
+		});
+		await db.client.recipeImage.deleteMany({
+			where: { recipe_id: id },
+		});
+		await db.client.file.deleteMany({
+			where: {
+				id: {
+					in: images.map((image) => image.file.id),
 				},
-			});
-			await db.client.recipe.delete({ where: { id } });
-			await Promise.all(
-				images.map((image) =>
-					deleteStoredFileBestEffort(db, image.file.path),
-				),
-			);
-			return empty(204);
-		}
-		throw new HttpError(405, "Method not allowed for this route");
-	});
+			},
+		});
+		await db.client.recipe.delete({ where: { id } });
+		await Promise.all(
+			images.map((image) =>
+				deleteStoredFileBestEffort(db, image.file.path),
+			),
+		);
+		return empty(204);
+	}
+	throw new HttpError(405, "Method not allowed for this route");
+};
 
-export const recipeImagesCollectionRoute = (db: Database) =>
-	withErrorHandling(async (req: BunRequest<string>) => {
-		const recipeId = parseIdParam(req.params.id);
-		await ensureRecipeExists(db, recipeId);
+export const recipeImagesCollectionRoute = async (req: BunRequest<string>) => {
+	const recipeId = parseIdParam(req.params.id);
+	await ensureRecipeExists(db, recipeId);
 
-		if (req.method === "GET") {
-			return json(200, await fetchRecipeImages(db, recipeId));
-		}
+	if (req.method === "GET") {
+		return json(200, await fetchRecipeImages(db, recipeId));
+	}
 
-		if (req.method === "POST") {
-			const formData = await req.formData();
-			const uploaded = parseUploadedRecipeImages(formData.getAll("file"));
-			if (uploaded.length === 0) {
-				throw new HttpError(400, "Multipart form-data must include one or more `file` fields");
-			}
-
-			return json(201, await createRecipeImages(db, recipeId, uploaded));
+	if (req.method === "POST") {
+		const formData = await req.formData();
+		const uploaded = parseUploadedRecipeImages(formData.getAll("file"));
+		if (uploaded.length === 0) {
+			throw new HttpError(400, "Multipart form-data must include one or more `file` fields");
 		}
 
-		throw new HttpError(405, "Method not allowed for this route");
-	});
+		return json(201, await createRecipeImages(db, recipeId, uploaded));
+	}
 
-export const recipeImageDetailRoute = (db: Database) =>
-	withErrorHandling(async (req: BunRequest<string>) => {
-		const recipeId = parseIdParam(req.params.id);
-		const pictureId = parseIdParam(req.params.pictureId);
-		await ensureRecipeExists(db, recipeId);
-		const image = await fetchRecipeImage(db, recipeId, pictureId);
-		if (!image) {
-			throw new HttpError(404, "Recipe image not found");
-		}
+	throw new HttpError(405, "Method not allowed for this route");
+};
 
-		if (req.method === "GET") {
-			return new Response(
-				await readStoredFile(db, image.file.path, "Recipe image not found"),
-				{
-					status: 200,
-					headers: {
-						"Content-Type": image.file.content_type,
-						"Cache-Control": "no-store",
-						...(image.file.filename
-							? {
-									"Content-Disposition": `inline; filename="${image.file.filename}"`,
-								}
-							: {}),
-					},
+export const recipeImageDetailRoute = async (req: BunRequest<string>) => {
+	const recipeId = parseIdParam(req.params.id);
+	const pictureId = parseIdParam(req.params.pictureId);
+	await ensureRecipeExists(db, recipeId);
+	const image = await fetchRecipeImage(db, recipeId, pictureId);
+	if (!image) {
+		throw new HttpError(404, "Recipe image not found");
+	}
+
+	if (req.method === "GET") {
+		return new Response(
+			await readStoredFile(db, image.file.path, "Recipe image not found"),
+			{
+				status: 200,
+				headers: {
+					"Content-Type": image.file.content_type,
+					"Cache-Control": "no-store",
+					...(image.file.filename
+						? {
+								"Content-Disposition": `inline; filename="${image.file.filename}"`,
+							}
+						: {}),
 				},
-			);
-		}
+			},
+		);
+	}
 
-		if (req.method === "DELETE") {
-			await db.client.recipeImage.delete({
-				where: { id: pictureId },
-			});
-			await db.client.file.delete({ where: { id: image.file.id } });
-			await deleteStoredFileBestEffort(db, image.file.path);
-			return empty(204);
-		}
+	if (req.method === "DELETE") {
+		await db.client.recipeImage.delete({
+			where: { id: pictureId },
+		});
+		await db.client.file.delete({ where: { id: image.file.id } });
+		await deleteStoredFileBestEffort(db, image.file.path);
+		return empty(204);
+	}
 
-		throw new HttpError(405, "Method not allowed for this route");
-	});
+	throw new HttpError(405, "Method not allowed for this route");
+};

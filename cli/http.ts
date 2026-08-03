@@ -19,6 +19,42 @@ type BodyRequestOptions = {
 	query?: Record<string, QueryValue>;
 };
 
+let sessionCookie: string | null = null;
+
+const requestHeaders = (body?: unknown) => ({
+	...(body === undefined ? {} : { "Content-Type": "application/json" }),
+	...(sessionCookie ? { Cookie: sessionCookie } : {}),
+});
+
+const storeSessionCookie = (response: Response) => {
+	const setCookie = response.headers.get("set-cookie");
+	const match = setCookie?.match(/pupler_session=[^;]+/);
+	if (match) sessionCookie = match[0];
+};
+
+export const loginCli = async (baseUrl: string, username: string, password: string) => {
+	const response = await fetch(buildUrl(baseUrl, "/api/auth/login"), {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ username, password }),
+	});
+	if (!response.ok) throw new CliError(await readErrorMessage(response));
+	storeSessionCookie(response);
+};
+
+export const bootstrapCli = async (
+	baseUrl: string,
+	body: { name: string; username: string; password: string; email?: string | null },
+) => {
+	const response = await fetch(buildUrl(baseUrl, "/api/auth/bootstrap"), {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(body),
+	});
+	if (!response.ok) throw new CliError(await readErrorMessage(response));
+	return response.json();
+};
+
 const buildUrl = (baseUrl: string, path: string, query?: Record<string, QueryValue>) => {
 	const url = new URL(path, normalizeBaseUrl(baseUrl));
 
@@ -88,10 +124,7 @@ export const requestJson = async ({
 	try {
 		response = await fetch(buildUrl(baseUrl, path, query), {
 			method,
-			headers:
-				body === undefined
-					? undefined
-					: { "Content-Type": "application/json" },
+			headers: requestHeaders(body),
 			body: body === undefined ? undefined : JSON.stringify(body),
 		});
 	} catch (error) {
@@ -123,6 +156,7 @@ export const requestBody = async ({
 	try {
 		response = await fetch(buildUrl(baseUrl, path, query), {
 			method,
+			headers: { ...(sessionCookie ? { Cookie: sessionCookie } : {}) },
 			body,
 		});
 	} catch (error) {
@@ -152,6 +186,7 @@ export const requestBinary = async ({
 	try {
 		response = await fetch(buildUrl(baseUrl, path, query), {
 			method,
+			headers: requestHeaders(),
 		});
 	} catch (error) {
 		throw new CliError(

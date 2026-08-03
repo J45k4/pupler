@@ -1,5 +1,6 @@
 import type { BunRequest } from "bun";
 
+import { db } from "../db";
 import {
 	assertKnownFields,
 	empty,
@@ -19,7 +20,6 @@ import {
 	readOptionalBodyField,
 	requireBodyField,
 	utcNow,
-	withErrorHandling,
 	type Database,
 	type JsonObject,
 } from "./core";
@@ -353,96 +353,92 @@ const updateEntry = async (
 	});
 };
 
-export const timeEntriesCollectionRoute = (db: Database) =>
-	withErrorHandling(async (req: Request) => {
-		if (req.method === "GET") {
-			const url = new URL(req.url);
-			return json(
-				200,
-				await db.client.timeEntry.findMany({
-					where: parseFilters(url),
-					orderBy: parseSort(url),
-					include: ENTRY_INCLUDE,
-				}),
-			);
-		}
-		if (req.method === "POST") {
-			return json(201, await createEntry(db, parseCreateValues(await readJsonObject(req))));
-		}
-		throw new HttpError(405, "Method not allowed for this route");
-	});
-
-export const timeEntryDetailRoute = (db: Database) =>
-	withErrorHandling(async (req: BunRequest<string>) => {
-		const id = parseIdParam(req.params.id ?? "");
-		const existingRow = await fetchTimeEntry(db, id);
-		if (!existingRow) throw new HttpError(404, "Resource not found");
-
-		if (req.method === "GET") return json(200, existingRow);
-		if (req.method === "PUT") {
-			return json(
-				200,
-				await updateEntry(
-					db,
-					id,
-					parseReplaceValues(await readJsonObject(req), existingRow),
-					existingRow,
-				),
-			);
-		}
-		if (req.method === "PATCH") {
-			return json(
-				200,
-				await updateEntry(
-					db,
-					id,
-					parsePatchValues(await readJsonObject(req), existingRow),
-					existingRow,
-				),
-			);
-		}
-		if (req.method === "DELETE") {
-			await db.client.timeEntry.delete({ where: { id } });
-			return empty(204);
-		}
-		throw new HttpError(405, "Method not allowed for this route");
-	});
-
-export const timeEntryStartRoute = (db: Database) =>
-	withErrorHandling(async (req: Request) => {
-		if (req.method !== "POST") {
-			throw new HttpError(405, "Method not allowed for this route");
-		}
-
-		const values = parseStartValues(await readJsonObject(req));
-		return json(201, await createEntry(db, values));
-	});
-
-export const timeEntryStopRoute = (db: Database) =>
-	withErrorHandling(async (req: BunRequest<string>) => {
-		if (req.method !== "POST") {
-			throw new HttpError(405, "Method not allowed for this route");
-		}
-
-		const id = parseIdParam(req.params.id ?? "");
-		const existingRow = await fetchTimeEntry(db, id);
-		if (!existingRow) throw new HttpError(404, "Resource not found");
-		if (existingRow.ended_at !== null) {
-			throw new HttpError(400, "Time entry is already stopped");
-		}
-
-		const endedAt = parseStopValues(await readJsonObject(req));
-		assertProjectBeforeStop(existingRow.project_id);
-		assertChronologicalRange(existingRow.started_at, endedAt);
+export const timeEntriesCollectionRoute = async (req: Request) => {
+	if (req.method === "GET") {
+		const url = new URL(req.url);
 		return json(
 			200,
-			await db.client.timeEntry.update({
-				where: { id },
-				data: {
-					ended_at: endedAt,
-					updated_at: utcNow(),
-				},
+			await db.client.timeEntry.findMany({
+				where: parseFilters(url),
+				orderBy: parseSort(url),
 				include: ENTRY_INCLUDE,
 			}),
 		);
-	});
+	}
+	if (req.method === "POST") {
+		return json(201, await createEntry(db, parseCreateValues(await readJsonObject(req))));
+	}
+	throw new HttpError(405, "Method not allowed for this route");
+};
+
+export const timeEntryDetailRoute = async (req: BunRequest<string>) => {
+	const id = parseIdParam(req.params.id ?? "");
+	const existingRow = await fetchTimeEntry(db, id);
+	if (!existingRow) throw new HttpError(404, "Resource not found");
+
+	if (req.method === "GET") return json(200, existingRow);
+	if (req.method === "PUT") {
+		return json(
+			200,
+			await updateEntry(
+				db,
+				id,
+				parseReplaceValues(await readJsonObject(req), existingRow),
+				existingRow,
+			),
+		);
+	}
+	if (req.method === "PATCH") {
+		return json(
+			200,
+			await updateEntry(
+				db,
+				id,
+				parsePatchValues(await readJsonObject(req), existingRow),
+				existingRow,
+			),
+		);
+	}
+	if (req.method === "DELETE") {
+		await db.client.timeEntry.delete({ where: { id } });
+		return empty(204);
+	}
+	throw new HttpError(405, "Method not allowed for this route");
+};
+
+export const timeEntryStartRoute = async (req: Request) => {
+	if (req.method !== "POST") {
+		throw new HttpError(405, "Method not allowed for this route");
+	}
+
+	const values = parseStartValues(await readJsonObject(req));
+	return json(201, await createEntry(db, values));
+};
+
+export const timeEntryStopRoute = async (req: BunRequest<string>) => {
+	if (req.method !== "POST") {
+		throw new HttpError(405, "Method not allowed for this route");
+	}
+
+	const id = parseIdParam(req.params.id ?? "");
+	const existingRow = await fetchTimeEntry(db, id);
+	if (!existingRow) throw new HttpError(404, "Resource not found");
+	if (existingRow.ended_at !== null) {
+		throw new HttpError(400, "Time entry is already stopped");
+	}
+
+	const endedAt = parseStopValues(await readJsonObject(req));
+	assertProjectBeforeStop(existingRow.project_id);
+	assertChronologicalRange(existingRow.started_at, endedAt);
+	return json(
+		200,
+		await db.client.timeEntry.update({
+			where: { id },
+			data: {
+				ended_at: endedAt,
+				updated_at: utcNow(),
+			},
+			include: ENTRY_INCLUDE,
+		}),
+	);
+};

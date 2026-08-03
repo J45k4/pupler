@@ -3,6 +3,7 @@ export type AuthUser = {
 	name: string;
 	username: string | null;
 	email: string | null;
+	is_admin: boolean;
 	created_at: string;
 	updated_at: string;
 };
@@ -16,6 +17,27 @@ type LoginResponse = SessionResponse & {
 };
 
 let currentUser: AuthUser | null = null;
+
+let authFetchGuardInstalled = false;
+
+export const installAuthFetchGuard = () => {
+	if (authFetchGuardInstalled) return;
+	authFetchGuardInstalled = true;
+	const originalFetch = window.fetch.bind(window);
+	window.fetch = async (input, init) => {
+		const response = await originalFetch(input, init);
+		const requestUrl = typeof input === "string" ? input : input instanceof Request ? input.url : String(input);
+		if (response.status === 401 && !requestUrl.includes("/api/auth/")) {
+			setCurrentUser(null);
+			if (window.location.pathname !== "/login") {
+				const redirect = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
+				window.history.replaceState({}, "", redirect);
+				window.dispatchEvent(new PopStateEvent("popstate"));
+			}
+		}
+		return response;
+	};
+};
 
 const readErrorMessage = async (response: Response, fallback: string) => {
 	const body = (await response.json().catch(() => null)) as { error?: string } | null;

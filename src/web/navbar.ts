@@ -11,6 +11,7 @@ type NavItem = {
 type NavbarUser = {
 	name: string;
 	username: string | null;
+	is_admin: boolean;
 };
 
 type NavigationEntry = {
@@ -93,6 +94,7 @@ const navigationEntries: NavigationEntry[] = [
 	{ href: "/receipts", label: "Receipts", group: "Spending", keywords: "purchases receipt" },
 	{ href: "/recipes", label: "Recipes", group: "Cooking", keywords: "meals" },
 	{ href: "/settings", label: "Settings", group: "Settings", keywords: "password account" },
+	{ href: "/users", label: "Users", group: "Settings", keywords: "accounts administrators permissions" },
 	{ href: "/shoppinglist", label: "Shopping List", group: "Planning", keywords: "shopping groceries" },
 	{ href: "/spending", label: "Spending Breakdown", group: "Spending", keywords: "categories costs" },
 	{ href: "/spending/overview", label: "Spending Overview", group: "Spending", keywords: "money report" },
@@ -102,10 +104,10 @@ const navigationEntries: NavigationEntry[] = [
 	{ href: "/time/weekly", label: "Weekly Time", group: "Time", keywords: "week time report" },
 ];
 
-const activeNavigationEntry = (currentPath: string) =>
-	navigationEntries.find((entry) => currentPath === entry.href) ??
-	navigationEntries.find((entry) => entry.href !== "/" && currentPath.startsWith(`${entry.href}/`)) ??
-	navigationEntries[0]!;
+const activeNavigationEntry = (currentPath: string, entries: NavigationEntry[]) =>
+	entries.find((entry) => currentPath === entry.href) ??
+	entries.find((entry) => entry.href !== "/" && currentPath.startsWith(`${entry.href}/`)) ??
+	entries[0]!;
 
 const isActiveNavHref = (currentPath: string, href: string) =>
 	href === "/"
@@ -133,13 +135,17 @@ const renderAccountMenu = (user: NavbarUser | null) => {
 };
 
 export const renderNavbar = (currentPath: string, user: NavbarUser | null = null) => {
-	const activeEntry = activeNavigationEntry(currentPath);
+	const visibleNavigationEntries = user?.is_admin
+		? navigationEntries
+		: navigationEntries.filter((entry) => entry.href !== "/users");
+	const activeEntry = activeNavigationEntry(currentPath, visibleNavigationEntries);
 	return `
 		<header class="site-header">
 			<div class="site-header__inner">
 				<a class="brand" href="/" data-link>
 					<span class="brand__badge">Pupler</span>
 				</a>
+				${user ? `
 				<div class="navigation-hub">
 					<button
 						class="navigation-hub__trigger"
@@ -162,7 +168,7 @@ export const renderNavbar = (currentPath: string, user: NavbarUser | null = null
 						/>
 						<div class="navigation-menu__section-title">Pages</div>
 						<div class="navigation-menu__results" id="navigation-menu-results">
-							${navigationEntries
+							${visibleNavigationEntries
 								.map(
 									(entry) => `
 										<a
@@ -183,8 +189,8 @@ export const renderNavbar = (currentPath: string, user: NavbarUser | null = null
 								.join("")}
 						</div>
 					</div>
-				</div>
-				${renderAccountMenu(user)}
+				</div>` : ""}
+				${currentPath === "/login" ? "" : renderAccountMenu(user)}
 			</div>
 		</header>
 	`;

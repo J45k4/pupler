@@ -16,6 +16,7 @@ type RunningServer = {
 	filesPath: string;
 	process: Bun.Subprocess<"ignore", "pipe", "pipe">;
 	tempDir: string;
+	sessionCookie: string;
 };
 
 export type CallOptions = Omit<RequestInit, "body" | "headers"> & {
@@ -74,6 +75,7 @@ export class TestServer {
 	readonly filesPath: string;
 	readonly process: Bun.Subprocess<"ignore", "pipe", "pipe">;
 	readonly tempDir: string;
+	sessionCookie: string;
 
 	constructor(server: RunningServer) {
 		this.baseUrl = server.baseUrl;
@@ -107,10 +109,30 @@ export class TestServer {
 			filesPath: join(tempDir, "files"),
 			process: child,
 			tempDir,
+			sessionCookie: "",
 		});
 
 		try {
 			await waitForHealth(server.baseUrl);
+			const bootstrapResponse = await fetch(`${server.baseUrl}/api/auth/bootstrap`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					name: "Test Admin",
+					username: "test",
+					password: "test-password",
+				}),
+			});
+			if (!bootstrapResponse.ok) throw new Error(await bootstrapResponse.text());
+			const loginResponse = await fetch(`${server.baseUrl}/api/auth/login`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ username: "test", password: "test-password" }),
+			});
+			if (!loginResponse.ok) throw new Error(await loginResponse.text());
+			const cookie = loginResponse.headers.get("set-cookie")?.match(/pupler_session=[^;]+/)?.[0];
+			if (!cookie) throw new Error("Test bootstrap did not return a session cookie");
+			server.sessionCookie = cookie;
 			return server;
 		} catch (error) {
 			const stderr = await new Response(child.stderr).text();
@@ -129,6 +151,7 @@ export class TestServer {
 		options: CallOptions = {},
 	): Promise<ApiResponse<TBody>> {
 		const headers = new Headers(options.headers);
+		if (!headers.has("cookie")) headers.set("Cookie", this.sessionCookie);
 		let body: BodyInit | undefined;
 
 		if (options.body !== undefined) {

@@ -44,6 +44,8 @@ const runCli = async (
 	if (options.configPath) {
 		env.PUPLER_CONFIG_PATH = options.configPath;
 	}
+	env.PUPLER_USERNAME = "test";
+	env.PUPLER_PASSWORD = "test-password";
 
 	const child = Bun.spawn(["bun", "./cli/cli.ts", ...args], {
 		cwd: projectRoot,
@@ -168,6 +170,8 @@ describe("Pupler CLI", () => {
 				"alice@example.com",
 				"--password-hash",
 				"hashed-password",
+				"--is-admin",
+				"true",
 			],
 			{ baseUrl: server.baseUrl },
 		);
@@ -177,12 +181,14 @@ describe("Pupler CLI", () => {
 			id: number;
 			name: string;
 			password_hash?: string;
+			is_admin: boolean;
 			username: string | null;
 		};
 		expect(createdBody.name).toBe("Alice");
 		expect(createdBody.username).toBe("alice");
 		expect(createdBody.email).toBe("alice@example.com");
 		expect(createdBody.password_hash).toBeUndefined();
+		expect(createdBody.is_admin).toBeTrue();
 
 		const listed = await runCli(
 			["users", "list", "--json", "--username", "alice"],

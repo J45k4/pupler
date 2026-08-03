@@ -218,6 +218,13 @@ describe("Pupler API e2e", () => {
 		);
 		expect(settingsPage.body).toContain("<title>Pupler</title>");
 
+		const usersPage = await server.call<string>("/users");
+		expect(usersPage.response.status).toBe(200);
+		expect(usersPage.response.headers.get("content-type")).toContain(
+			"text/html",
+		);
+		expect(usersPage.body).toContain("<title>Pupler</title>");
+
 	});
 
 	test("serves the app shell for receipt pages", async () => {
@@ -282,16 +289,16 @@ describe("Pupler API e2e", () => {
 		expect(detailPage.body).toContain("<title>Pupler</title>");
 	});
 
-	test("serves the 404 page for unknown browser routes", async () => {
+	test("serves the app shell for unknown browser routes", async () => {
 		const server = await startServer();
 
 		const page = await server.call<string>("/missing");
-		expect(page.response.status).toBe(404);
+		expect(page.response.status).toBe(200);
 		expect(page.response.headers.get("content-type")).toContain(
 			"text/html",
 		);
-		expect(page.body).toContain("<title>Pupler | Page Not Found</title>");
-		expect(page.body).toContain("Back to dashboard");
+		expect(page.body).toContain("<title>Pupler</title>");
+		expect(page.body).toContain("<body></body>");
 	});
 
 	test("keeps JSON 404s for unknown API routes", async () => {
@@ -490,6 +497,7 @@ describe("Pupler API e2e", () => {
 
 		const picture = await fetch(
 			`${server.baseUrl}/api/products/${created.body.id}/picture`,
+			{ headers: { Cookie: server.sessionCookie } },
 		);
 		expect(picture.status).toBe(200);
 		expect(picture.headers.get("content-type")).toBe("image/png");
@@ -534,6 +542,7 @@ describe("Pupler API e2e", () => {
 
 		const picture = await fetch(
 			`${server.baseUrl}/api/receipts/${created.body.id}/picture`,
+			{ headers: { Cookie: server.sessionCookie } },
 		);
 		expect(picture.status).toBe(200);
 		expect(picture.headers.get("content-type")).toBe("image/png");
@@ -633,6 +642,7 @@ describe("Pupler API e2e", () => {
 
 		const picture = await fetch(
 			`${server.baseUrl}/api/recipes/${created.body.id}/pictures/${upload.body[0]!.id}`,
+			{ headers: { Cookie: server.sessionCookie } },
 		);
 		expect(picture.status).toBe(200);
 		expect(picture.headers.get("content-type")).toBe("image/png");

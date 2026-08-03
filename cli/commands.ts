@@ -5,6 +5,8 @@ import { CliError } from "./error";
 import {
 	normalizeBaseUrl,
 	requestBinary,
+	bootstrapCli,
+	loginCli,
 	requestBody,
 	requestJson,
 	resolveBaseUrl,
@@ -39,6 +41,8 @@ type ParsedArgs = {
 
 export type GlobalOptions = {
 	baseUrlOverride?: string;
+	username?: string;
+	password?: string;
 	help: boolean;
 	json: boolean;
 };
@@ -318,12 +322,14 @@ const RESOURCES: ResourceConfig[] = [
 			username: { type: "string", nullable: true },
 			email: { type: "string", nullable: true },
 			password_hash: { type: "string", nullable: true },
+			is_admin: { type: "boolean" },
 		},
 		queryFields: {
 			id: { type: "integer" },
 			name: { type: "string", nullable: true },
 			username: { type: "string", nullable: true },
 			email: { type: "string", nullable: true },
+			is_admin: { type: "boolean" },
 			created_at: { type: "timestamp" },
 			updated_at: { type: "timestamp" },
 		},
@@ -403,6 +409,7 @@ Usage:
 
 Resources:
   ${RESOURCE_NAMES}
+  auth bootstrap
 
 Examples:
   bun ./cli/cli.ts config set-url http://localhost:5995
@@ -415,6 +422,8 @@ Examples:
 
 Global flags:
   --base-url <url>   Override PUPLER_BASE_URL, the config file, or the default http://localhost:5995
+  --username <name>  Username for protected API requests
+  --password <pass>  Password for protected API requests
   --json             Print raw JSON output
   --help             Show help
 `;
@@ -1103,6 +1112,20 @@ Commands:
   ${CONFIG_COMMANDS.join(", ")}
 `;
 
+const runAuthCommand = async (args: string[], globalOptions: GlobalOptions): Promise<CommandResult> => {
+	const command = args[0];
+	if (globalOptions.help || command !== "bootstrap") {
+		return { message: "Usage: bun ./cli/cli.ts auth bootstrap --name <name> --username <username> --password <password> [--email <email>]" };
+	}
+	const parsed = parseArgs(args.slice(1));
+	const name = ensureStringFlag(parsed.flags.name, "name");
+	const username = ensureStringFlag(parsed.flags.username, "username");
+	const password = ensureStringFlag(parsed.flags.password, "password");
+	const email = parsed.flags.email === undefined ? null : ensureStringFlag(parsed.flags.email, "email");
+	const payload = await bootstrapCli(resolveRequestBaseUrl(globalOptions), { name, username, password, email });
+	return { payload };
+};
+
 const runConfigCommand = async (
 	args: string[],
 	globalOptions: GlobalOptions,
@@ -1194,6 +1217,17 @@ export const runCliCommand = async (
 
 	if (args[0] === "config") {
 		return runConfigCommand(args.slice(1), globalOptions);
+	}
+	if (args[0] === "auth") {
+		return runAuthCommand(args.slice(1), globalOptions);
+	}
+
+	const baseUrl = resolveRequestBaseUrl(globalOptions);
+	const username = globalOptions.username ?? process.env.PUPLER_USERNAME;
+	const password = globalOptions.password ?? process.env.PUPLER_PASSWORD;
+	if (!globalOptions.help && (username || password)) {
+		if (!username || !password) throw new CliError("Both --username and --password are required");
+		await loginCli(baseUrl, username, password);
 	}
 
 	const resourceName = args[0];

@@ -1,5 +1,6 @@
 import type { BunRequest } from "bun";
 
+import { db } from "../db";
 import {
 	assertKnownFields,
 	empty,
@@ -15,7 +16,6 @@ import {
 	readOptionalBodyField,
 	requireBodyField,
 	utcNow,
-	withErrorHandling,
 	type Database,
 	type JsonObject,
 } from "./core";
@@ -146,93 +146,91 @@ const ensureNoContainerCycle = async (
 	}
 };
 
-export const inventoryContainersCollectionRoute = (db: Database) =>
-	withErrorHandling(async (req: Request) => {
-		if (req.method === "GET") {
-			const url = new URL(req.url);
-			return json(
-				200,
-				await db.client.inventoryContainer.findMany({
-					where: parseFilters(url),
-					orderBy: parseSort(url),
-				}),
+export const inventoryContainersCollectionRoute = async (req: Request) => {
+	if (req.method === "GET") {
+		const url = new URL(req.url);
+		return json(
+			200,
+			await db.client.inventoryContainer.findMany({
+				where: parseFilters(url),
+				orderBy: parseSort(url),
+			}),
+		);
+	}
+
+	if (req.method === "POST") {
+		return json(
+			201,
+			await db.client.inventoryContainer.create({
+				data: parseCreateValues(await readJsonObject(req)),
+			}),
+		);
+	}
+
+	throw new HttpError(405, "Method not allowed for this route");
+};
+
+export const inventoryContainerDetailRoute = async (req: BunRequest<string>) => {
+	const id = parseIdParam(req.params.id);
+	const existingRow = await fetchInventoryContainer(db, id);
+	if (!existingRow) {
+		throw new HttpError(404, "Resource not found");
+	}
+
+	if (req.method === "GET") {
+		return json(200, existingRow);
+	}
+
+	if (req.method === "PUT") {
+		const values = parseReplaceValues(await readJsonObject(req), existingRow);
+		await ensureNoContainerCycle(db, id, values.parent_container_id as number | null);
+		return json(
+			200,
+			await db.client.inventoryContainer.update({
+				where: { id },
+				data: values,
+			}),
+		);
+	}
+
+	if (req.method === "PATCH") {
+		const values = parsePatchValues(await readJsonObject(req));
+		if ("parent_container_id" in values) {
+			await ensureNoContainerCycle(
+				db,
+				id,
+				values.parent_container_id as number | null,
 			);
 		}
+		return json(
+			200,
+			await db.client.inventoryContainer.update({
+				where: { id },
+				data: values,
+			}),
+		);
+	}
 
-		if (req.method === "POST") {
-			return json(
-				201,
-				await db.client.inventoryContainer.create({
-					data: parseCreateValues(await readJsonObject(req)),
-				}),
-			);
-		}
+	if (req.method === "DELETE") {
+		await db.client.$transaction([
+			db.client.inventoryContainer.updateMany({
+				where: { parent_container_id: id },
+				data: {
+					parent_container_id: null,
+					updated_at: utcNow(),
+				},
+			}),
+			db.client.inventoryItem.updateMany({
+				where: { container_id: id },
+				data: {
+					container_id: null,
+					updated_at: utcNow(),
+				},
+			}),
+			db.client.inventoryContainer.delete({ where: { id } }),
+		]);
+		return empty(204);
+	}
 
-		throw new HttpError(405, "Method not allowed for this route");
-	});
-
-export const inventoryContainerDetailRoute = (db: Database) =>
-	withErrorHandling(async (req: BunRequest<string>) => {
-		const id = parseIdParam(req.params.id);
-		const existingRow = await fetchInventoryContainer(db, id);
-		if (!existingRow) {
-			throw new HttpError(404, "Resource not found");
-		}
-
-		if (req.method === "GET") {
-			return json(200, existingRow);
-		}
-
-		if (req.method === "PUT") {
-			const values = parseReplaceValues(await readJsonObject(req), existingRow);
-			await ensureNoContainerCycle(db, id, values.parent_container_id as number | null);
-			return json(
-				200,
-				await db.client.inventoryContainer.update({
-					where: { id },
-					data: values,
-				}),
-			);
-		}
-
-		if (req.method === "PATCH") {
-			const values = parsePatchValues(await readJsonObject(req));
-			if ("parent_container_id" in values) {
-				await ensureNoContainerCycle(
-					db,
-					id,
-					values.parent_container_id as number | null,
-				);
-			}
-			return json(
-				200,
-				await db.client.inventoryContainer.update({
-					where: { id },
-					data: values,
-				}),
-			);
-		}
-
-		if (req.method === "DELETE") {
-			await db.client.$transaction([
-				db.client.inventoryContainer.updateMany({
-					where: { parent_container_id: id },
-					data: {
-						parent_container_id: null,
-						updated_at: utcNow(),
-					},
-				}),
-				db.client.inventoryItem.updateMany({
-					where: { container_id: id },
-					data: {
-						container_id: null,
-						updated_at: utcNow(),
-					},
-				}),
-				db.client.inventoryContainer.delete({ where: { id } }),
-			]);
-			return empty(204);
-		}
-
-		throw new HttpError(405, "Method not allowed for this route");
-	});
+	throw new HttpError(405, "Method not allowed for this route");
+};

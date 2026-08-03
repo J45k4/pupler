@@ -3,7 +3,7 @@ import {
 	routes,
 	setRouteShellRenderer,
 } from "./router";
-import { loadAuthSession } from "./auth";
+import { installAuthFetchGuard, loadAuthSession } from "./auth";
 import { renderAppShell } from "./app";
 import { renderOverviewPage } from "./pages/overview";
 import {
@@ -39,10 +39,12 @@ import { renderReceiptDetailPage } from "./pages/receipt-detail";
 import { renderNotFoundPage } from "./pages/not-found";
 import { renderLoginPage } from "./pages/login";
 import { renderSettingsPage } from "./pages/settings";
+import { renderUsersPage } from "./pages/users";
 
 window.onload = async () => {
 	installLinkInterceptor(document.body);
 	setRouteShellRenderer(renderAppShell);
+	installAuthFetchGuard();
 	try {
 		await loadAuthSession();
 	} catch (error) {
@@ -53,6 +55,7 @@ window.onload = async () => {
 		"/": renderOverviewPage,
 		"/login": renderLoginPage,
 		"/settings": renderSettingsPage,
+		"/users": renderUsersPage,
 		"/expirations": renderExpirationsPage,
 		"/inventory": renderInventoryPage,
 		"/inventory/expirations": renderExpirationsPage,
