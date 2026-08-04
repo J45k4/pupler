@@ -1,19 +1,18 @@
-import * as routes from "./api";
-import { createApiRoutes } from "./api/route-map";
-import {
-	resolvePuplerVersion,
-	versionPayload,
-} from "./config";
-import { dbPath, filesPath, initializeDatabase } from "./db";
+import * as routes from "./api"
+import { createApiRoutes } from "./api/route-map"
+import { resolvePuplerVersion, versionPayload } from "./config"
+import { dbPath, filesPath, initializeDatabase } from "./db"
 
-import index from "./web/index.html";
+import index from "./web/index.html"
 
-const favicon = Bun.file(new URL("./web/favicon.png", import.meta.url));
+const favicon = Bun.file(new URL("./web/favicon.png", import.meta.url))
 
-const version = resolvePuplerVersion();
-const envPort = process.env.PORT ? Number.parseInt(process.env.PORT, 10) : undefined;
-const port = Number.isFinite(envPort) ? envPort : 5995;
-initializeDatabase();
+const version = resolvePuplerVersion()
+const envPort = process.env.PORT
+	? Number.parseInt(process.env.PORT, 10)
+	: undefined
+const port = Number.isFinite(envPort) ? envPort : 5995
+initializeDatabase()
 
 const apiRoutes = createApiRoutes({
 	public: {
@@ -42,8 +41,10 @@ const apiRoutes = createApiRoutes({
 		"/api/inventory-containers": routes.inventoryContainersCollectionRoute,
 		"/api/inventory-containers/:id": routes.inventoryContainerDetailRoute,
 		"/api/inventory-items": routes.inventoryItemsCollectionRoute,
-		"/api/inventory-items/:id/pictures": routes.inventoryItemImagesCollectionRoute,
-		"/api/inventory-items/:id/pictures/:pictureId": routes.inventoryItemImageDetailRoute,
+		"/api/inventory-items/:id/pictures":
+			routes.inventoryItemImagesCollectionRoute,
+		"/api/inventory-items/:id/pictures/:pictureId":
+			routes.inventoryItemImageDetailRoute,
 		"/api/inventory-items/:id": routes.inventoryItemDetailRoute,
 		"/api/recipes": routes.recipesCollectionRoute,
 		"/api/recipes/:id": routes.recipeDetailRoute,
@@ -74,7 +75,7 @@ const apiRoutes = createApiRoutes({
 		"/api/users": routes.usersCollectionRoute,
 		"/api/users/:id": routes.userDetailRoute,
 	},
-});
+})
 
 const instance = Bun.serve({
 	port,
@@ -84,12 +85,11 @@ const instance = Bun.serve({
 		"/favicon.png": new Response(favicon, {
 			headers: { "Content-Type": "image/png" },
 		}),
-		"/api/*": Response.json(
-			{ error: "Route not found" },
-			{ status: 404 },
-		),
+		"/api/*": Response.json({ error: "Route not found" }, { status: 404 }),
 		"/*": index,
 	},
-});
+})
 
-console.log(`Pupler ${version} listening on ${instance.url} using ${dbPath} with files at ${filesPath}`);
+console.log(
+	`Pupler ${version} listening on ${instance.url} using ${dbPath} with files at ${filesPath}`,
+)

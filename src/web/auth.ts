@@ -1,71 +1,80 @@
 export type AuthUser = {
-	id: number;
-	name: string;
-	username: string | null;
-	email: string | null;
-	is_admin: boolean;
-	created_at: string;
-	updated_at: string;
-};
+	id: number
+	name: string
+	username: string | null
+	email: string | null
+	is_admin: boolean
+	created_at: string
+	updated_at: string
+}
 
 type SessionResponse = {
-	user: AuthUser;
-};
+	user: AuthUser
+}
 
 type LoginResponse = SessionResponse & {
-	expires_at: string;
-};
+	expires_at: string
+}
 
-let currentUser: AuthUser | null = null;
+let currentUser: AuthUser | null = null
 
-let authFetchGuardInstalled = false;
+let authFetchGuardInstalled = false
 
 export const installAuthFetchGuard = () => {
-	if (authFetchGuardInstalled) return;
-	authFetchGuardInstalled = true;
-	const originalFetch = window.fetch.bind(window);
+	if (authFetchGuardInstalled) return
+	authFetchGuardInstalled = true
+	const originalFetch = window.fetch.bind(window)
 	window.fetch = async (input, init) => {
-		const response = await originalFetch(input, init);
-		const requestUrl = typeof input === "string" ? input : input instanceof Request ? input.url : String(input);
+		const response = await originalFetch(input, init)
+		const requestUrl =
+			typeof input === "string"
+				? input
+				: input instanceof Request
+					? input.url
+					: String(input)
 		if (response.status === 401 && !requestUrl.includes("/api/auth/")) {
-			setCurrentUser(null);
+			setCurrentUser(null)
 			if (window.location.pathname !== "/login") {
-				const redirect = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
-				window.history.replaceState({}, "", redirect);
-				window.dispatchEvent(new PopStateEvent("popstate"));
+				const redirect = `/login?redirect=${encodeURIComponent(window.location.pathname)}`
+				window.history.replaceState({}, "", redirect)
+				window.dispatchEvent(new PopStateEvent("popstate"))
 			}
 		}
-		return response;
-	};
-};
+		return response
+	}
+}
 
 const readErrorMessage = async (response: Response, fallback: string) => {
-	const body = (await response.json().catch(() => null)) as { error?: string } | null;
-	return body?.error ?? fallback;
-};
+	const body = (await response.json().catch(() => null)) as {
+		error?: string
+	} | null
+	return body?.error ?? fallback
+}
 
-export const getCurrentUser = () => currentUser;
+export const getCurrentUser = () => currentUser
 
 export const setCurrentUser = (user: AuthUser | null) => {
-	currentUser = user;
-};
+	currentUser = user
+}
 
 export const loadAuthSession = async () => {
 	const response = await fetch("/api/auth/session", {
 		credentials: "same-origin",
-	});
+	})
 	if (response.status === 401) {
-		setCurrentUser(null);
-		return null;
+		setCurrentUser(null)
+		return null
 	}
 	if (!response.ok) {
-		throw new Error(await readErrorMessage(response, "Failed to load session"));
+		throw new Error(
+			await readErrorMessage(response, "Failed to load session"),
+		)
 	}
 
-	const body = (await response.json()) as SessionResponse;
-	setCurrentUser(body.user);
-	return body.user;
-};
+	const body = (await response.json()) as SessionResponse
+	setCurrentUser(body.user)
+	return body.user
+}
 
 export const login = async (username: string, password: string) => {
 	const response = await fetch("/api/auth/login", {
@@ -73,26 +82,26 @@ export const login = async (username: string, password: string) => {
 		credentials: "same-origin",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ username, password }),
-	});
+	})
 	if (!response.ok) {
-		throw new Error(await readErrorMessage(response, "Login failed"));
+		throw new Error(await readErrorMessage(response, "Login failed"))
 	}
 
-	const body = (await response.json()) as LoginResponse;
-	setCurrentUser(body.user);
-	return body;
-};
+	const body = (await response.json()) as LoginResponse
+	setCurrentUser(body.user)
+	return body
+}
 
 export const logout = async () => {
 	const response = await fetch("/api/auth/logout", {
 		method: "POST",
 		credentials: "same-origin",
-	});
-	setCurrentUser(null);
+	})
+	setCurrentUser(null)
 	if (!response.ok) {
-		throw new Error(await readErrorMessage(response, "Logout failed"));
+		throw new Error(await readErrorMessage(response, "Logout failed"))
 	}
-};
+}
 
 export const changePassword = async (
 	currentPassword: string,
@@ -106,8 +115,10 @@ export const changePassword = async (
 			current_password: currentPassword,
 			new_password: newPassword,
 		}),
-	});
+	})
 	if (!response.ok) {
-		throw new Error(await readErrorMessage(response, "Failed to change password"));
+		throw new Error(
+			await readErrorMessage(response, "Failed to change password"),
+		)
 	}
-};
+}

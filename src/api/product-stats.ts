@@ -1,30 +1,26 @@
-import { db } from "../db";
-import {
-	HttpError,
-	json,
-	type Database,
-} from "./core";
-import { displayCurrency, displayMoneyAmount } from "../currency";
+import { db } from "../db"
+import { HttpError, json, type Database } from "./core"
+import { displayCurrency, displayMoneyAmount } from "../currency"
 
 type UnitQuantity = {
-	unit: string;
-	quantity: number;
-};
+	unit: string
+	quantity: number
+}
 
 type MoneyTotal = {
-	currency: string;
-	total: number;
-};
+	currency: string
+	total: number
+}
 
-const roundedQuantity = (value: number) => Math.round(value * 1000) / 1000;
-const roundedMoney = (value: number) => Math.round(value * 100) / 100;
+const roundedQuantity = (value: number) => Math.round(value * 1000) / 1000
+const roundedMoney = (value: number) => Math.round(value * 100) / 100
 
 const quantityTotalsByUnit = (
 	items: Array<{ quantity: number; unit: string }>,
 ): UnitQuantity[] => {
-	const totals = new Map<string, number>();
+	const totals = new Map<string, number>()
 	for (const item of items) {
-		totals.set(item.unit, (totals.get(item.unit) ?? 0) + item.quantity);
+		totals.set(item.unit, (totals.get(item.unit) ?? 0) + item.quantity)
 	}
 
 	return [...totals.entries()]
@@ -32,43 +28,43 @@ const quantityTotalsByUnit = (
 			unit,
 			quantity: roundedQuantity(quantity),
 		}))
-		.sort((left, right) => left.unit.localeCompare(right.unit));
-};
+		.sort((left, right) => left.unit.localeCompare(right.unit))
+}
 
 const receiptItemAmount = (item: {
-	quantity: number;
-	unit_price: number | null;
-	line_total: number | null;
+	quantity: number
+	unit_price: number | null
+	line_total: number | null
 }) => {
 	if (item.line_total !== null) {
-		return item.line_total;
+		return item.line_total
 	}
 	if (item.unit_price !== null) {
-		return item.quantity * item.unit_price;
+		return item.quantity * item.unit_price
 	}
-	return null;
-};
+	return null
+}
 
 const costTotalsByCurrency = (
 	items: Array<{
-		quantity: number;
-		unit_price: number | null;
-		line_total: number | null;
-		receipt: { currency: string };
+		quantity: number
+		unit_price: number | null
+		line_total: number | null
+		receipt: { currency: string }
 	}>,
 ): MoneyTotal[] => {
-	const totals = new Map<string, number>();
+	const totals = new Map<string, number>()
 	for (const item of items) {
-		const amount = receiptItemAmount(item);
+		const amount = receiptItemAmount(item)
 		if (amount === null) {
-			continue;
+			continue
 		}
-		const currency = displayCurrency(item.receipt.currency);
+		const currency = displayCurrency(item.receipt.currency)
 		totals.set(
 			currency,
 			(totals.get(currency) ?? 0) +
 				displayMoneyAmount(amount, item.receipt.currency),
-		);
+		)
 	}
 
 	return [...totals.entries()]
@@ -76,17 +72,17 @@ const costTotalsByCurrency = (
 			currency,
 			total: roundedMoney(total),
 		}))
-		.sort((left, right) => left.currency.localeCompare(right.currency));
-};
+		.sort((left, right) => left.currency.localeCompare(right.currency))
+}
 
 export const productStatsRoute = async (req: Request) => {
 	if (req.method !== "GET") {
-		throw new HttpError(405, "Method not allowed for this route");
+		throw new HttpError(405, "Method not allowed for this route")
 	}
 
-	const url = new URL(req.url);
+	const url = new URL(req.url)
 	for (const key of url.searchParams.keys()) {
-		throw new HttpError(400, `Unknown query parameter \`${key}\``);
+		throw new HttpError(400, `Unknown query parameter \`${key}\``)
 	}
 
 	const products = await db.client.product.findMany({
@@ -121,13 +117,13 @@ export const productStatsRoute = async (req: Request) => {
 			},
 		},
 		orderBy: [{ name: "asc" }, { id: "asc" }],
-	});
+	})
 
 	return json(
 		200,
 		products.map((product) => {
-			const usedQuantities = quantityTotalsByUnit(product.inventory_items);
-			const costTotals = costTotalsByCurrency(product.receipt_items);
+			const usedQuantities = quantityTotalsByUnit(product.inventory_items)
+			const costTotals = costTotalsByCurrency(product.receipt_items)
 			return {
 				product_id: product.id,
 				product_name: product.name,
@@ -147,7 +143,7 @@ export const productStatsRoute = async (req: Request) => {
 						0,
 					),
 				),
-			};
+			}
 		}),
-	);
-};
+	)
+}

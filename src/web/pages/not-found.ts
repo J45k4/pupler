@@ -1,7 +1,5 @@
-import {
-	renderPage,
-} from "../app";
-import { createElement } from "../lib/dom";
+import { renderPage } from "../app"
+import { createElement } from "../lib/dom"
 
 export const renderNotFoundPage = () => {
 	renderPage(
@@ -14,7 +12,10 @@ export const renderNotFoundPage = () => {
 				createElement(
 					"div",
 					{},
-					createElement("span", { className: "eyebrow", text: "Not Found" }),
+					createElement("span", {
+						className: "eyebrow",
+						text: "Not Found",
+					}),
 					createElement("h1", {
 						className: "page-title",
 						text: "That frontend route is not registered.",
@@ -26,5 +27,5 @@ export const renderNotFoundPage = () => {
 				text: "Use the navbar to return to a known page.",
 			}),
 		),
-	);
-};
+	)
+}

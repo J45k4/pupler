@@ -3,8 +3,8 @@ import {
 	loadDashboardShoppingList,
 	loadDashboardTimer,
 	renderPage,
-} from "../app";
-import { createElement, withQueryRoot } from "../lib/dom";
+} from "../app"
+import { createElement, withQueryRoot } from "../lib/dom"
 
 const dashboardPanel = (
 	title: string,
@@ -18,8 +18,8 @@ const dashboardPanel = (
 		className: "secondary action-link",
 		text: linkText,
 		properties: { href },
-	});
-	link.dataset.link = "";
+	})
+	link.dataset.link = ""
 	return createElement(
 		"div",
 		{ className: `card panel ${className}` },
@@ -31,8 +31,8 @@ const dashboardPanel = (
 		),
 		createElement("div", { id: contentId }),
 		createElement("div", { id: statusId, className: "status" }),
-	);
-};
+	)
+}
 
 export const renderOverviewPage = () => {
 	const page = createElement(
@@ -54,9 +54,9 @@ export const renderOverviewPage = () => {
 			"dashboard-shopping-status",
 			"dashboard-shopping-panel",
 		),
-	);
-	withQueryRoot(page, attachDashboardTimerEvents);
-	renderPage(page);
-	void loadDashboardTimer();
-	void loadDashboardShoppingList();
-};
+	)
+	withQueryRoot(page, attachDashboardTimerEvents)
+	renderPage(page)
+	void loadDashboardTimer()
+	void loadDashboardShoppingList()
+}

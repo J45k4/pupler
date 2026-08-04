@@ -1,7 +1,7 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, describe, expect, test } from "bun:test";
+import { existsSync, mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { afterEach, describe, expect, test } from "bun:test"
 
 import {
 	authLoginRoute,
@@ -55,40 +55,40 @@ import {
 	todosCollectionRoute,
 	userDetailRoute,
 	usersCollectionRoute,
-} from "../src/api";
+} from "../src/api"
 import {
 	resolveDatabasePath,
 	resolveFilesPath,
 	versionPayload,
-} from "../src/config";
-import { setDatabase } from "../src/db";
-import { applyTestSchema } from "./support/test-db";
+} from "../src/config"
+import { setDatabase } from "../src/db"
+import { applyTestSchema } from "./support/test-db"
 
-const dbs: ReturnType<typeof openDatabase>[] = [];
-const tempDirs: string[] = [];
+const dbs: ReturnType<typeof openDatabase>[] = []
+const tempDirs: string[] = []
 
 afterEach(async () => {
-	const db = dbs.pop();
+	const db = dbs.pop()
 	if (db) {
-		await closeDatabase(db);
+		await closeDatabase(db)
 	}
 
-	const tempDir = tempDirs.pop();
+	const tempDir = tempDirs.pop()
 	if (tempDir) {
-		rmSync(tempDir, { force: true, recursive: true });
+		rmSync(tempDir, { force: true, recursive: true })
 	}
-});
+})
 
 const createRoutes = () => {
-	const tempDir = mkdtempSync(join(tmpdir(), "pupler-api-"));
-	const dbPath = join(tempDir, "pupler.sqlite");
-	const filesPath = join(tempDir, "files");
-	tempDirs.push(tempDir);
-	applyTestSchema(dbPath);
+	const tempDir = mkdtempSync(join(tmpdir(), "pupler-api-"))
+	const dbPath = join(tempDir, "pupler.sqlite")
+	const filesPath = join(tempDir, "files")
+	tempDirs.push(tempDir)
+	applyTestSchema(dbPath)
 
-	const db = openDatabase(dbPath, filesPath);
-	dbs.push(db);
-	setDatabase(db);
+	const db = openDatabase(dbPath, filesPath)
+	dbs.push(db)
+	setDatabase(db)
 
 	return {
 		db,
@@ -123,8 +123,10 @@ const createRoutes = () => {
 				"/api/inventory-containers": inventoryContainersCollectionRoute,
 				"/api/inventory-containers/:id": inventoryContainerDetailRoute,
 				"/api/inventory-items": inventoryItemsCollectionRoute,
-				"/api/inventory-items/:id/pictures": inventoryItemImagesCollectionRoute,
-				"/api/inventory-items/:id/pictures/:pictureId": inventoryItemImageDetailRoute,
+				"/api/inventory-items/:id/pictures":
+					inventoryItemImagesCollectionRoute,
+				"/api/inventory-items/:id/pictures/:pictureId":
+					inventoryItemImageDetailRoute,
 				"/api/inventory-items/:id": inventoryItemDetailRoute,
 				"/api/shopping-list-items": shoppingListItemsCollectionRoute,
 				"/api/shopping-list-items/:id": shoppingListItemDetailRoute,
@@ -146,8 +148,8 @@ const createRoutes = () => {
 				"/version": () => Response.json(versionPayload()),
 			},
 		}),
-	};
-};
+	}
+}
 
 const request = async (
 	routes: ReturnType<typeof createRoutes>,
@@ -155,57 +157,69 @@ const request = async (
 	options: RequestInit = {},
 	params: Record<string, string> = {},
 ) => {
-	const url = new URL(`http://localhost${path}`);
-	const pathname = url.pathname;
+	const url = new URL(`http://localhost${path}`)
+	const pathname = url.pathname
 	const routeKey = pathname.match(/^\/api\/products\/\d+\/picture$/)
 		? "/api/products/:id/picture"
 		: pathname.match(/^\/api\/receipts\/\d+\/picture$/)
 			? "/api/receipts/:id/picture"
 			: pathname.match(/^\/api\/auth\/(login|logout|password|session)$/)
 				? pathname
-			: pathname.match(/^\/api\/time-entries\/start$/)
-				? "/api/time-entries/start"
-				: pathname.match(/^\/api\/time-entries\/\d+\/stop$/)
-					? "/api/time-entries/:id/stop"
-				: pathname.match(/^\/api\/projects\/\d+\/merge$/)
-					? "/api/projects/:id/merge"
-			: pathname.match(/^\/api\/recipes\/\d+\/pictures$/)
-				? "/api/recipes/:id/pictures"
-				: pathname.match(/^\/api\/recipes\/\d+\/pictures\/\d+$/)
-					? "/api/recipes/:id/pictures/:pictureId"
-					: pathname.match(/^\/api\/inventory-items\/\d+\/pictures$/)
-						? "/api/inventory-items/:id/pictures"
-						: pathname.match(/^\/api\/inventory-items\/\d+\/pictures\/\d+$/)
-							? "/api/inventory-items/:id/pictures/:pictureId"
-							: pathname.split("/").filter(Boolean).length === 3
-								? pathname.replace(/\/[^/]+$/, "/:id")
-								: pathname;
-	const handler = routes.handlers[routeKey as keyof typeof routes.handlers];
+				: pathname.match(/^\/api\/time-entries\/start$/)
+					? "/api/time-entries/start"
+					: pathname.match(/^\/api\/time-entries\/\d+\/stop$/)
+						? "/api/time-entries/:id/stop"
+						: pathname.match(/^\/api\/projects\/\d+\/merge$/)
+							? "/api/projects/:id/merge"
+							: pathname.match(/^\/api\/recipes\/\d+\/pictures$/)
+								? "/api/recipes/:id/pictures"
+								: pathname.match(
+											/^\/api\/recipes\/\d+\/pictures\/\d+$/,
+									  )
+									? "/api/recipes/:id/pictures/:pictureId"
+									: pathname.match(
+												/^\/api\/inventory-items\/\d+\/pictures$/,
+										  )
+										? "/api/inventory-items/:id/pictures"
+										: pathname.match(
+													/^\/api\/inventory-items\/\d+\/pictures\/\d+$/,
+											  )
+											? "/api/inventory-items/:id/pictures/:pictureId"
+											: pathname
+														.split("/")
+														.filter(Boolean)
+														.length === 3
+												? pathname.replace(
+														/\/[^/]+$/,
+														"/:id",
+													)
+												: pathname
+	const handler = routes.handlers[routeKey as keyof typeof routes.handlers]
 	if (handler instanceof Response) {
-		return handler.clone();
+		return handler.clone()
 	}
 	const req = new Request(`http://localhost${path}`, {
 		method: options.method ?? "GET",
 		headers: options.headers,
 		body: options.body,
-	}) as Request & { params?: Record<string, string> };
-	req.params = params;
-	return handler(req);
-};
+	}) as Request & { params?: Record<string, string> }
+	req.params = params
+	return handler(req)
+}
 
 describe("Pupler API", () => {
 	test("exposes the app version", async () => {
-		const routes = createRoutes();
+		const routes = createRoutes()
 
-		const response = await request(routes, "/version");
-		expect(response.status).toBe(200);
+		const response = await request(routes, "/version")
+		expect(response.status).toBe(200)
 		expect(await response.json()).toEqual({
 			version: "dev",
-		});
-	});
+		})
+	})
 
 	test("creates, updates, lists, and deletes groups", async () => {
-		const routes = createRoutes();
+		const routes = createRoutes()
 
 		const createResponse = await request(routes, "/api/groups", {
 			method: "POST",
@@ -213,10 +227,10 @@ describe("Pupler API", () => {
 			body: JSON.stringify({
 				name: " Grocery ",
 			}),
-		});
-		expect(createResponse.status).toBe(201);
-		const created = await createResponse.json();
-		expect(created.name).toBe("Grocery");
+		})
+		expect(createResponse.status).toBe(201)
+		const created = await createResponse.json()
+		expect(created.name).toBe("Grocery")
 
 		const duplicateResponse = await request(routes, "/api/groups", {
 			method: "POST",
@@ -224,14 +238,14 @@ describe("Pupler API", () => {
 			body: JSON.stringify({
 				name: "grocery",
 			}),
-		});
-		expect(duplicateResponse.status).toBe(409);
+		})
+		expect(duplicateResponse.status).toBe(409)
 
-		const listResponse = await request(routes, "/api/groups?name=GROCERY");
-		expect(listResponse.status).toBe(200);
-		const listed = await listResponse.json();
-		expect(listed).toHaveLength(1);
-		expect(listed[0].id).toBe(created.id);
+		const listResponse = await request(routes, "/api/groups?name=GROCERY")
+		expect(listResponse.status).toBe(200)
+		const listed = await listResponse.json()
+		expect(listed).toHaveLength(1)
+		expect(listed[0].id).toBe(created.id)
 
 		const updateResponse = await request(
 			routes,
@@ -244,30 +258,30 @@ describe("Pupler API", () => {
 				}),
 			},
 			{ id: String(created.id) },
-		);
-		expect(updateResponse.status).toBe(200);
-		const updated = await updateResponse.json();
-		expect(updated.name).toBe("My Business");
+		)
+		expect(updateResponse.status).toBe(200)
+		const updated = await updateResponse.json()
+		expect(updated.name).toBe("My Business")
 
 		const deleteResponse = await request(
 			routes,
 			`/api/groups/${created.id}`,
 			{ method: "DELETE" },
 			{ id: String(created.id) },
-		);
-		expect(deleteResponse.status).toBe(204);
+		)
+		expect(deleteResponse.status).toBe(204)
 
 		const missingResponse = await request(
 			routes,
 			`/api/groups/${created.id}`,
 			{},
 			{ id: String(created.id) },
-		);
-		expect(missingResponse.status).toBe(404);
-	});
+		)
+		expect(missingResponse.status).toBe(404)
+	})
 
 	test("creates, updates, lists, and deletes users", async () => {
-		const routes = createRoutes();
+		const routes = createRoutes()
 
 		const createResponse = await request(routes, "/api/users", {
 			method: "POST",
@@ -279,22 +293,22 @@ describe("Pupler API", () => {
 				password_hash: " hashed-password ",
 				is_admin: true,
 			}),
-		});
-		expect(createResponse.status).toBe(201);
-		const created = await createResponse.json();
-		expect(created.name).toBe("Alice");
-		expect(created.username).toBe("alice");
-		expect(created.email).toBe("alice@example.com");
-		expect(created.is_admin).toBeTrue();
-		expect(created.password_hash).toBeUndefined();
+		})
+		expect(createResponse.status).toBe(201)
+		const created = await createResponse.json()
+		expect(created.name).toBe("Alice")
+		expect(created.username).toBe("alice")
+		expect(created.email).toBe("alice@example.com")
+		expect(created.is_admin).toBeTrue()
+		expect(created.password_hash).toBeUndefined()
 
-		const listResponse = await request(routes, "/api/users?username=alice");
-		expect(listResponse.status).toBe(200);
-		const listed = await listResponse.json();
-		expect(listed).toHaveLength(1);
-		expect(listed[0].id).toBe(created.id);
-		expect(listed[0].is_admin).toBeTrue();
-		expect(listed[0].password_hash).toBeUndefined();
+		const listResponse = await request(routes, "/api/users?username=alice")
+		expect(listResponse.status).toBe(200)
+		const listed = await listResponse.json()
+		expect(listed).toHaveLength(1)
+		expect(listed[0].id).toBe(created.id)
+		expect(listed[0].is_admin).toBeTrue()
+		expect(listed[0].password_hash).toBeUndefined()
 
 		const updateResponse = await request(
 			routes,
@@ -309,32 +323,32 @@ describe("Pupler API", () => {
 				}),
 			},
 			{ id: String(created.id) },
-		);
-		expect(updateResponse.status).toBe(200);
-		const updated = await updateResponse.json();
-		expect(updated.email).toBeNull();
-		expect(updated.is_admin).toBeFalse();
-		expect(updated.password_hash).toBeUndefined();
+		)
+		expect(updateResponse.status).toBe(200)
+		const updated = await updateResponse.json()
+		expect(updated.email).toBeNull()
+		expect(updated.is_admin).toBeFalse()
+		expect(updated.password_hash).toBeUndefined()
 
 		const deleteResponse = await request(
 			routes,
 			`/api/users/${created.id}`,
 			{ method: "DELETE" },
 			{ id: String(created.id) },
-		);
-		expect(deleteResponse.status).toBe(204);
+		)
+		expect(deleteResponse.status).toBe(204)
 
 		const missingResponse = await request(
 			routes,
 			`/api/users/${created.id}`,
 			{},
 			{ id: String(created.id) },
-		);
-		expect(missingResponse.status).toBe(404);
-	});
+		)
+		expect(missingResponse.status).toBe(404)
+	})
 
 	test("authenticates users with server-managed cookie sessions", async () => {
-		const routes = createRoutes();
+		const routes = createRoutes()
 		const createResponse = await request(routes, "/api/users", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
@@ -343,9 +357,9 @@ describe("Pupler API", () => {
 				username: "alice",
 				password: "correct horse battery staple",
 			}),
-		});
-		expect(createResponse.status).toBe(201);
-		const created = await createResponse.json();
+		})
+		expect(createResponse.status).toBe(201)
+		const created = await createResponse.json()
 
 		const badLoginResponse = await request(routes, "/api/auth/login", {
 			method: "POST",
@@ -354,8 +368,8 @@ describe("Pupler API", () => {
 				username: "alice",
 				password: "wrong",
 			}),
-		});
-		expect(badLoginResponse.status).toBe(401);
+		})
+		expect(badLoginResponse.status).toBe(401)
 
 		const loginResponse = await request(routes, "/api/auth/login", {
 			method: "POST",
@@ -364,24 +378,24 @@ describe("Pupler API", () => {
 				username: "alice",
 				password: "correct horse battery staple",
 			}),
-		});
-		expect(loginResponse.status).toBe(200);
-		const cookie = loginResponse.headers.get("set-cookie");
-		expect(cookie).toContain("pupler_session=");
-		expect(cookie).toContain("HttpOnly");
-		expect(cookie).toContain("SameSite=Lax");
-		const loginBody = await loginResponse.json();
-		expect(loginBody.user.id).toBe(created.id);
-		expect(loginBody.user.username).toBe("alice");
-		expect(loginBody.user.password_hash).toBeUndefined();
+		})
+		expect(loginResponse.status).toBe(200)
+		const cookie = loginResponse.headers.get("set-cookie")
+		expect(cookie).toContain("pupler_session=")
+		expect(cookie).toContain("HttpOnly")
+		expect(cookie).toContain("SameSite=Lax")
+		const loginBody = await loginResponse.json()
+		expect(loginBody.user.id).toBe(created.id)
+		expect(loginBody.user.username).toBe("alice")
+		expect(loginBody.user.password_hash).toBeUndefined()
 
-		const sessionCookie = cookie?.split(";")[0] ?? "";
+		const sessionCookie = cookie?.split(";")[0] ?? ""
 		const sessionResponse = await request(routes, "/api/auth/session", {
 			headers: { Cookie: sessionCookie },
-		});
-		expect(sessionResponse.status).toBe(200);
-		const sessionBody = await sessionResponse.json();
-		expect(sessionBody.user.id).toBe(created.id);
+		})
+		expect(sessionResponse.status).toBe(200)
+		const sessionBody = await sessionResponse.json()
+		expect(sessionBody.user.id).toBe(created.id)
 
 		const wrongPasswordChangeResponse = await request(
 			routes,
@@ -397,8 +411,8 @@ describe("Pupler API", () => {
 					new_password: "new correct horse battery staple",
 				}),
 			},
-		);
-		expect(wrongPasswordChangeResponse.status).toBe(401);
+		)
+		expect(wrongPasswordChangeResponse.status).toBe(401)
 
 		const passwordChangeResponse = await request(
 			routes,
@@ -414,44 +428,56 @@ describe("Pupler API", () => {
 					new_password: "new correct horse battery staple",
 				}),
 			},
-		);
-		expect(passwordChangeResponse.status).toBe(204);
+		)
+		expect(passwordChangeResponse.status).toBe(204)
 
-		const oldPasswordLoginResponse = await request(routes, "/api/auth/login", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				username: "alice",
-				password: "correct horse battery staple",
-			}),
-		});
-		expect(oldPasswordLoginResponse.status).toBe(401);
+		const oldPasswordLoginResponse = await request(
+			routes,
+			"/api/auth/login",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					username: "alice",
+					password: "correct horse battery staple",
+				}),
+			},
+		)
+		expect(oldPasswordLoginResponse.status).toBe(401)
 
-		const newPasswordLoginResponse = await request(routes, "/api/auth/login", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				username: "alice",
-				password: "new correct horse battery staple",
-			}),
-		});
-		expect(newPasswordLoginResponse.status).toBe(200);
+		const newPasswordLoginResponse = await request(
+			routes,
+			"/api/auth/login",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					username: "alice",
+					password: "new correct horse battery staple",
+				}),
+			},
+		)
+		expect(newPasswordLoginResponse.status).toBe(200)
 
 		const logoutResponse = await request(routes, "/api/auth/logout", {
 			method: "POST",
 			headers: { Cookie: sessionCookie },
-		});
-		expect(logoutResponse.status).toBe(204);
-		expect(logoutResponse.headers.get("set-cookie")).toContain("Max-Age=0");
+		})
+		expect(logoutResponse.status).toBe(204)
+		expect(logoutResponse.headers.get("set-cookie")).toContain("Max-Age=0")
 
-		const expiredSessionResponse = await request(routes, "/api/auth/session", {
-			headers: { Cookie: sessionCookie },
-		});
-		expect(expiredSessionResponse.status).toBe(401);
-	});
+		const expiredSessionResponse = await request(
+			routes,
+			"/api/auth/session",
+			{
+				headers: { Cookie: sessionCookie },
+			},
+		)
+		expect(expiredSessionResponse.status).toBe(401)
+	})
 
 	test("tracks time projects, timers, entries, and report totals", async () => {
-		const routes = createRoutes();
+		const routes = createRoutes()
 
 		const userResponse = await request(routes, "/api/users", {
 			method: "POST",
@@ -460,9 +486,9 @@ describe("Pupler API", () => {
 				name: "Alice",
 				email: "alice@example.com",
 			}),
-		});
-		expect(userResponse.status).toBe(201);
-		const user = await userResponse.json();
+		})
+		expect(userResponse.status).toBe(201)
+		const user = await userResponse.json()
 
 		const clientResponse = await request(routes, "/api/clients", {
 			method: "POST",
@@ -472,10 +498,10 @@ describe("Pupler API", () => {
 				color: "#6f5aa8",
 				archived_at: null,
 			}),
-		});
-		expect(clientResponse.status).toBe(201);
-		const client = await clientResponse.json();
-		expect(client.name).toBe("OpenAI");
+		})
+		expect(clientResponse.status).toBe(201)
+		const client = await clientResponse.json()
+		expect(client.name).toBe("OpenAI")
 
 		const projectResponse = await request(routes, "/api/projects", {
 			method: "POST",
@@ -486,12 +512,12 @@ describe("Pupler API", () => {
 				color: "#2d7c6f",
 				archived_at: null,
 			}),
-		});
-		expect(projectResponse.status).toBe(201);
-		const project = await projectResponse.json();
-		expect(project.name).toBe("Pupler");
-		expect(project.client_id).toBe(client.id);
-		expect(project.client.name).toBe("OpenAI");
+		})
+		expect(projectResponse.status).toBe(201)
+		const project = await projectResponse.json()
+		expect(project.name).toBe("Pupler")
+		expect(project.client_id).toBe(client.id)
+		expect(project.client.name).toBe("OpenAI")
 
 		const manualEntryResponse = await request(routes, "/api/time-entries", {
 			method: "POST",
@@ -503,26 +529,30 @@ describe("Pupler API", () => {
 				started_at: "2026-05-26T08:00:00.000Z",
 				ended_at: "2026-05-26T09:30:00.000Z",
 			}),
-		});
-		expect(manualEntryResponse.status).toBe(201);
-		const manualEntry = await manualEntryResponse.json();
+		})
+		expect(manualEntryResponse.status).toBe(201)
+		const manualEntry = await manualEntryResponse.json()
 		expect(manualEntry.user).toEqual({
 			id: user.id,
 			name: "Alice",
 			email: "alice@example.com",
-		});
-		expect(manualEntry.project.name).toBe("Pupler");
+		})
+		expect(manualEntry.project.name).toBe("Pupler")
 
-		const invalidEntryResponse = await request(routes, "/api/time-entries", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				project_id: project.id,
-				started_at: "2026-05-26T10:00:00.000Z",
-				ended_at: "2026-05-26T09:00:00.000Z",
-			}),
-		});
-		expect(invalidEntryResponse.status).toBe(400);
+		const invalidEntryResponse = await request(
+			routes,
+			"/api/time-entries",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					project_id: project.id,
+					started_at: "2026-05-26T10:00:00.000Z",
+					ended_at: "2026-05-26T09:00:00.000Z",
+				}),
+			},
+		)
+		expect(invalidEntryResponse.status).toBe(400)
 
 		const startResponse = await request(routes, "/api/time-entries/start", {
 			method: "POST",
@@ -533,33 +563,37 @@ describe("Pupler API", () => {
 				description: "Build",
 				started_at: "2026-05-26T10:00:00.000Z",
 			}),
-		});
-		expect(startResponse.status).toBe(201);
-		const firstRunning = await startResponse.json();
-		expect(firstRunning.ended_at).toBeNull();
+		})
+		expect(startResponse.status).toBe(201)
+		const firstRunning = await startResponse.json()
+		expect(firstRunning.ended_at).toBeNull()
 
-		const restartResponse = await request(routes, "/api/time-entries/start", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				user_id: user.id,
-				project_id: project.id,
-				description: "Review",
-				started_at: "2026-05-26T11:00:00.000Z",
-			}),
-		});
-		expect(restartResponse.status).toBe(201);
-		const secondRunning = await restartResponse.json();
-		expect(secondRunning.ended_at).toBeNull();
+		const restartResponse = await request(
+			routes,
+			"/api/time-entries/start",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					user_id: user.id,
+					project_id: project.id,
+					description: "Review",
+					started_at: "2026-05-26T11:00:00.000Z",
+				}),
+			},
+		)
+		expect(restartResponse.status).toBe(201)
+		const secondRunning = await restartResponse.json()
+		expect(secondRunning.ended_at).toBeNull()
 
 		const firstEntryResponse = await request(
 			routes,
 			`/api/time-entries/${firstRunning.id}`,
 			{},
 			{ id: String(firstRunning.id) },
-		);
-		const firstEntry = await firstEntryResponse.json();
-		expect(firstEntry.ended_at).toBe("2026-05-26T11:00:00.000Z");
+		)
+		const firstEntry = await firstEntryResponse.json()
+		expect(firstEntry.ended_at).toBe("2026-05-26T11:00:00.000Z")
 
 		const stopResponse = await request(
 			routes,
@@ -572,10 +606,10 @@ describe("Pupler API", () => {
 				}),
 			},
 			{ id: String(secondRunning.id) },
-		);
-		expect(stopResponse.status).toBe(200);
-		const stopped = await stopResponse.json();
-		expect(stopped.ended_at).toBe("2026-05-26T12:00:00.000Z");
+		)
+		expect(stopResponse.status).toBe(200)
+		const stopped = await stopResponse.json()
+		expect(stopped.ended_at).toBe("2026-05-26T12:00:00.000Z")
 
 		const secondStopResponse = await request(
 			routes,
@@ -586,37 +620,37 @@ describe("Pupler API", () => {
 				body: JSON.stringify({}),
 			},
 			{ id: String(secondRunning.id) },
-		);
-		expect(secondStopResponse.status).toBe(400);
+		)
+		expect(secondStopResponse.status).toBe(400)
 
 		const reportResponse = await request(
 			routes,
 			"/api/time-report?from=2026-05-26T00:00:00.000Z&to=2026-05-27T00:00:00.000Z",
-		);
-		expect(reportResponse.status).toBe(200);
-		const report = await reportResponse.json();
-		expect(report.total_seconds).toBe(12600);
-		expect(report.project_totals).toHaveLength(1);
-		expect(report.project_totals[0].project_id).toBe(project.id);
-		expect(report.project_totals[0].client_id).toBe(client.id);
-		expect(report.project_totals[0].entry_count).toBe(3);
-		expect(report.client_totals).toHaveLength(1);
-		expect(report.client_totals[0].client_id).toBe(client.id);
-		expect(report.client_totals[0].client_name).toBe("OpenAI");
-		expect(report.client_totals[0].project_count).toBe(1);
-		expect(report.client_totals[0].entry_count).toBe(3);
+		)
+		expect(reportResponse.status).toBe(200)
+		const report = await reportResponse.json()
+		expect(report.total_seconds).toBe(12600)
+		expect(report.project_totals).toHaveLength(1)
+		expect(report.project_totals[0].project_id).toBe(project.id)
+		expect(report.project_totals[0].client_id).toBe(client.id)
+		expect(report.project_totals[0].entry_count).toBe(3)
+		expect(report.client_totals).toHaveLength(1)
+		expect(report.client_totals[0].client_id).toBe(client.id)
+		expect(report.client_totals[0].client_name).toBe("OpenAI")
+		expect(report.client_totals[0].project_count).toBe(1)
+		expect(report.client_totals[0].entry_count).toBe(3)
 
 		const userReportResponse = await request(
 			routes,
 			`/api/time-report?user_id=${user.id}&from=2026-05-26T00:00:00.000Z&to=2026-05-27T00:00:00.000Z`,
-		);
-		expect(userReportResponse.status).toBe(200);
-		const userReport = await userReportResponse.json();
-		expect(userReport.total_seconds).toBe(12600);
-	});
+		)
+		expect(userReportResponse.status).toBe(200)
+		const userReport = await userReportResponse.json()
+		expect(userReport.total_seconds).toBe(12600)
+	})
 
 	test("merges projects by moving time entries and archiving the source", async () => {
-		const routes = createRoutes();
+		const routes = createRoutes()
 
 		const keeperResponse = await request(routes, "/api/projects", {
 			method: "POST",
@@ -626,8 +660,8 @@ describe("Pupler API", () => {
 				color: "#2d7c6f",
 				archived_at: null,
 			}),
-		});
-		const keeper = await keeperResponse.json();
+		})
+		const keeper = await keeperResponse.json()
 
 		const duplicateResponse = await request(routes, "/api/projects", {
 			method: "POST",
@@ -637,8 +671,8 @@ describe("Pupler API", () => {
 				color: "#6f5aa8",
 				archived_at: null,
 			}),
-		});
-		const duplicate = await duplicateResponse.json();
+		})
+		const duplicate = await duplicateResponse.json()
 
 		const keeperEntryResponse = await request(routes, "/api/time-entries", {
 			method: "POST",
@@ -648,20 +682,24 @@ describe("Pupler API", () => {
 				started_at: "2026-05-26T08:00:00.000Z",
 				ended_at: "2026-05-26T09:00:00.000Z",
 			}),
-		});
-		expect(keeperEntryResponse.status).toBe(201);
+		})
+		expect(keeperEntryResponse.status).toBe(201)
 
-		const duplicateEntryResponse = await request(routes, "/api/time-entries", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				project_id: duplicate.id,
-				started_at: "2026-05-26T09:00:00.000Z",
-				ended_at: "2026-05-26T10:00:00.000Z",
-			}),
-		});
-		expect(duplicateEntryResponse.status).toBe(201);
-		const duplicateEntry = await duplicateEntryResponse.json();
+		const duplicateEntryResponse = await request(
+			routes,
+			"/api/time-entries",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					project_id: duplicate.id,
+					started_at: "2026-05-26T09:00:00.000Z",
+					ended_at: "2026-05-26T10:00:00.000Z",
+				}),
+			},
+		)
+		expect(duplicateEntryResponse.status).toBe(201)
+		const duplicateEntry = await duplicateEntryResponse.json()
 
 		const selfMergeResponse = await request(
 			routes,
@@ -672,8 +710,8 @@ describe("Pupler API", () => {
 				body: JSON.stringify({ source_id: keeper.id }),
 			},
 			{ id: String(keeper.id) },
-		);
-		expect(selfMergeResponse.status).toBe(400);
+		)
+		expect(selfMergeResponse.status).toBe(400)
 
 		const mergeResponse = await request(
 			routes,
@@ -684,39 +722,39 @@ describe("Pupler API", () => {
 				body: JSON.stringify({ source_id: duplicate.id }),
 			},
 			{ id: String(keeper.id) },
-		);
-		expect(mergeResponse.status).toBe(200);
-		const merged = await mergeResponse.json();
-		expect(merged.target.id).toBe(keeper.id);
-		expect(merged.source.id).toBe(duplicate.id);
-		expect(merged.moved_time_entry_count).toBe(1);
-		expect(merged.source_deleted).toBe(false);
-		expect(merged.source_archived).toBe(true);
-		expect(merged.source.archived_at).not.toBeNull();
+		)
+		expect(mergeResponse.status).toBe(200)
+		const merged = await mergeResponse.json()
+		expect(merged.target.id).toBe(keeper.id)
+		expect(merged.source.id).toBe(duplicate.id)
+		expect(merged.moved_time_entry_count).toBe(1)
+		expect(merged.source_deleted).toBe(false)
+		expect(merged.source_archived).toBe(true)
+		expect(merged.source.archived_at).not.toBeNull()
 
 		const movedEntryResponse = await request(
 			routes,
 			`/api/time-entries/${duplicateEntry.id}`,
 			{},
 			{ id: String(duplicateEntry.id) },
-		);
-		const movedEntry = await movedEntryResponse.json();
-		expect(movedEntry.project_id).toBe(keeper.id);
-		expect(movedEntry.project.name).toBe("puppybot");
+		)
+		const movedEntry = await movedEntryResponse.json()
+		expect(movedEntry.project_id).toBe(keeper.id)
+		expect(movedEntry.project.name).toBe("puppybot")
 
 		const sourceResponse = await request(
 			routes,
 			`/api/projects/${duplicate.id}`,
 			{},
 			{ id: String(duplicate.id) },
-		);
-		expect(sourceResponse.status).toBe(200);
-		const source = await sourceResponse.json();
-		expect(source.archived_at).not.toBeNull();
-	});
+		)
+		expect(sourceResponse.status).toBe(200)
+		const source = await sourceResponse.json()
+		expect(source.archived_at).not.toBeNull()
+	})
 
 	test("reports unlabeled tracked time as a no-project bucket", async () => {
-		const routes = createRoutes();
+		const routes = createRoutes()
 
 		const projectResponse = await request(routes, "/api/projects", {
 			method: "POST",
@@ -726,37 +764,45 @@ describe("Pupler API", () => {
 				color: "#2d7c6f",
 				archived_at: null,
 			}),
-		});
-		const project = await projectResponse.json();
+		})
+		const project = await projectResponse.json()
 
-		const unknownStartResponse = await request(routes, "/api/time-entries/start", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				started_at: "2026-05-26T08:00:00.000Z",
-			}),
-		});
-		expect(unknownStartResponse.status).toBe(201);
+		const unknownStartResponse = await request(
+			routes,
+			"/api/time-entries/start",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					started_at: "2026-05-26T08:00:00.000Z",
+				}),
+			},
+		)
+		expect(unknownStartResponse.status).toBe(201)
 
-		const noClientEntryResponse = await request(routes, "/api/time-entries", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				project_id: project.id,
-				description: "Planning",
-				started_at: "2026-05-26T08:30:00.000Z",
-				ended_at: "2026-05-26T09:00:00.000Z",
-			}),
-		});
-		expect(noClientEntryResponse.status).toBe(201);
+		const noClientEntryResponse = await request(
+			routes,
+			"/api/time-entries",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					project_id: project.id,
+					description: "Planning",
+					started_at: "2026-05-26T08:30:00.000Z",
+					ended_at: "2026-05-26T09:00:00.000Z",
+				}),
+			},
+		)
+		expect(noClientEntryResponse.status).toBe(201)
 
 		const reportResponse = await request(
 			routes,
 			"/api/time-report?from=2026-05-26T08:00:00.000Z&to=2026-05-26T09:00:00.000Z",
-		);
-		expect(reportResponse.status).toBe(200);
-		const report = await reportResponse.json();
-		expect(report.total_seconds).toBe(5400);
+		)
+		expect(reportResponse.status).toBe(200)
+		const report = await reportResponse.json()
+		expect(report.total_seconds).toBe(5400)
 		expect(report.project_totals).toEqual([
 			expect.objectContaining({
 				project_id: null,
@@ -770,7 +816,7 @@ describe("Pupler API", () => {
 				total_seconds: 1800,
 				entry_count: 1,
 			}),
-		]);
+		])
 		expect(report.client_totals).toEqual([
 			expect.objectContaining({
 				client_id: null,
@@ -786,24 +832,24 @@ describe("Pupler API", () => {
 				entry_count: 1,
 				project_count: 1,
 			}),
-		]);
-	});
+		])
+	})
 
 	test("keeps running timers separate by user", async () => {
-		const routes = createRoutes();
+		const routes = createRoutes()
 
 		const firstUserResponse = await request(routes, "/api/users", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ name: "Alice" }),
-		});
-		const firstUser = await firstUserResponse.json();
+		})
+		const firstUser = await firstUserResponse.json()
 		const secondUserResponse = await request(routes, "/api/users", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ name: "Bob" }),
-		});
-		const secondUser = await secondUserResponse.json();
+		})
+		const secondUser = await secondUserResponse.json()
 
 		const projectResponse = await request(routes, "/api/projects", {
 			method: "POST",
@@ -813,43 +859,51 @@ describe("Pupler API", () => {
 				color: "#2d7c6f",
 				archived_at: null,
 			}),
-		});
-		const project = await projectResponse.json();
+		})
+		const project = await projectResponse.json()
 
-		const firstStartResponse = await request(routes, "/api/time-entries/start", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				user_id: firstUser.id,
-				project_id: project.id,
-				started_at: "2026-05-26T10:00:00.000Z",
-			}),
-		});
-		const firstEntry = await firstStartResponse.json();
+		const firstStartResponse = await request(
+			routes,
+			"/api/time-entries/start",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					user_id: firstUser.id,
+					project_id: project.id,
+					started_at: "2026-05-26T10:00:00.000Z",
+				}),
+			},
+		)
+		const firstEntry = await firstStartResponse.json()
 
-		const secondStartResponse = await request(routes, "/api/time-entries/start", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				user_id: secondUser.id,
-				project_id: project.id,
-				started_at: "2026-05-26T11:00:00.000Z",
-			}),
-		});
-		expect(secondStartResponse.status).toBe(201);
+		const secondStartResponse = await request(
+			routes,
+			"/api/time-entries/start",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					user_id: secondUser.id,
+					project_id: project.id,
+					started_at: "2026-05-26T11:00:00.000Z",
+				}),
+			},
+		)
+		expect(secondStartResponse.status).toBe(201)
 
 		const firstEntryResponse = await request(
 			routes,
 			`/api/time-entries/${firstEntry.id}`,
 			{},
 			{ id: String(firstEntry.id) },
-		);
-		const reloadedFirstEntry = await firstEntryResponse.json();
-		expect(reloadedFirstEntry.ended_at).toBeNull();
-	});
+		)
+		const reloadedFirstEntry = await firstEntryResponse.json()
+		expect(reloadedFirstEntry.ended_at).toBeNull()
+	})
 
 	test("starts timers without a project but requires one before stopping", async () => {
-		const routes = createRoutes();
+		const routes = createRoutes()
 
 		const projectResponse = await request(routes, "/api/projects", {
 			method: "POST",
@@ -859,8 +913,8 @@ describe("Pupler API", () => {
 				color: "#2d7c6f",
 				archived_at: null,
 			}),
-		});
-		const project = await projectResponse.json();
+		})
+		const project = await projectResponse.json()
 
 		const startResponse = await request(routes, "/api/time-entries/start", {
 			method: "POST",
@@ -869,11 +923,11 @@ describe("Pupler API", () => {
 				description: "Triage",
 				started_at: "2026-05-26T13:00:00.000Z",
 			}),
-		});
-		expect(startResponse.status).toBe(201);
-		const running = await startResponse.json();
-		expect(running.project_id).toBeNull();
-		expect(running.project).toBeNull();
+		})
+		expect(startResponse.status).toBe(201)
+		const running = await startResponse.json()
+		expect(running.project_id).toBeNull()
+		expect(running.project).toBeNull()
 
 		const stopWithoutProjectResponse = await request(
 			routes,
@@ -886,8 +940,8 @@ describe("Pupler API", () => {
 				}),
 			},
 			{ id: String(running.id) },
-		);
-		expect(stopWithoutProjectResponse.status).toBe(400);
+		)
+		expect(stopWithoutProjectResponse.status).toBe(400)
 
 		const assignResponse = await request(
 			routes,
@@ -900,10 +954,10 @@ describe("Pupler API", () => {
 				}),
 			},
 			{ id: String(running.id) },
-		);
-		expect(assignResponse.status).toBe(200);
-		const assigned = await assignResponse.json();
-		expect(assigned.project_id).toBe(project.id);
+		)
+		expect(assignResponse.status).toBe(200)
+		const assigned = await assignResponse.json()
+		expect(assigned.project_id).toBe(project.id)
 
 		const stopResponse = await request(
 			routes,
@@ -916,14 +970,14 @@ describe("Pupler API", () => {
 				}),
 			},
 			{ id: String(running.id) },
-		);
-		expect(stopResponse.status).toBe(200);
-		const stopped = await stopResponse.json();
-		expect(stopped.ended_at).toBe("2026-05-26T14:00:00.000Z");
-	});
+		)
+		expect(stopResponse.status).toBe(200)
+		const stopped = await stopResponse.json()
+		expect(stopped.ended_at).toBe("2026-05-26T14:00:00.000Z")
+	})
 
 	test("groups receipts and clears receipt links when a group is deleted", async () => {
-		const routes = createRoutes();
+		const routes = createRoutes()
 
 		const groupResponse = await request(routes, "/api/groups", {
 			method: "POST",
@@ -931,8 +985,8 @@ describe("Pupler API", () => {
 			body: JSON.stringify({
 				name: "Grocery",
 			}),
-		});
-		const group = await groupResponse.json();
+		})
+		const group = await groupResponse.json()
 
 		const receiptResponse = await request(routes, "/api/receipts", {
 			method: "POST",
@@ -944,27 +998,30 @@ describe("Pupler API", () => {
 				currency: "EUR",
 				total_amount: 5.4,
 			}),
-		});
-		expect(receiptResponse.status).toBe(201);
-		const receipt = await receiptResponse.json();
-		expect(receipt.group_id).toBe(group.id);
+		})
+		expect(receiptResponse.status).toBe(201)
+		const receipt = await receiptResponse.json()
+		expect(receipt.group_id).toBe(group.id)
 		expect(receipt.group).toEqual({
 			id: group.id,
 			name: "Grocery",
-		});
+		})
 
 		const filteredResponse = await request(
 			routes,
 			`/api/receipts?group_id=${group.id}`,
-		);
-		expect(filteredResponse.status).toBe(200);
-		const filtered = await filteredResponse.json();
-		expect(filtered).toHaveLength(1);
-		expect(filtered[0].id).toBe(receipt.id);
+		)
+		expect(filteredResponse.status).toBe(200)
+		const filtered = await filteredResponse.json()
+		expect(filtered).toHaveLength(1)
+		expect(filtered[0].id).toBe(receipt.id)
 
-		const ungroupedResponse = await request(routes, "/api/receipts?group_id=null");
-		expect(ungroupedResponse.status).toBe(200);
-		expect(await ungroupedResponse.json()).toHaveLength(0);
+		const ungroupedResponse = await request(
+			routes,
+			"/api/receipts?group_id=null",
+		)
+		expect(ungroupedResponse.status).toBe(200)
+		expect(await ungroupedResponse.json()).toHaveLength(0)
 
 		const missingGroupResponse = await request(routes, "/api/receipts", {
 			method: "POST",
@@ -976,8 +1033,8 @@ describe("Pupler API", () => {
 				currency: "EUR",
 				total_amount: null,
 			}),
-		});
-		expect(missingGroupResponse.status).toBe(400);
+		})
+		expect(missingGroupResponse.status).toBe(400)
 
 		const clearResponse = await request(
 			routes,
@@ -988,11 +1045,11 @@ describe("Pupler API", () => {
 				body: JSON.stringify({ group_id: null }),
 			},
 			{ id: String(receipt.id) },
-		);
-		expect(clearResponse.status).toBe(200);
-		const cleared = await clearResponse.json();
-		expect(cleared.group_id).toBeNull();
-		expect(cleared.group).toBeNull();
+		)
+		expect(clearResponse.status).toBe(200)
+		const cleared = await clearResponse.json()
+		expect(cleared.group_id).toBeNull()
+		expect(cleared.group).toBeNull()
 
 		const relinkResponse = await request(
 			routes,
@@ -1003,31 +1060,31 @@ describe("Pupler API", () => {
 				body: JSON.stringify({ group_id: group.id }),
 			},
 			{ id: String(receipt.id) },
-		);
-		expect(relinkResponse.status).toBe(200);
+		)
+		expect(relinkResponse.status).toBe(200)
 
 		const deleteGroupResponse = await request(
 			routes,
 			`/api/groups/${group.id}`,
 			{ method: "DELETE" },
 			{ id: String(group.id) },
-		);
-		expect(deleteGroupResponse.status).toBe(204);
+		)
+		expect(deleteGroupResponse.status).toBe(204)
 
 		const refreshedResponse = await request(
 			routes,
 			`/api/receipts/${receipt.id}`,
 			{},
 			{ id: String(receipt.id) },
-		);
-		expect(refreshedResponse.status).toBe(200);
-		const refreshed = await refreshedResponse.json();
-		expect(refreshed.group_id).toBeNull();
-		expect(refreshed.group).toBeNull();
-	});
+		)
+		expect(refreshedResponse.status).toBe(200)
+		const refreshed = await refreshedResponse.json()
+		expect(refreshed.group_id).toBeNull()
+		expect(refreshed.group).toBeNull()
+	})
 
 	test("creates and looks up a product by barcode", async () => {
-		const routes = createRoutes();
+		const routes = createRoutes()
 
 		const createResponse = await request(routes, "/api/products", {
 			method: "POST",
@@ -1039,25 +1096,25 @@ describe("Pupler API", () => {
 				default_unit: "pcs",
 				is_perishable: true,
 			}),
-		});
+		})
 
-		expect(createResponse.status).toBe(201);
-		const created = await createResponse.json();
-		expect(created.barcode).toBe("6414893400012");
-		expect(created.is_perishable).toBe(true);
+		expect(createResponse.status).toBe(201)
+		const created = await createResponse.json()
+		expect(created.barcode).toBe("6414893400012")
+		expect(created.is_perishable).toBe(true)
 
 		const listResponse = await request(
 			routes,
 			"/api/products?barcode=6414893400012",
-		);
-		expect(listResponse.status).toBe(200);
-		const listed = await listResponse.json();
-		expect(listed).toHaveLength(1);
-		expect(listed[0].id).toBe(created.id);
-	});
+		)
+		expect(listResponse.status).toBe(200)
+		const listed = await listResponse.json()
+		expect(listed).toHaveLength(1)
+		expect(listed[0].id).toBe(created.id)
+	})
 
 	test("looks up a product by name case-insensitively", async () => {
-		const routes = createRoutes();
+		const routes = createRoutes()
 
 		const createResponse = await request(routes, "/api/products", {
 			method: "POST",
@@ -1069,23 +1126,23 @@ describe("Pupler API", () => {
 				default_unit: "cup",
 				is_perishable: true,
 			}),
-		});
+		})
 
-		expect(createResponse.status).toBe(201);
-		const created = await createResponse.json();
+		expect(createResponse.status).toBe(201)
+		const created = await createResponse.json()
 
 		const listResponse = await request(
 			routes,
 			"/api/products?name=greek%20yogurt",
-		);
-		expect(listResponse.status).toBe(200);
-		const listed = await listResponse.json();
-		expect(listed).toHaveLength(1);
-		expect(listed[0].id).toBe(created.id);
-	});
+		)
+		expect(listResponse.status).toBe(200)
+		const listed = await listResponse.json()
+		expect(listed).toHaveLength(1)
+		expect(listed[0].id).toBe(created.id)
+	})
 
 	test("looks up a product by partial name case-insensitively", async () => {
-		const routes = createRoutes();
+		const routes = createRoutes()
 
 		const createResponse = await request(routes, "/api/products", {
 			method: "POST",
@@ -1097,23 +1154,23 @@ describe("Pupler API", () => {
 				default_unit: "cup",
 				is_perishable: true,
 			}),
-		});
+		})
 
-		expect(createResponse.status).toBe(201);
-		const created = await createResponse.json();
+		expect(createResponse.status).toBe(201)
+		const created = await createResponse.json()
 
 		const listResponse = await request(
 			routes,
 			"/api/products?name_contains=greek",
-		);
-		expect(listResponse.status).toBe(200);
-		const listed = await listResponse.json();
-		expect(listed).toHaveLength(1);
-		expect(listed[0].id).toBe(created.id);
-	});
+		)
+		expect(listResponse.status).toBe(200)
+		const listed = await listResponse.json()
+		expect(listed).toHaveLength(1)
+		expect(listed[0].id).toBe(created.id)
+	})
 
 	test("summarizes product purchase and usage stats", async () => {
-		const routes = createRoutes();
+		const routes = createRoutes()
 
 		const milkResponse = await request(routes, "/api/products", {
 			method: "POST",
@@ -1125,8 +1182,8 @@ describe("Pupler API", () => {
 				default_unit: "l",
 				is_perishable: true,
 			}),
-		});
-		const milk = await milkResponse.json();
+		})
+		const milk = await milkResponse.json()
 
 		const breadResponse = await request(routes, "/api/products", {
 			method: "POST",
@@ -1138,8 +1195,8 @@ describe("Pupler API", () => {
 				default_unit: "pcs",
 				is_perishable: true,
 			}),
-		});
-		const bread = await breadResponse.json();
+		})
+		const bread = await breadResponse.json()
 
 		const receiptResponse = await request(routes, "/api/receipts", {
 			method: "POST",
@@ -1150,8 +1207,8 @@ describe("Pupler API", () => {
 				currency: "EUR",
 				total_amount: 5.4,
 			}),
-		});
-		const receipt = await receiptResponse.json();
+		})
+		const receipt = await receiptResponse.json()
 
 		const milkLineResponse = await request(routes, "/api/receipt-items", {
 			method: "POST",
@@ -1164,8 +1221,8 @@ describe("Pupler API", () => {
 				unit_price: 1.2,
 				line_total: 2.4,
 			}),
-		});
-		const milkLine = await milkLineResponse.json();
+		})
+		const milkLine = await milkLineResponse.json()
 
 		await request(routes, "/api/receipt-items", {
 			method: "POST",
@@ -1178,7 +1235,7 @@ describe("Pupler API", () => {
 				unit_price: 1.2,
 				line_total: 1.2,
 			}),
-		});
+		})
 
 		await request(routes, "/api/inventory-items", {
 			method: "POST",
@@ -1196,7 +1253,7 @@ describe("Pupler API", () => {
 				consumed_at: "2026-04-14T12:00:00.000Z",
 				notes: null,
 			}),
-		});
+		})
 
 		await request(routes, "/api/inventory-items", {
 			method: "POST",
@@ -1214,15 +1271,15 @@ describe("Pupler API", () => {
 				consumed_at: null,
 				notes: null,
 			}),
-		});
+		})
 
-		const statsResponse = await request(routes, "/api/product-stats");
-		expect(statsResponse.status).toBe(200);
-		const stats = await statsResponse.json();
+		const statsResponse = await request(routes, "/api/product-stats")
+		expect(statsResponse.status).toBe(200)
+		const stats = await statsResponse.json()
 
 		const milkStats = stats.find(
 			(row: { product_id: number }) => row.product_id === milk.id,
-		);
+		)
 		expect(milkStats).toMatchObject({
 			product_id: milk.id,
 			product_name: "Milk",
@@ -1232,27 +1289,31 @@ describe("Pupler API", () => {
 			total_cost_sort: 3.6,
 			used_count: 1,
 			used_sort_quantity: 1.5,
-		});
-		expect(milkStats.bought_quantities).toEqual([{ unit: "l", quantity: 3 }]);
-		expect(milkStats.total_costs).toEqual([{ currency: "EUR", total: 3.6 }]);
-		expect(milkStats.used_quantities).toEqual([{ unit: "l", quantity: 1.5 }]);
+		})
+		expect(milkStats.bought_quantities).toEqual([
+			{ unit: "l", quantity: 3 },
+		])
+		expect(milkStats.total_costs).toEqual([{ currency: "EUR", total: 3.6 }])
+		expect(milkStats.used_quantities).toEqual([
+			{ unit: "l", quantity: 1.5 },
+		])
 
 		const breadStats = stats.find(
 			(row: { product_id: number }) => row.product_id === bread.id,
-		);
+		)
 		expect(breadStats).toMatchObject({
 			product_id: bread.id,
 			bought_count: 0,
 			total_cost_sort: 0,
 			used_count: 0,
 			used_sort_quantity: 0,
-		});
-		expect(breadStats.total_costs).toEqual([]);
-		expect(breadStats.used_quantities).toEqual([]);
-	});
+		})
+		expect(breadStats.total_costs).toEqual([])
+		expect(breadStats.used_quantities).toEqual([])
+	})
 
 	test("creates and lists ingredients", async () => {
-		const routes = createRoutes();
+		const routes = createRoutes()
 
 		const createResponse = await request(routes, "/api/ingredients", {
 			method: "POST",
@@ -1261,25 +1322,25 @@ describe("Pupler API", () => {
 				name: "Sausage",
 				default_unit: "pcs",
 			}),
-		});
+		})
 
-		expect(createResponse.status).toBe(201);
-		const created = await createResponse.json();
-		expect(created.name).toBe("Sausage");
-		expect(created.default_unit).toBe("pcs");
+		expect(createResponse.status).toBe(201)
+		const created = await createResponse.json()
+		expect(created.name).toBe("Sausage")
+		expect(created.default_unit).toBe("pcs")
 
 		const listResponse = await request(
 			routes,
 			"/api/ingredients?name=sausage",
-		);
-		expect(listResponse.status).toBe(200);
-		const listed = await listResponse.json();
-		expect(listed).toHaveLength(1);
-		expect(listed[0].id).toBe(created.id);
-	});
+		)
+		expect(listResponse.status).toBe(200)
+		const listed = await listResponse.json()
+		expect(listed).toHaveLength(1)
+		expect(listed[0].id).toBe(created.id)
+	})
 
 	test("rejects deleting a referenced product", async () => {
-		const routes = createRoutes();
+		const routes = createRoutes()
 
 		const productResponse = await request(routes, "/api/products", {
 			method: "POST",
@@ -1291,8 +1352,8 @@ describe("Pupler API", () => {
 				default_unit: "pcs",
 				is_perishable: true,
 			}),
-		});
-		const product = await productResponse.json();
+		})
+		const product = await productResponse.json()
 
 		const linkResponse = await request(routes, "/api/product-links", {
 			method: "POST",
@@ -1302,22 +1363,22 @@ describe("Pupler API", () => {
 				label: "Store",
 				url: "https://example.com/bread",
 			}),
-		});
-		expect(linkResponse.status).toBe(201);
+		})
+		expect(linkResponse.status).toBe(201)
 
 		const deleteResponse = await request(
 			routes,
 			`/api/products/${product.id}`,
 			{ method: "DELETE" },
 			{ id: String(product.id) },
-		);
-		expect(deleteResponse.status).toBe(409);
-		const body = await deleteResponse.json();
-		expect(body.error).toContain("referenced");
-	});
+		)
+		expect(deleteResponse.status).toBe(409)
+		const body = await deleteResponse.json()
+		expect(body.error).toContain("referenced")
+	})
 
 	test("patches a product field and ingredient link", async () => {
-		const routes = createRoutes();
+		const routes = createRoutes()
 
 		const ingredientResponse = await request(routes, "/api/ingredients", {
 			method: "POST",
@@ -1326,9 +1387,9 @@ describe("Pupler API", () => {
 				name: "Cheese",
 				default_unit: "g",
 			}),
-		});
-		expect(ingredientResponse.status).toBe(201);
-		const ingredient = await ingredientResponse.json();
+		})
+		expect(ingredientResponse.status).toBe(201)
+		const ingredient = await ingredientResponse.json()
 
 		const createResponse = await request(routes, "/api/products", {
 			method: "POST",
@@ -1340,8 +1401,8 @@ describe("Pupler API", () => {
 				default_unit: "pcs",
 				is_perishable: true,
 			}),
-		});
-		const created = await createResponse.json();
+		})
+		const created = await createResponse.json()
 
 		const patchResponse = await request(
 			routes,
@@ -1355,13 +1416,13 @@ describe("Pupler API", () => {
 				}),
 			},
 			{ id: String(created.id) },
-		);
+		)
 
-		expect(patchResponse.status).toBe(200);
-		const updated = await patchResponse.json();
-		expect(updated.default_unit).toBe("g");
-		expect(updated.ingredient_id).toBe(ingredient.id);
-		expect(updated.ingredient.name).toBe("Cheese");
+		expect(patchResponse.status).toBe(200)
+		const updated = await patchResponse.json()
+		expect(updated.default_unit).toBe("g")
+		expect(updated.ingredient_id).toBe(ingredient.id)
+		expect(updated.ingredient.name).toBe("Cheese")
 
 		const clearResponse = await request(
 			routes,
@@ -1372,16 +1433,16 @@ describe("Pupler API", () => {
 				body: JSON.stringify({ ingredient_id: null }),
 			},
 			{ id: String(created.id) },
-		);
+		)
 
-		expect(clearResponse.status).toBe(200);
-		const cleared = await clearResponse.json();
-		expect(cleared.ingredient_id).toBeNull();
-		expect(cleared.ingredient).toBeNull();
-	});
+		expect(clearResponse.status).toBe(200)
+		const cleared = await clearResponse.json()
+		expect(cleared.ingredient_id).toBeNull()
+		expect(cleared.ingredient).toBeNull()
+	})
 
 	test("uploads and fetches a product picture", async () => {
-		const routes = createRoutes();
+		const routes = createRoutes()
 
 		const createResponse = await request(routes, "/api/products", {
 			method: "POST",
@@ -1393,16 +1454,16 @@ describe("Pupler API", () => {
 				default_unit: "pcs",
 				is_perishable: true,
 			}),
-		});
-		const created = await createResponse.json();
+		})
+		const created = await createResponse.json()
 
-		const formData = new FormData();
+		const formData = new FormData()
 		formData.set(
 			"file",
 			new File([new Uint8Array([1, 2, 3, 4])], "apple.png", {
 				type: "image/png",
 			}),
-		);
+		)
 
 		const uploadResponse = await request(
 			routes,
@@ -1412,10 +1473,10 @@ describe("Pupler API", () => {
 				body: formData,
 			},
 			{ id: String(created.id) },
-		);
-		expect(uploadResponse.status).toBe(200);
-		const uploadBody = await uploadResponse.json();
-		expect(uploadBody.content_type).toBe("image/png");
+		)
+		expect(uploadResponse.status).toBe(200)
+		const uploadBody = await uploadResponse.json()
+		expect(uploadBody.content_type).toBe("image/png")
 		const storedPicture = await routes.db.client.product.findUnique({
 			where: { id: created.id },
 			select: {
@@ -1423,13 +1484,13 @@ describe("Pupler API", () => {
 					select: { id: true, path: true },
 				},
 			},
-		});
-		expect(storedPicture?.picture_file?.path).toBeTruthy();
+		})
+		expect(storedPicture?.picture_file?.path).toBeTruthy()
 		const storedPicturePath = join(
 			routes.filesPath,
 			storedPicture?.picture_file?.path ?? "",
-		);
-		expect(existsSync(storedPicturePath)).toBe(true);
+		)
+		expect(existsSync(storedPicturePath)).toBe(true)
 
 		const pictureResponse = await request(
 			routes,
@@ -1438,29 +1499,29 @@ describe("Pupler API", () => {
 				method: "GET",
 			},
 			{ id: String(created.id) },
-		);
-		expect(pictureResponse.status).toBe(200);
-		expect(pictureResponse.headers.get("content-type")).toBe("image/png");
-		const bytes = new Uint8Array(await pictureResponse.arrayBuffer());
-		expect(Array.from(bytes)).toEqual([1, 2, 3, 4]);
+		)
+		expect(pictureResponse.status).toBe(200)
+		expect(pictureResponse.headers.get("content-type")).toBe("image/png")
+		const bytes = new Uint8Array(await pictureResponse.arrayBuffer())
+		expect(Array.from(bytes)).toEqual([1, 2, 3, 4])
 
 		const deleteResponse = await request(
 			routes,
 			`/api/products/${created.id}/picture`,
 			{ method: "DELETE" },
 			{ id: String(created.id) },
-		);
-		expect(deleteResponse.status).toBe(204);
-		expect(existsSync(storedPicturePath)).toBe(false);
+		)
+		expect(deleteResponse.status).toBe(204)
+		expect(existsSync(storedPicturePath)).toBe(false)
 		expect(
 			await routes.db.client.file.findUnique({
 				where: { id: storedPicture!.picture_file!.id },
 			}),
-		).toBeNull();
-	});
+		).toBeNull()
+	})
 
 	test("uploads and fetches a purchase receipt picture", async () => {
-		const routes = createRoutes();
+		const routes = createRoutes()
 
 		const createResponse = await request(routes, "/api/receipts", {
 			method: "POST",
@@ -1471,16 +1532,16 @@ describe("Pupler API", () => {
 				currency: "EUR",
 				total_amount: 12.4,
 			}),
-		});
-		const created = await createResponse.json();
+		})
+		const created = await createResponse.json()
 
-		const formData = new FormData();
+		const formData = new FormData()
 		formData.set(
 			"file",
 			new File([new Uint8Array([5, 6, 7, 8])], "receipt.png", {
 				type: "image/png",
 			}),
-		);
+		)
 
 		const uploadResponse = await request(
 			routes,
@@ -1490,10 +1551,10 @@ describe("Pupler API", () => {
 				body: formData,
 			},
 			{ id: String(created.id) },
-		);
-		expect(uploadResponse.status).toBe(200);
-		const uploadBody = await uploadResponse.json();
-		expect(uploadBody.content_type).toBe("image/png");
+		)
+		expect(uploadResponse.status).toBe(200)
+		const uploadBody = await uploadResponse.json()
+		expect(uploadBody.content_type).toBe("image/png")
 		const storedPicture = await routes.db.client.receipt.findUnique({
 			where: { id: created.id },
 			select: {
@@ -1501,13 +1562,13 @@ describe("Pupler API", () => {
 					select: { id: true, path: true },
 				},
 			},
-		});
-		expect(storedPicture?.picture_file?.path).toBeTruthy();
+		})
+		expect(storedPicture?.picture_file?.path).toBeTruthy()
 		const storedPicturePath = join(
 			routes.filesPath,
 			storedPicture?.picture_file?.path ?? "",
-		);
-		expect(existsSync(storedPicturePath)).toBe(true);
+		)
+		expect(existsSync(storedPicturePath)).toBe(true)
 
 		const pictureResponse = await request(
 			routes,
@@ -1516,29 +1577,29 @@ describe("Pupler API", () => {
 				method: "GET",
 			},
 			{ id: String(created.id) },
-		);
-		expect(pictureResponse.status).toBe(200);
-		expect(pictureResponse.headers.get("content-type")).toBe("image/png");
-		const bytes = new Uint8Array(await pictureResponse.arrayBuffer());
-		expect(Array.from(bytes)).toEqual([5, 6, 7, 8]);
+		)
+		expect(pictureResponse.status).toBe(200)
+		expect(pictureResponse.headers.get("content-type")).toBe("image/png")
+		const bytes = new Uint8Array(await pictureResponse.arrayBuffer())
+		expect(Array.from(bytes)).toEqual([5, 6, 7, 8])
 
 		const deleteResponse = await request(
 			routes,
 			`/api/receipts/${created.id}/picture`,
 			{ method: "DELETE" },
 			{ id: String(created.id) },
-		);
-		expect(deleteResponse.status).toBe(204);
-		expect(existsSync(storedPicturePath)).toBe(false);
+		)
+		expect(deleteResponse.status).toBe(204)
+		expect(existsSync(storedPicturePath)).toBe(false)
 		expect(
 			await routes.db.client.file.findUnique({
 				where: { id: storedPicture!.picture_file!.id },
 			}),
-		).toBeNull();
-	});
+		).toBeNull()
+	})
 
 	test("uploads and fetches multiple recipe images", async () => {
-		const routes = createRoutes();
+		const routes = createRoutes()
 
 		const createResponse = await request(routes, "/api/recipes", {
 			method: "POST",
@@ -1550,24 +1611,24 @@ describe("Pupler API", () => {
 				servings: 4,
 				is_active: true,
 			}),
-		});
+		})
 
-		expect(createResponse.status).toBe(201);
-		const created = (await createResponse.json()) as { id: number };
+		expect(createResponse.status).toBe(201)
+		const created = (await createResponse.json()) as { id: number }
 
-		const formData = new FormData();
+		const formData = new FormData()
 		formData.append(
 			"file",
 			new File([new Uint8Array([7, 8, 9, 6])], "soup.png", {
 				type: "image/png",
 			}),
-		);
+		)
 		formData.append(
 			"file",
 			new File([new Uint8Array([1, 2, 3, 4])], "soup-2.png", {
 				type: "image/png",
 			}),
-		);
+		)
 
 		const uploadResponse = await request(
 			routes,
@@ -1577,73 +1638,76 @@ describe("Pupler API", () => {
 				body: formData,
 			},
 			{ id: String(created.id) },
-		);
+		)
 
-		expect(uploadResponse.status).toBe(201);
+		expect(uploadResponse.status).toBe(201)
 		const uploaded = (await uploadResponse.json()) as Array<{
-			id: number;
-			file_id: number;
+			id: number
+			file_id: number
 			file: {
-				id: number;
-				filename: string | null;
-			};
-		}>;
-		expect(uploaded).toHaveLength(2);
+				id: number
+				filename: string | null
+			}
+		}>
+		expect(uploaded).toHaveLength(2)
 		expect(uploaded.map((image) => image.file.filename)).toEqual([
 			"soup.png",
 			"soup-2.png",
-		]);
+		])
 		expect(uploaded.map((image) => image.file_id)).toEqual(
 			uploaded.map((image) => image.file.id),
-		);
+		)
 		const storedImage = await routes.db.client.recipeImage.findUnique({
 			where: { id: uploaded[0]!.id },
 			select: { file: { select: { id: true, path: true } } },
-		});
-		expect(storedImage?.file.path).toBeTruthy();
-		const storedImagePath = join(routes.filesPath, storedImage?.file.path ?? "");
-		expect(existsSync(storedImagePath)).toBe(true);
+		})
+		expect(storedImage?.file.path).toBeTruthy()
+		const storedImagePath = join(
+			routes.filesPath,
+			storedImage?.file.path ?? "",
+		)
+		expect(existsSync(storedImagePath)).toBe(true)
 
 		const pictureResponse = await request(
 			routes,
 			`/api/recipes/${created.id}/pictures/${uploaded[0]!.id}`,
 			{},
 			{ id: String(created.id), pictureId: String(uploaded[0]!.id) },
-		);
+		)
 
-		expect(pictureResponse.status).toBe(200);
-		expect(pictureResponse.headers.get("content-type")).toBe("image/png");
-		const bytes = new Uint8Array(await pictureResponse.arrayBuffer());
-		expect(Array.from(bytes)).toEqual([7, 8, 9, 6]);
+		expect(pictureResponse.status).toBe(200)
+		expect(pictureResponse.headers.get("content-type")).toBe("image/png")
+		const bytes = new Uint8Array(await pictureResponse.arrayBuffer())
+		expect(Array.from(bytes)).toEqual([7, 8, 9, 6])
 
 		const detailResponse = await request(
 			routes,
 			`/api/recipes/${created.id}`,
 			{},
 			{ id: String(created.id) },
-		);
+		)
 		const detail = (await detailResponse.json()) as {
-			recipe_images: Array<{ id: number }>;
-		};
-		expect(detail.recipe_images).toHaveLength(2);
+			recipe_images: Array<{ id: number }>
+		}
+		expect(detail.recipe_images).toHaveLength(2)
 
 		const deleteResponse = await request(
 			routes,
 			`/api/recipes/${created.id}/pictures/${uploaded[0]!.id}`,
 			{ method: "DELETE" },
 			{ id: String(created.id), pictureId: String(uploaded[0]!.id) },
-		);
-		expect(deleteResponse.status).toBe(204);
-		expect(existsSync(storedImagePath)).toBe(false);
+		)
+		expect(deleteResponse.status).toBe(204)
+		expect(existsSync(storedImagePath)).toBe(false)
 		expect(
 			await routes.db.client.file.findUnique({
 				where: { id: storedImage!.file.id },
 			}),
-		).toBeNull();
-	});
+		).toBeNull()
+	})
 
 	test("uploads and fetches multiple inventory item images", async () => {
-		const routes = createRoutes();
+		const routes = createRoutes()
 
 		const createResponse = await request(routes, "/api/inventory-items", {
 			method: "POST",
@@ -1653,24 +1717,24 @@ describe("Pupler API", () => {
 				quantity: 1,
 				unit: "pcs",
 			}),
-		});
+		})
 
-		expect(createResponse.status).toBe(201);
-		const created = (await createResponse.json()) as { id: number };
+		expect(createResponse.status).toBe(201)
+		const created = (await createResponse.json()) as { id: number }
 
-		const formData = new FormData();
+		const formData = new FormData()
 		formData.append(
 			"file",
 			new File([new Uint8Array([10, 11, 12, 13])], "milk-front.png", {
 				type: "image/png",
 			}),
-		);
+		)
 		formData.append(
 			"file",
 			new File([new Uint8Array([14, 15, 16, 17])], "milk-back.png", {
 				type: "image/png",
 			}),
-		);
+		)
 
 		const uploadResponse = await request(
 			routes,
@@ -1680,116 +1744,121 @@ describe("Pupler API", () => {
 				body: formData,
 			},
 			{ id: String(created.id) },
-		);
+		)
 
-		expect(uploadResponse.status).toBe(201);
+		expect(uploadResponse.status).toBe(201)
 		const uploaded = (await uploadResponse.json()) as Array<{
-			id: number;
-			inventory_item_id: number;
-			file_id: number;
+			id: number
+			inventory_item_id: number
+			file_id: number
 			file: {
-				id: number;
-				filename: string | null;
-				size_bytes: number;
-			};
-		}>;
-		expect(uploaded).toHaveLength(2);
+				id: number
+				filename: string | null
+				size_bytes: number
+			}
+		}>
+		expect(uploaded).toHaveLength(2)
 		expect(uploaded.map((image) => image.file.filename)).toEqual([
 			"milk-front.png",
 			"milk-back.png",
-		]);
+		])
 		expect(uploaded.map((image) => image.file_id)).toEqual(
 			uploaded.map((image) => image.file.id),
-		);
-		expect(uploaded.map((image) => image.file.size_bytes)).toEqual([4, 4]);
+		)
+		expect(uploaded.map((image) => image.file.size_bytes)).toEqual([4, 4])
 		expect(uploaded.map((image) => image.inventory_item_id)).toEqual([
 			created.id,
 			created.id,
-		]);
+		])
 
 		const collectionResponse = await request(
 			routes,
 			`/api/inventory-items/${created.id}/pictures`,
 			{},
 			{ id: String(created.id) },
-		);
-		expect(collectionResponse.status).toBe(200);
+		)
+		expect(collectionResponse.status).toBe(200)
 		const collection = (await collectionResponse.json()) as Array<{
-			id: number;
-		}>;
-		expect(collection).toHaveLength(2);
+			id: number
+		}>
+		expect(collection).toHaveLength(2)
 
-		const storedImages = await routes.db.client.inventoryItemImage.findMany({
-			where: { inventory_item_id: created.id },
-			orderBy: { id: "asc" },
-			select: { id: true, file: { select: { id: true, path: true } } },
-		});
-		expect(storedImages).toHaveLength(2);
+		const storedImages = await routes.db.client.inventoryItemImage.findMany(
+			{
+				where: { inventory_item_id: created.id },
+				orderBy: { id: "asc" },
+				select: {
+					id: true,
+					file: { select: { id: true, path: true } },
+				},
+			},
+		)
+		expect(storedImages).toHaveLength(2)
 		const firstStoredImagePath = join(
 			routes.filesPath,
 			storedImages[0]?.file.path ?? "",
-		);
+		)
 		const secondStoredImagePath = join(
 			routes.filesPath,
 			storedImages[1]?.file.path ?? "",
-		);
-		expect(existsSync(firstStoredImagePath)).toBe(true);
-		expect(existsSync(secondStoredImagePath)).toBe(true);
+		)
+		expect(existsSync(firstStoredImagePath)).toBe(true)
+		expect(existsSync(secondStoredImagePath)).toBe(true)
 
 		const pictureResponse = await request(
 			routes,
 			`/api/inventory-items/${created.id}/pictures/${uploaded[0]!.id}`,
 			{},
 			{ id: String(created.id), pictureId: String(uploaded[0]!.id) },
-		);
+		)
 
-		expect(pictureResponse.status).toBe(200);
-		expect(pictureResponse.headers.get("content-type")).toBe("image/png");
-		const bytes = new Uint8Array(await pictureResponse.arrayBuffer());
-		expect(Array.from(bytes)).toEqual([10, 11, 12, 13]);
+		expect(pictureResponse.status).toBe(200)
+		expect(pictureResponse.headers.get("content-type")).toBe("image/png")
+		const bytes = new Uint8Array(await pictureResponse.arrayBuffer())
+		expect(Array.from(bytes)).toEqual([10, 11, 12, 13])
 
 		const detailResponse = await request(
 			routes,
 			`/api/inventory-items/${created.id}`,
 			{},
 			{ id: String(created.id) },
-		);
+		)
 		const detail = (await detailResponse.json()) as {
-			inventory_item_images: Array<{ id: number }>;
-		};
-		expect(detail.inventory_item_images).toHaveLength(2);
+			inventory_item_images: Array<{ id: number }>
+		}
+		expect(detail.inventory_item_images).toHaveLength(2)
 
 		const deleteResponse = await request(
 			routes,
 			`/api/inventory-items/${created.id}/pictures/${uploaded[0]!.id}`,
 			{ method: "DELETE" },
 			{ id: String(created.id), pictureId: String(uploaded[0]!.id) },
-		);
-		expect(deleteResponse.status).toBe(204);
-		expect(existsSync(firstStoredImagePath)).toBe(false);
+		)
+		expect(deleteResponse.status).toBe(204)
+		expect(existsSync(firstStoredImagePath)).toBe(false)
 		expect(
 			await routes.db.client.file.findUnique({
 				where: { id: storedImages[0]!.file.id },
 			}),
-		).toBeNull();
+		).toBeNull()
 
 		const deleteItemResponse = await request(
 			routes,
 			`/api/inventory-items/${created.id}`,
 			{ method: "DELETE" },
 			{ id: String(created.id) },
-		);
-		expect(deleteItemResponse.status).toBe(204);
-		expect(existsSync(secondStoredImagePath)).toBe(false);
+		)
+		expect(deleteItemResponse.status).toBe(204)
+		expect(existsSync(secondStoredImagePath)).toBe(false)
 		expect(
 			await routes.db.client.file.findUnique({
 				where: { id: storedImages[1]!.file.id },
 			}),
-		).toBeNull();
-	});
+		).toBeNull()
+	})
 
 	test("returns 404 when a stored product picture file is missing", async () => {
-		const routes = createRoutes();
+		const routes = createRoutes()
 
 		const createResponse = await request(routes, "/api/products", {
 			method: "POST",
@@ -1801,16 +1870,16 @@ describe("Pupler API", () => {
 				default_unit: "pcs",
 				is_perishable: true,
 			}),
-		});
-		const created = await createResponse.json();
+		})
+		const created = await createResponse.json()
 
-		const formData = new FormData();
+		const formData = new FormData()
 		formData.set(
 			"file",
 			new File([new Uint8Array([2, 4, 6, 8])], "pear.png", {
 				type: "image/png",
 			}),
-		);
+		)
 
 		const uploadResponse = await request(
 			routes,
@@ -1820,22 +1889,22 @@ describe("Pupler API", () => {
 				body: formData,
 			},
 			{ id: String(created.id) },
-		);
-		expect(uploadResponse.status).toBe(200);
+		)
+		expect(uploadResponse.status).toBe(200)
 
-			const storedPicture = await routes.db.client.product.findUnique({
-				where: { id: created.id },
-				select: {
-					picture_file: {
-						select: { path: true },
-					},
+		const storedPicture = await routes.db.client.product.findUnique({
+			where: { id: created.id },
+			select: {
+				picture_file: {
+					select: { path: true },
 				},
-			});
-			const storedPicturePath = join(
-				routes.filesPath,
-				storedPicture?.picture_file?.path ?? "",
-			);
-		rmSync(storedPicturePath, { force: true });
+			},
+		})
+		const storedPicturePath = join(
+			routes.filesPath,
+			storedPicture?.picture_file?.path ?? "",
+		)
+		rmSync(storedPicturePath, { force: true })
 
 		const pictureResponse = await request(
 			routes,
@@ -1844,58 +1913,68 @@ describe("Pupler API", () => {
 				method: "GET",
 			},
 			{ id: String(created.id) },
-		);
-		expect(pictureResponse.status).toBe(404);
-		const body = await pictureResponse.json();
-		expect(body.error).toBe("Product picture not found");
-	});
+		)
+		expect(pictureResponse.status).toBe(404)
+		const body = await pictureResponse.json()
+		expect(body.error).toBe("Product picture not found")
+	})
 
 	test("resolves data directories from DATA_PATH and DB_PATH", () => {
-		expect(resolveDatabasePath(undefined, { DATA_PATH: "/srv/pupler" })).toBe(
-			"/srv/pupler/pupler.db",
-		);
-		expect(resolveFilesPath("/custom/data.sqlite", { DATA_PATH: "/srv/pupler" })).toBe(
-			"/srv/pupler/files",
-		);
+		expect(
+			resolveDatabasePath(undefined, { DATA_PATH: "/srv/pupler" }),
+		).toBe("/srv/pupler/pupler.db")
+		expect(
+			resolveFilesPath("/custom/data.sqlite", {
+				DATA_PATH: "/srv/pupler",
+			}),
+		).toBe("/srv/pupler/files")
 		expect(
 			resolveDatabasePath(undefined, {
 				DATA_PATH: "/srv/pupler",
 				DB_PATH: "/var/lib/pupler/custom.db",
 			}),
-		).toBe("/var/lib/pupler/custom.db");
+		).toBe("/var/lib/pupler/custom.db")
 		expect(resolveFilesPath("/var/lib/pupler/custom.db", {})).toBe(
 			"/var/lib/pupler/files",
-		);
-	});
+		)
+	})
 
 	test("returns standalone and linked recipe ingredients in recipe detail responses", async () => {
-		const routes = createRoutes();
+		const routes = createRoutes()
 
-		const tomatoIngredientResponse = await request(routes, "/api/ingredients", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				name: "Tomato",
-				default_unit: "pcs",
-			}),
-		});
-		expect(tomatoIngredientResponse.status).toBe(201);
+		const tomatoIngredientResponse = await request(
+			routes,
+			"/api/ingredients",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					name: "Tomato",
+					default_unit: "pcs",
+				}),
+			},
+		)
+		expect(tomatoIngredientResponse.status).toBe(201)
 		const tomatoIngredient = (await tomatoIngredientResponse.json()) as {
-			id: number;
-		};
+			id: number
+		}
 
-		const onionIngredientResponse = await request(routes, "/api/ingredients", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				name: "Onion",
-				default_unit: "pcs",
-			}),
-		});
-		expect(onionIngredientResponse.status).toBe(201);
+		const onionIngredientResponse = await request(
+			routes,
+			"/api/ingredients",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					name: "Onion",
+					default_unit: "pcs",
+				}),
+			},
+		)
+		expect(onionIngredientResponse.status).toBe(201)
 		const onionIngredient = (await onionIngredientResponse.json()) as {
-			id: number;
-		};
+			id: number
+		}
 
 		const tomatoProductResponse = await request(routes, "/api/products", {
 			method: "POST",
@@ -1908,9 +1987,11 @@ describe("Pupler API", () => {
 				default_unit: "pcs",
 				is_perishable: true,
 			}),
-		});
-		expect(tomatoProductResponse.status).toBe(201);
-		const tomatoProduct = (await tomatoProductResponse.json()) as { id: number };
+		})
+		expect(tomatoProductResponse.status).toBe(201)
+		const tomatoProduct = (await tomatoProductResponse.json()) as {
+			id: number
+		}
 
 		const onionProductResponse = await request(routes, "/api/products", {
 			method: "POST",
@@ -1923,9 +2004,11 @@ describe("Pupler API", () => {
 				default_unit: "pcs",
 				is_perishable: true,
 			}),
-		});
-		expect(onionProductResponse.status).toBe(201);
-		const onionProduct = (await onionProductResponse.json()) as { id: number };
+		})
+		expect(onionProductResponse.status).toBe(201)
+		const onionProduct = (await onionProductResponse.json()) as {
+			id: number
+		}
 
 		const recipeResponse = await request(routes, "/api/recipes", {
 			method: "POST",
@@ -1937,9 +2020,9 @@ describe("Pupler API", () => {
 				servings: 2,
 				is_active: true,
 			}),
-		});
-		expect(recipeResponse.status).toBe(201);
-		const recipe = (await recipeResponse.json()) as { id: number };
+		})
+		expect(recipeResponse.status).toBe(201)
+		const recipe = (await recipeResponse.json()) as { id: number }
 
 		const standaloneIngredientResponse = await request(
 			routes,
@@ -1958,52 +2041,56 @@ describe("Pupler API", () => {
 					notes: "to taste",
 				}),
 			},
-		);
-		expect(standaloneIngredientResponse.status).toBe(201);
+		)
+		expect(standaloneIngredientResponse.status).toBe(201)
 
-		const ingredientResponse = await request(routes, "/api/recipe-ingredients", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				recipe_id: recipe.id,
-				ingredient_id: tomatoIngredient.id,
-				product_id: tomatoProduct.id,
-				name: "Tomato",
-				quantity: 2,
-				unit: "pcs",
-				is_optional: false,
-				notes: "quartered",
-			}),
-		});
-		expect(ingredientResponse.status).toBe(201);
-		const ingredient = (await ingredientResponse.json()) as { id: number };
+		const ingredientResponse = await request(
+			routes,
+			"/api/recipe-ingredients",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					recipe_id: recipe.id,
+					ingredient_id: tomatoIngredient.id,
+					product_id: tomatoProduct.id,
+					name: "Tomato",
+					quantity: 2,
+					unit: "pcs",
+					is_optional: false,
+					notes: "quartered",
+				}),
+			},
+		)
+		expect(ingredientResponse.status).toBe(201)
+		const ingredient = (await ingredientResponse.json()) as { id: number }
 
 		const detailResponse = await request(
 			routes,
 			`/api/recipes/${recipe.id}`,
 			{},
 			{ id: String(recipe.id) },
-		);
-		expect(detailResponse.status).toBe(200);
+		)
+		expect(detailResponse.status).toBe(200)
 		const detail = (await detailResponse.json()) as {
 			ingredients: Array<{
-				name: string;
-				ingredient_id: number | null;
-				product_id: number | null;
-				quantity: number;
-				unit: string;
-				ingredient: { name: string; default_unit: string | null } | null;
-				product: { name: string; default_unit: string | null } | null;
-			}>;
-		};
-		expect(detail.ingredients).toHaveLength(2);
+				name: string
+				ingredient_id: number | null
+				product_id: number | null
+				quantity: number
+				unit: string
+				ingredient: { name: string; default_unit: string | null } | null
+				product: { name: string; default_unit: string | null } | null
+			}>
+		}
+		expect(detail.ingredients).toHaveLength(2)
 		expect(detail.ingredients[0]).toMatchObject({
 			name: "Sea salt",
 			ingredient_id: null,
 			product_id: null,
 			quantity: 1,
 			unit: "tsp",
-		});
+		})
 		expect(detail.ingredients[1]).toMatchObject({
 			name: "Tomato",
 			ingredient_id: tomatoIngredient.id,
@@ -2018,7 +2105,7 @@ describe("Pupler API", () => {
 				name: "Cherry Tomato Pack",
 				default_unit: "pcs",
 			},
-		});
+		})
 
 		const ingredientPatchResponse = await request(
 			routes,
@@ -2037,30 +2124,30 @@ describe("Pupler API", () => {
 				}),
 			},
 			{ id: String(ingredient.id) },
-		);
-		expect(ingredientPatchResponse.status).toBe(200);
+		)
+		expect(ingredientPatchResponse.status).toBe(200)
 
 		const updatedDetailResponse = await request(
 			routes,
 			`/api/recipes/${recipe.id}`,
 			{},
 			{ id: String(recipe.id) },
-		);
-		expect(updatedDetailResponse.status).toBe(200);
+		)
+		expect(updatedDetailResponse.status).toBe(200)
 		const updatedDetail = (await updatedDetailResponse.json()) as {
 			ingredients: Array<{
-				name: string;
-				ingredient_id: number | null;
-				product_id: number;
-				quantity: number;
-				unit: string;
-				is_optional: boolean;
-				notes: string | null;
-				ingredient: { name: string; default_unit: string | null } | null;
-				product: { name: string; default_unit: string | null };
-			}>;
-		};
-		expect(updatedDetail.ingredients).toHaveLength(2);
+				name: string
+				ingredient_id: number | null
+				product_id: number
+				quantity: number
+				unit: string
+				is_optional: boolean
+				notes: string | null
+				ingredient: { name: string; default_unit: string | null } | null
+				product: { name: string; default_unit: string | null }
+			}>
+		}
+		expect(updatedDetail.ingredients).toHaveLength(2)
 		expect(updatedDetail.ingredients[1]).toMatchObject({
 			name: "Red onion",
 			ingredient_id: onionIngredient.id,
@@ -2077,7 +2164,7 @@ describe("Pupler API", () => {
 				name: "Yellow Onion Net",
 				default_unit: "pcs",
 			},
-		});
+		})
 
 		const patchResponse = await request(
 			routes,
@@ -2088,41 +2175,49 @@ describe("Pupler API", () => {
 				body: JSON.stringify({ description: "Updated salad" }),
 			},
 			{ id: String(recipe.id) },
-		);
-		expect(patchResponse.status).toBe(200);
+		)
+		expect(patchResponse.status).toBe(200)
 		const patched = (await patchResponse.json()) as {
-			ingredients: Array<{ ingredient: { name: string } | null }>;
-		};
-		expect(patched.ingredients).toHaveLength(2);
-		expect(patched.ingredients[1]?.ingredient?.name).toBe("Onion");
-	});
+			ingredients: Array<{ ingredient: { name: string } | null }>
+		}
+		expect(patched.ingredients).toHaveLength(2)
+		expect(patched.ingredients[1]?.ingredient?.name).toBe("Onion")
+	})
 
 	test("rejects mismatched recipe ingredient product and ingredient links", async () => {
-		const routes = createRoutes();
+		const routes = createRoutes()
 
-		const tomatoIngredientResponse = await request(routes, "/api/ingredients", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				name: "Tomato",
-				default_unit: "pcs",
-			}),
-		});
+		const tomatoIngredientResponse = await request(
+			routes,
+			"/api/ingredients",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					name: "Tomato",
+					default_unit: "pcs",
+				}),
+			},
+		)
 		const tomatoIngredient = (await tomatoIngredientResponse.json()) as {
-			id: number;
-		};
+			id: number
+		}
 
-		const onionIngredientResponse = await request(routes, "/api/ingredients", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				name: "Onion",
-				default_unit: "pcs",
-			}),
-		});
+		const onionIngredientResponse = await request(
+			routes,
+			"/api/ingredients",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					name: "Onion",
+					default_unit: "pcs",
+				}),
+			},
+		)
 		const onionIngredient = (await onionIngredientResponse.json()) as {
-			id: number;
-		};
+			id: number
+		}
 
 		const tomatoProductResponse = await request(routes, "/api/products", {
 			method: "POST",
@@ -2135,10 +2230,10 @@ describe("Pupler API", () => {
 				default_unit: "pcs",
 				is_perishable: true,
 			}),
-		});
+		})
 		const tomatoProduct = (await tomatoProductResponse.json()) as {
-			id: number;
-		};
+			id: number
+		}
 
 		const recipeResponse = await request(routes, "/api/recipes", {
 			method: "POST",
@@ -2150,30 +2245,34 @@ describe("Pupler API", () => {
 				servings: 4,
 				is_active: true,
 			}),
-		});
-		const recipe = (await recipeResponse.json()) as { id: number };
+		})
+		const recipe = (await recipeResponse.json()) as { id: number }
 
-		const ingredientResponse = await request(routes, "/api/recipe-ingredients", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				recipe_id: recipe.id,
-				ingredient_id: onionIngredient.id,
-				product_id: tomatoProduct.id,
-				name: "Wrong link",
-				quantity: 1,
-				unit: "pcs",
-				is_optional: false,
-				notes: null,
-			}),
-		});
-		expect(ingredientResponse.status).toBe(400);
-		const body = await ingredientResponse.json();
-		expect(body.error).toContain("different ingredient");
-	});
+		const ingredientResponse = await request(
+			routes,
+			"/api/recipe-ingredients",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					recipe_id: recipe.id,
+					ingredient_id: onionIngredient.id,
+					product_id: tomatoProduct.id,
+					name: "Wrong link",
+					quantity: 1,
+					unit: "pcs",
+					is_optional: false,
+					notes: null,
+				}),
+			},
+		)
+		expect(ingredientResponse.status).toBe(400)
+		const body = await ingredientResponse.json()
+		expect(body.error).toContain("different ingredient")
+	})
 
 	test("creates and lists receipt items", async () => {
-		const routes = createRoutes();
+		const routes = createRoutes()
 
 		const productResponse = await request(routes, "/api/products", {
 			method: "POST",
@@ -2185,8 +2284,8 @@ describe("Pupler API", () => {
 				default_unit: "pcs",
 				is_perishable: true,
 			}),
-		});
-		const product = await productResponse.json();
+		})
+		const product = await productResponse.json()
 
 		const receiptResponse = await request(routes, "/api/receipts", {
 			method: "POST",
@@ -2197,8 +2296,8 @@ describe("Pupler API", () => {
 				currency: "EUR",
 				total_amount: 5.4,
 			}),
-		});
-		const receipt = await receiptResponse.json();
+		})
+		const receipt = await receiptResponse.json()
 
 		const createResponse = await request(routes, "/api/receipt-items", {
 			method: "POST",
@@ -2211,24 +2310,24 @@ describe("Pupler API", () => {
 				unit_price: 0.9,
 				line_total: 5.4,
 			}),
-		});
-		expect(createResponse.status).toBe(201);
-		const created = await createResponse.json();
-		expect(created.receipt_id).toBe(receipt.id);
+		})
+		expect(createResponse.status).toBe(201)
+		const created = await createResponse.json()
+		expect(created.receipt_id).toBe(receipt.id)
 
 		const listResponse = await request(
 			routes,
 			`/api/receipt-items?receipt_id=${receipt.id}`,
-		);
-		expect(listResponse.status).toBe(200);
-		const listed = await listResponse.json();
-		expect(listed).toHaveLength(1);
-		expect(listed[0].id).toBe(created.id);
-		expect(listed[0].line_total).toBe(5.4);
-	});
+		)
+		expect(listResponse.status).toBe(200)
+		const listed = await listResponse.json()
+		expect(listed).toHaveLength(1)
+		expect(listed[0].id).toBe(created.id)
+		expect(listed[0].line_total).toBe(5.4)
+	})
 
 	test("summarizes spending by product category from receipt items", async () => {
-		const routes = createRoutes();
+		const routes = createRoutes()
 
 		const foodResponse = await request(routes, "/api/products", {
 			method: "POST",
@@ -2240,8 +2339,8 @@ describe("Pupler API", () => {
 				default_unit: "pcs",
 				is_perishable: true,
 			}),
-		});
-		const foodProduct = await foodResponse.json();
+		})
+		const foodProduct = await foodResponse.json()
 
 		const householdResponse = await request(routes, "/api/products", {
 			method: "POST",
@@ -2253,8 +2352,8 @@ describe("Pupler API", () => {
 				default_unit: "pcs",
 				is_perishable: false,
 			}),
-		});
-		const householdProduct = await householdResponse.json();
+		})
+		const householdProduct = await householdResponse.json()
 
 		const recentReceiptResponse = await request(routes, "/api/receipts", {
 			method: "POST",
@@ -2265,8 +2364,8 @@ describe("Pupler API", () => {
 				currency: "EUR",
 				total_amount: 10.5,
 			}),
-		});
-		const recentReceipt = await recentReceiptResponse.json();
+		})
+		const recentReceipt = await recentReceiptResponse.json()
 
 		const usdReceiptResponse = await request(routes, "/api/receipts", {
 			method: "POST",
@@ -2277,8 +2376,8 @@ describe("Pupler API", () => {
 				currency: "USD",
 				total_amount: 5,
 			}),
-		});
-		const usdReceipt = await usdReceiptResponse.json();
+		})
+		const usdReceipt = await usdReceiptResponse.json()
 
 		const oldReceiptResponse = await request(routes, "/api/receipts", {
 			method: "POST",
@@ -2289,8 +2388,8 @@ describe("Pupler API", () => {
 				currency: "EUR",
 				total_amount: 99,
 			}),
-		});
-		const oldReceipt = await oldReceiptResponse.json();
+		})
+		const oldReceipt = await oldReceiptResponse.json()
 
 		for (const item of [
 			{
@@ -2338,60 +2437,56 @@ describe("Pupler API", () => {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify(item),
-			});
-			expect(response.status).toBe(201);
+			})
+			expect(response.status).toBe(201)
 		}
 
 		const breakdownResponse = await request(
 			routes,
 			"/api/spending?from=2026-04-01T00:00:00.000Z&to=2026-04-30T23:59:59.999Z",
-		);
-		expect(breakdownResponse.status).toBe(200);
-		const breakdown = await breakdownResponse.json();
-		expect(breakdown.item_count).toBe(4);
-		expect(breakdown.missing_total_count).toBe(1);
+		)
+		expect(breakdownResponse.status).toBe(200)
+		const breakdown = await breakdownResponse.json()
+		expect(breakdown.item_count).toBe(4)
+		expect(breakdown.missing_total_count).toBe(1)
 		expect(breakdown.currency_totals).toEqual([
 			{ currency: "EUR", total: 9.89 },
-		]);
+		])
 		expect(breakdown.monthly_average_totals).toEqual([
 			{ currency: "EUR", total: 16.72, day_count: 18 },
-		]);
+		])
 		expect(breakdown.weekly_average_totals).toEqual([
 			{ currency: "EUR", total: 3.84, day_count: 18 },
-		]);
+		])
 		expect(breakdown.daily_average_totals).toEqual([
 			{ currency: "EUR", total: 0.55, day_count: 18 },
-		]);
+		])
 		expect(breakdown.current_month_totals).toEqual([
 			{ currency: "EUR", total: 9.89 },
-		]);
-		expect(breakdown.categories).toHaveLength(2);
-		expect(breakdown.categories[0]).toMatchObject(
-			{
-				category: "food",
-				currency: "EUR",
-				total: 5.5,
-				item_count: 2,
-				missing_total_count: 0,
-			},
-		);
-		expect(breakdown.categories[0].items).toHaveLength(2);
+		])
+		expect(breakdown.categories).toHaveLength(2)
+		expect(breakdown.categories[0]).toMatchObject({
+			category: "food",
+			currency: "EUR",
+			total: 5.5,
+			item_count: 2,
+			missing_total_count: 0,
+		})
+		expect(breakdown.categories[0].items).toHaveLength(2)
 		expect(breakdown.categories[0].items[0]).toMatchObject({
 			product_name: "Milk",
 			store_name: "Prisma",
 			receipt_id: recentReceipt.id,
 			amount: 2.5,
-		});
-		expect(breakdown.categories[1]).toMatchObject(
-			{
-				category: "household",
-				currency: "EUR",
-				total: 4.39,
-				item_count: 2,
-				missing_total_count: 1,
-			},
-		);
-		expect(breakdown.categories[1].items).toHaveLength(2);
+		})
+		expect(breakdown.categories[1]).toMatchObject({
+			category: "household",
+			currency: "EUR",
+			total: 4.39,
+			item_count: 2,
+			missing_total_count: 1,
+		})
+		expect(breakdown.categories[1].items).toHaveLength(2)
 		expect(
 			breakdown.categories[1].items.find(
 				(item: { amount: number | null }) => item.amount === null,
@@ -2399,54 +2494,55 @@ describe("Pupler API", () => {
 		).toMatchObject({
 			product_name: "Soap",
 			amount: null,
-		});
+		})
 		expect(
 			breakdown.categories[1].items.find(
-				(item: { receipt_id: number }) => item.receipt_id === usdReceipt.id,
+				(item: { receipt_id: number }) =>
+					item.receipt_id === usdReceipt.id,
 			),
 		).toMatchObject({
 			product_name: "Soap",
 			amount: 4.39,
-		});
+		})
 
 		const allTimeResponse = await request(
 			routes,
 			"/api/spending?range=all&to=2026-04-30T23:59:59.999Z",
-		);
-		expect(allTimeResponse.status).toBe(200);
-		const allTimeBreakdown = await allTimeResponse.json();
+		)
+		expect(allTimeResponse.status).toBe(200)
+		const allTimeBreakdown = await allTimeResponse.json()
 		expect(allTimeBreakdown.period).toMatchObject({
 			from: null,
 			to: "2026-04-30T23:59:59.999Z",
 			days: null,
 			range: "all",
-		});
-		expect(allTimeBreakdown.item_count).toBe(5);
+		})
+		expect(allTimeBreakdown.item_count).toBe(5)
 		expect(allTimeBreakdown.currency_totals).toEqual([
 			{ currency: "EUR", total: 108.89 },
-		]);
+		])
 		expect(allTimeBreakdown.monthly_average_totals).toEqual([
 			{ currency: "EUR", total: 54.34, day_count: 61 },
-		]);
+		])
 		expect(allTimeBreakdown.weekly_average_totals).toEqual([
 			{ currency: "EUR", total: 12.5, day_count: 61 },
-		]);
+		])
 		expect(allTimeBreakdown.daily_average_totals).toEqual([
 			{ currency: "EUR", total: 1.79, day_count: 61 },
-		]);
+		])
 		expect(allTimeBreakdown.current_month_totals).toEqual([
 			{ currency: "EUR", total: 9.89 },
-		]);
+		])
 
 		const mixedRangeResponse = await request(
 			routes,
 			"/api/spending?range=all&days=30",
-		);
-		expect(mixedRangeResponse.status).toBe(400);
-	});
+		)
+		expect(mixedRangeResponse.status).toBe(400)
+	})
 
 	test("updates receipt items, validates references, and unlinks inventory on delete", async () => {
-		const routes = createRoutes();
+		const routes = createRoutes()
 
 		const productResponse = await request(routes, "/api/products", {
 			method: "POST",
@@ -2458,21 +2554,25 @@ describe("Pupler API", () => {
 				default_unit: "pcs",
 				is_perishable: true,
 			}),
-		});
-		const product = await productResponse.json();
+		})
+		const product = await productResponse.json()
 
-		const replacementProductResponse = await request(routes, "/api/products", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				name: "Plantain",
-				category: "food",
-				barcode: "4442",
-				default_unit: "pcs",
-				is_perishable: true,
-			}),
-		});
-		const replacementProduct = await replacementProductResponse.json();
+		const replacementProductResponse = await request(
+			routes,
+			"/api/products",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					name: "Plantain",
+					category: "food",
+					barcode: "4442",
+					default_unit: "pcs",
+					is_perishable: true,
+				}),
+			},
+		)
+		const replacementProduct = await replacementProductResponse.json()
 
 		const receiptResponse = await request(routes, "/api/receipts", {
 			method: "POST",
@@ -2483,8 +2583,8 @@ describe("Pupler API", () => {
 				currency: "EUR",
 				total_amount: 5.4,
 			}),
-		});
-		const receipt = await receiptResponse.json();
+		})
+		const receipt = await receiptResponse.json()
 
 		const itemResponse = await request(routes, "/api/receipt-items", {
 			method: "POST",
@@ -2497,28 +2597,32 @@ describe("Pupler API", () => {
 				unit_price: 0.9,
 				line_total: 5.4,
 			}),
-		});
-		const item = await itemResponse.json();
+		})
+		const item = await itemResponse.json()
 
-		const inventoryResponse = await request(routes, "/api/inventory-items", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				name: "Banana stash",
-				ingredient_id: null,
-				product_id: product.id,
-				receipt_item_id: item.id,
-				container_id: null,
-				quantity: 6,
-				unit: "pcs",
-				purchased_at: null,
-				expires_at: null,
-				consumed_at: null,
-				notes: null,
-			}),
-		});
-		expect(inventoryResponse.status).toBe(201);
-		const inventoryItem = await inventoryResponse.json();
+		const inventoryResponse = await request(
+			routes,
+			"/api/inventory-items",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					name: "Banana stash",
+					ingredient_id: null,
+					product_id: product.id,
+					receipt_item_id: item.id,
+					container_id: null,
+					quantity: 6,
+					unit: "pcs",
+					purchased_at: null,
+					expires_at: null,
+					consumed_at: null,
+					notes: null,
+				}),
+			},
+		)
+		expect(inventoryResponse.status).toBe(201)
+		const inventoryItem = await inventoryResponse.json()
 
 		const patchResponse = await request(
 			routes,
@@ -2533,12 +2637,12 @@ describe("Pupler API", () => {
 				}),
 			},
 			{ id: String(item.id) },
-		);
-		expect(patchResponse.status).toBe(200);
-		const patched = await patchResponse.json();
-		expect(patched.product_id).toBe(replacementProduct.id);
-		expect(patched.quantity).toBe(3);
-		expect(patched.line_total).toBe(2.7);
+		)
+		expect(patchResponse.status).toBe(200)
+		const patched = await patchResponse.json()
+		expect(patched.product_id).toBe(replacementProduct.id)
+		expect(patched.quantity).toBe(3)
+		expect(patched.line_total).toBe(2.7)
 
 		const invalidPatchResponse = await request(
 			routes,
@@ -2549,30 +2653,34 @@ describe("Pupler API", () => {
 				body: JSON.stringify({ product_id: 999999 }),
 			},
 			{ id: String(item.id) },
-		);
-		expect(invalidPatchResponse.status).toBe(400);
-		expect((await invalidPatchResponse.json()).error).toContain("missing product");
+		)
+		expect(invalidPatchResponse.status).toBe(400)
+		expect((await invalidPatchResponse.json()).error).toContain(
+			"missing product",
+		)
 
 		const deleteResponse = await request(
 			routes,
 			`/api/receipt-items/${item.id}`,
 			{ method: "DELETE" },
 			{ id: String(item.id) },
-		);
-		expect(deleteResponse.status).toBe(204);
+		)
+		expect(deleteResponse.status).toBe(204)
 
 		const refreshedInventoryResponse = await request(
 			routes,
 			`/api/inventory-items/${inventoryItem.id}`,
 			{},
 			{ id: String(inventoryItem.id) },
-		);
-		expect(refreshedInventoryResponse.status).toBe(200);
-		expect((await refreshedInventoryResponse.json()).receipt_item_id).toBeNull();
-	});
+		)
+		expect(refreshedInventoryResponse.status).toBe(200)
+		expect(
+			(await refreshedInventoryResponse.json()).receipt_item_id,
+		).toBeNull()
+	})
 
 	test("deletes receipts with their items and unlinks inventory references", async () => {
-		const routes = createRoutes();
+		const routes = createRoutes()
 
 		const productResponse = await request(routes, "/api/products", {
 			method: "POST",
@@ -2584,8 +2692,8 @@ describe("Pupler API", () => {
 				default_unit: "pcs",
 				is_perishable: true,
 			}),
-		});
-		const product = await productResponse.json();
+		})
+		const product = await productResponse.json()
 
 		const receiptResponse = await request(routes, "/api/receipts", {
 			method: "POST",
@@ -2596,8 +2704,8 @@ describe("Pupler API", () => {
 				currency: "EUR",
 				total_amount: 5.4,
 			}),
-		});
-		const receipt = await receiptResponse.json();
+		})
+		const receipt = await receiptResponse.json()
 
 		const itemResponse = await request(routes, "/api/receipt-items", {
 			method: "POST",
@@ -2610,64 +2718,70 @@ describe("Pupler API", () => {
 				unit_price: 2.7,
 				line_total: 5.4,
 			}),
-		});
-		const item = await itemResponse.json();
+		})
+		const item = await itemResponse.json()
 
-		const inventoryResponse = await request(routes, "/api/inventory-items", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				name: "Milk carton",
-				ingredient_id: null,
-				product_id: product.id,
-				receipt_item_id: item.id,
-				container_id: null,
-				quantity: 1,
-				unit: "pcs",
-				purchased_at: null,
-				expires_at: null,
-				consumed_at: null,
-				notes: null,
-			}),
-		});
-		const inventoryItem = await inventoryResponse.json();
+		const inventoryResponse = await request(
+			routes,
+			"/api/inventory-items",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					name: "Milk carton",
+					ingredient_id: null,
+					product_id: product.id,
+					receipt_item_id: item.id,
+					container_id: null,
+					quantity: 1,
+					unit: "pcs",
+					purchased_at: null,
+					expires_at: null,
+					consumed_at: null,
+					notes: null,
+				}),
+			},
+		)
+		const inventoryItem = await inventoryResponse.json()
 
 		const deleteResponse = await request(
 			routes,
 			`/api/receipts/${receipt.id}`,
 			{ method: "DELETE" },
 			{ id: String(receipt.id) },
-		);
-		expect(deleteResponse.status).toBe(204);
+		)
+		expect(deleteResponse.status).toBe(204)
 
 		const receiptFetch = await request(
 			routes,
 			`/api/receipts/${receipt.id}`,
 			{},
 			{ id: String(receipt.id) },
-		);
-		expect(receiptFetch.status).toBe(404);
+		)
+		expect(receiptFetch.status).toBe(404)
 
 		const itemFetch = await request(
 			routes,
 			`/api/receipt-items/${item.id}`,
 			{},
 			{ id: String(item.id) },
-		);
-		expect(itemFetch.status).toBe(404);
+		)
+		expect(itemFetch.status).toBe(404)
 
 		const refreshedInventoryResponse = await request(
 			routes,
 			`/api/inventory-items/${inventoryItem.id}`,
 			{},
 			{ id: String(inventoryItem.id) },
-		);
-		expect(refreshedInventoryResponse.status).toBe(200);
-		expect((await refreshedInventoryResponse.json()).receipt_item_id).toBeNull();
-	});
+		)
+		expect(refreshedInventoryResponse.status).toBe(200)
+		expect(
+			(await refreshedInventoryResponse.json()).receipt_item_id,
+		).toBeNull()
+	})
 
 	test("creates nested inventory containers", async () => {
-		const routes = createRoutes();
+		const routes = createRoutes()
 
 		const parentResponse = await request(
 			routes,
@@ -2681,10 +2795,10 @@ describe("Pupler API", () => {
 					notes: "Kitchen",
 				}),
 			},
-		);
-		expect(parentResponse.status).toBe(201);
-		const parent = await parentResponse.json();
-		expect(parent.name).toBe("Room X");
+		)
+		expect(parentResponse.status).toBe(201)
+		const parent = await parentResponse.json()
+		expect(parent.name).toBe("Room X")
 
 		const childResponse = await request(
 			routes,
@@ -2698,23 +2812,23 @@ describe("Pupler API", () => {
 					notes: null,
 				}),
 			},
-		);
-		expect(childResponse.status).toBe(201);
-		const child = await childResponse.json();
-		expect(child.parent_container_id).toBe(parent.id);
+		)
+		expect(childResponse.status).toBe(201)
+		const child = await childResponse.json()
+		expect(child.parent_container_id).toBe(parent.id)
 
 		const listResponse = await request(
 			routes,
 			`/api/inventory-containers?parent_container_id=${parent.id}`,
-		);
-		expect(listResponse.status).toBe(200);
-		const listed = await listResponse.json();
-		expect(listed).toHaveLength(1);
-		expect(listed[0].id).toBe(child.id);
-	});
+		)
+		expect(listResponse.status).toBe(200)
+		const listed = await listResponse.json()
+		expect(listed).toHaveLength(1)
+		expect(listed[0].id).toBe(child.id)
+	})
 
 	test("rejects moving a container into its own descendant", async () => {
-		const routes = createRoutes();
+		const routes = createRoutes()
 
 		const parentResponse = await request(
 			routes,
@@ -2728,8 +2842,8 @@ describe("Pupler API", () => {
 					notes: null,
 				}),
 			},
-		);
-		const parent = await parentResponse.json();
+		)
+		const parent = await parentResponse.json()
 
 		const childResponse = await request(
 			routes,
@@ -2743,8 +2857,8 @@ describe("Pupler API", () => {
 					notes: null,
 				}),
 			},
-		);
-		const child = await childResponse.json();
+		)
+		const child = await childResponse.json()
 
 		const invalidPatchResponse = await request(
 			routes,
@@ -2755,14 +2869,14 @@ describe("Pupler API", () => {
 				body: JSON.stringify({ parent_container_id: child.id }),
 			},
 			{ id: String(parent.id) },
-		);
-		expect(invalidPatchResponse.status).toBe(400);
-		const body = await invalidPatchResponse.json();
-		expect(body.error).toContain("cycle");
-	});
+		)
+		expect(invalidPatchResponse.status).toBe(400)
+		const body = await invalidPatchResponse.json()
+		expect(body.error).toContain("cycle")
+	})
 
 	test("unassigns inventory items and child containers when deleting a container", async () => {
-		const routes = createRoutes();
+		const routes = createRoutes()
 
 		const productResponse = await request(routes, "/api/products", {
 			method: "POST",
@@ -2774,8 +2888,8 @@ describe("Pupler API", () => {
 				default_unit: "bag",
 				is_perishable: false,
 			}),
-		});
-		const product = await productResponse.json();
+		})
+		const product = await productResponse.json()
 
 		const parentResponse = await request(
 			routes,
@@ -2789,8 +2903,8 @@ describe("Pupler API", () => {
 					notes: null,
 				}),
 			},
-		);
-		const parent = await parentResponse.json();
+		)
+		const parent = await parentResponse.json()
 
 		const childResponse = await request(
 			routes,
@@ -2804,8 +2918,8 @@ describe("Pupler API", () => {
 					notes: null,
 				}),
 			},
-		);
-		const child = await childResponse.json();
+		)
+		const child = await childResponse.json()
 
 		const itemResponse = await request(routes, "/api/inventory-items", {
 			method: "POST",
@@ -2823,51 +2937,51 @@ describe("Pupler API", () => {
 				consumed_at: null,
 				notes: "Dry storage",
 			}),
-		});
-		expect(itemResponse.status).toBe(201);
-		const item = await itemResponse.json();
-		expect(item.container_id).toBe(parent.id);
+		})
+		expect(itemResponse.status).toBe(201)
+		const item = await itemResponse.json()
+		expect(item.container_id).toBe(parent.id)
 
 		const filterResponse = await request(
 			routes,
 			`/api/inventory-items?container_id=${parent.id}`,
-		);
-		expect(filterResponse.status).toBe(200);
-		const filtered = await filterResponse.json();
-		expect(filtered).toHaveLength(1);
-		expect(filtered[0].id).toBe(item.id);
+		)
+		expect(filterResponse.status).toBe(200)
+		const filtered = await filterResponse.json()
+		expect(filtered).toHaveLength(1)
+		expect(filtered[0].id).toBe(item.id)
 
 		const deleteResponse = await request(
 			routes,
 			`/api/inventory-containers/${parent.id}`,
 			{ method: "DELETE" },
 			{ id: String(parent.id) },
-		);
-		expect(deleteResponse.status).toBe(204);
+		)
+		expect(deleteResponse.status).toBe(204)
 
 		const updatedItemResponse = await request(
 			routes,
 			`/api/inventory-items/${item.id}`,
 			{},
 			{ id: String(item.id) },
-		);
-		expect(updatedItemResponse.status).toBe(200);
-		const updatedItem = await updatedItemResponse.json();
-		expect(updatedItem.container_id).toBeNull();
+		)
+		expect(updatedItemResponse.status).toBe(200)
+		const updatedItem = await updatedItemResponse.json()
+		expect(updatedItem.container_id).toBeNull()
 
 		const updatedChildResponse = await request(
 			routes,
 			`/api/inventory-containers/${child.id}`,
 			{},
 			{ id: String(child.id) },
-		);
-		expect(updatedChildResponse.status).toBe(200);
-		const updatedChild = await updatedChildResponse.json();
-		expect(updatedChild.parent_container_id).toBeNull();
-	});
+		)
+		expect(updatedChildResponse.status).toBe(200)
+		const updatedChild = await updatedChildResponse.json()
+		expect(updatedChild.parent_container_id).toBeNull()
+	})
 
 	test("creates inventory items with standalone and linked references and rejects mismatches", async () => {
-		const routes = createRoutes();
+		const routes = createRoutes()
 
 		const sausageIngredientResponse = await request(
 			routes,
@@ -2880,10 +2994,10 @@ describe("Pupler API", () => {
 					default_unit: "pcs",
 				}),
 			},
-		);
+		)
 		const sausageIngredient = (await sausageIngredientResponse.json()) as {
-			id: number;
-		};
+			id: number
+		}
 
 		const cheeseIngredientResponse = await request(
 			routes,
@@ -2896,10 +3010,10 @@ describe("Pupler API", () => {
 					default_unit: "pcs",
 				}),
 			},
-		);
+		)
 		const cheeseIngredient = (await cheeseIngredientResponse.json()) as {
-			id: number;
-		};
+			id: number
+		}
 
 		const productResponse = await request(routes, "/api/products", {
 			method: "POST",
@@ -2912,27 +3026,31 @@ describe("Pupler API", () => {
 				default_unit: "pcs",
 				is_perishable: true,
 			}),
-		});
-		const product = (await productResponse.json()) as { id: number };
+		})
+		const product = (await productResponse.json()) as { id: number }
 
-		const standaloneResponse = await request(routes, "/api/inventory-items", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				name: "Light bulb",
-				ingredient_id: null,
-				product_id: null,
-				receipt_item_id: null,
-				container_id: null,
-				quantity: 2,
-				unit: "pcs",
-				purchased_at: null,
-				expires_at: null,
-				consumed_at: null,
-				notes: "Hall closet",
-			}),
-		});
-		expect(standaloneResponse.status).toBe(201);
+		const standaloneResponse = await request(
+			routes,
+			"/api/inventory-items",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					name: "Light bulb",
+					ingredient_id: null,
+					product_id: null,
+					receipt_item_id: null,
+					container_id: null,
+					quantity: 2,
+					unit: "pcs",
+					purchased_at: null,
+					expires_at: null,
+					consumed_at: null,
+					notes: "Hall closet",
+				}),
+			},
+		)
+		expect(standaloneResponse.status).toBe(201)
 
 		const linkedResponse = await request(routes, "/api/inventory-items", {
 			method: "POST",
@@ -2950,11 +3068,11 @@ describe("Pupler API", () => {
 				consumed_at: null,
 				notes: null,
 			}),
-		});
-		expect(linkedResponse.status).toBe(201);
-		const linked = await linkedResponse.json();
-		expect(linked.ingredient.name).toBe("Sausage");
-		expect(linked.product.name).toBe("Atria Grillimakkara");
+		})
+		expect(linkedResponse.status).toBe(201)
+		const linked = await linkedResponse.json()
+		expect(linked.ingredient.name).toBe("Sausage")
+		expect(linked.product.name).toBe("Atria Grillimakkara")
 
 		const mismatchResponse = await request(routes, "/api/inventory-items", {
 			method: "POST",
@@ -2972,12 +3090,12 @@ describe("Pupler API", () => {
 				consumed_at: null,
 				notes: null,
 			}),
-		});
-		expect(mismatchResponse.status).toBe(400);
-	});
+		})
+		expect(mismatchResponse.status).toBe(400)
+	})
 
 	test("creates shoppinglist items without a parent shopping list", async () => {
-		const routes = createRoutes();
+		const routes = createRoutes()
 
 		const createItemResponse = await request(
 			routes,
@@ -2996,22 +3114,22 @@ describe("Pupler API", () => {
 					notes: "for breakfast",
 				}),
 			},
-		);
+		)
 
-		expect(createItemResponse.status).toBe(201);
-		const createdItem = await createItemResponse.json();
-		expect(createdItem.name).toBe("Light bulb");
-		expect(createdItem.done).toBe(false);
+		expect(createItemResponse.status).toBe(201)
+		const createdItem = await createItemResponse.json()
+		expect(createdItem.name).toBe("Light bulb")
+		expect(createdItem.done).toBe(false)
 
-		const listResponse = await request(routes, "/api/shopping-list-items");
-		expect(listResponse.status).toBe(200);
-		const items = await listResponse.json();
-		expect(items).toHaveLength(1);
-		expect(items[0].notes).toBe("for breakfast");
-	});
+		const listResponse = await request(routes, "/api/shopping-list-items")
+		expect(listResponse.status).toBe(200)
+		const items = await listResponse.json()
+		expect(items).toHaveLength(1)
+		expect(items[0].notes).toBe("for breakfast")
+	})
 
 	test("creates shoppinglist items with ingredient and product links", async () => {
-		const routes = createRoutes();
+		const routes = createRoutes()
 
 		const ingredientResponse = await request(routes, "/api/ingredients", {
 			method: "POST",
@@ -3020,8 +3138,8 @@ describe("Pupler API", () => {
 				name: "Sausage",
 				default_unit: "pack",
 			}),
-		});
-		const ingredient = (await ingredientResponse.json()) as { id: number };
+		})
+		const ingredient = (await ingredientResponse.json()) as { id: number }
 
 		const productResponse = await request(routes, "/api/products", {
 			method: "POST",
@@ -3034,8 +3152,8 @@ describe("Pupler API", () => {
 				default_unit: "pack",
 				is_perishable: true,
 			}),
-		});
-		const product = (await productResponse.json()) as { id: number };
+		})
+		const product = (await productResponse.json()) as { id: number }
 
 		const recipeResponse = await request(routes, "/api/recipes", {
 			method: "POST",
@@ -3047,8 +3165,8 @@ describe("Pupler API", () => {
 				servings: 2,
 				is_active: true,
 			}),
-		});
-		const recipe = (await recipeResponse.json()) as { id: number };
+		})
+		const recipe = (await recipeResponse.json()) as { id: number }
 
 		const createItemResponse = await request(
 			routes,
@@ -3067,17 +3185,17 @@ describe("Pupler API", () => {
 					notes: "for dinner",
 				}),
 			},
-		);
+		)
 
-		expect(createItemResponse.status).toBe(201);
-		const createdItem = await createItemResponse.json();
-		expect(createdItem.ingredient.name).toBe("Sausage");
-		expect(createdItem.product.name).toBe("Snellman Sausage Pack");
-		expect(createdItem.source_recipe_id).toBe(recipe.id);
-	});
+		expect(createItemResponse.status).toBe(201)
+		const createdItem = await createItemResponse.json()
+		expect(createdItem.ingredient.name).toBe("Sausage")
+		expect(createdItem.product.name).toBe("Snellman Sausage Pack")
+		expect(createdItem.source_recipe_id).toBe(recipe.id)
+	})
 
 	test("creates, completes, archives, and deletes todos", async () => {
-		const routes = createRoutes();
+		const routes = createRoutes()
 
 		const createResponse = await request(routes, "/api/todos", {
 			method: "POST",
@@ -3089,11 +3207,11 @@ describe("Pupler API", () => {
 				due_at: "2026-05-25T18:00:00.000Z",
 				completed_at: null,
 			}),
-		});
-		expect(createResponse.status).toBe(201);
-		const created = await createResponse.json();
-		expect(created.title).toBe("Take bins out");
-		expect(created.status).toBe(1);
+		})
+		expect(createResponse.status).toBe(201)
+		const created = await createResponse.json()
+		expect(created.title).toBe("Take bins out")
+		expect(created.status).toBe(1)
 
 		const completeResponse = await request(
 			routes,
@@ -3107,16 +3225,16 @@ describe("Pupler API", () => {
 				}),
 			},
 			{ id: String(created.id) },
-		);
-		expect(completeResponse.status).toBe(200);
-		const completed = await completeResponse.json();
-		expect(completed.status).toBe(2);
-		expect(completed.completed_at).toBe("2026-05-25T18:30:00.000Z");
+		)
+		expect(completeResponse.status).toBe(200)
+		const completed = await completeResponse.json()
+		expect(completed.status).toBe(2)
+		expect(completed.completed_at).toBe("2026-05-25T18:30:00.000Z")
 
-		const listDoneResponse = await request(routes, "/api/todos?status=2");
-		expect(listDoneResponse.status).toBe(200);
-		const doneTodos = await listDoneResponse.json();
-		expect(doneTodos).toHaveLength(1);
+		const listDoneResponse = await request(routes, "/api/todos?status=2")
+		expect(listDoneResponse.status).toBe(200)
+		const doneTodos = await listDoneResponse.json()
+		expect(doneTodos).toHaveLength(1)
 
 		const archiveResponse = await request(
 			routes,
@@ -3127,9 +3245,9 @@ describe("Pupler API", () => {
 				body: JSON.stringify({ status: 3 }),
 			},
 			{ id: String(created.id) },
-		);
-		expect(archiveResponse.status).toBe(200);
-		expect((await archiveResponse.json()).status).toBe(3);
+		)
+		expect(archiveResponse.status).toBe(200)
+		expect((await archiveResponse.json()).status).toBe(3)
 
 		const invalidStatusResponse = await request(routes, "/api/todos", {
 			method: "POST",
@@ -3138,15 +3256,15 @@ describe("Pupler API", () => {
 				title: "Bad status",
 				status: 9,
 			}),
-		});
-		expect(invalidStatusResponse.status).toBe(400);
+		})
+		expect(invalidStatusResponse.status).toBe(400)
 
 		const deleteResponse = await request(
 			routes,
 			`/api/todos/${created.id}`,
 			{ method: "DELETE" },
 			{ id: String(created.id) },
-		);
-		expect(deleteResponse.status).toBe(204);
-	});
-});
+		)
+		expect(deleteResponse.status).toBe(204)
+	})
+})

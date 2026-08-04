@@ -7,19 +7,19 @@ import {
 	fetchReceipts,
 	renderInventoryItemDetail,
 	renderPage,
-} from "../app";
-import type { InventoryContainer } from "../app";
-import { createElement, createPageMessage, withQueryRoot } from "../lib/dom";
+} from "../app"
+import type { InventoryContainer } from "../app"
+import { createElement, createPageMessage, withQueryRoot } from "../lib/dom"
 
 export const renderInventoryItemDetailPage = async (
 	params: Record<string, string>,
 ) => {
-	const itemId = Number.parseInt(params.id ?? "", 10);
-	const page = createElement("div", { id: "inventory-item-detail-page" });
+	const itemId = Number.parseInt(params.id ?? "", 10)
+	const page = createElement("div", { id: "inventory-item-detail-page" })
 	if (!Number.isInteger(itemId)) {
-		page.append(createPageMessage("Inventory item id is invalid."));
-		renderPage(page);
-		return;
+		page.append(createPageMessage("Inventory item id is invalid."))
+		renderPage(page)
+		return
 	}
 
 	try {
@@ -28,31 +28,39 @@ export const renderInventoryItemDetailPage = async (
 			fetchAllProducts(),
 			fetchAllReceiptItems(),
 			fetchReceipts(),
-		]);
-		let container: InventoryContainer | null = null;
+		])
+		let container: InventoryContainer | null = null
 		if (item.container_id !== null) {
 			try {
-				container = await fetchInventoryContainer(item.container_id);
+				container = await fetchInventoryContainer(item.container_id)
 			} catch {
-				container = null;
+				container = null
 			}
 		}
 		withQueryRoot(page, () => {
-			renderInventoryItemDetail(item, container, products, receiptItems, receipts);
+			renderInventoryItemDetail(
+				item,
+				container,
+				products,
+				receiptItems,
+				receipts,
+			)
 			attachInventoryItemDetailEvents(
 				item,
 				container,
 				products,
 				receiptItems,
 				receipts,
-			);
-		});
+			)
+		})
 	} catch (error) {
 		page.append(
 			createPageMessage(
-				error instanceof Error ? error.message : "Failed to load inventory item.",
+				error instanceof Error
+					? error.message
+					: "Failed to load inventory item.",
 			),
-		);
+		)
 	}
-	renderPage(page);
-};
+	renderPage(page)
+}

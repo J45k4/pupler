@@ -3,7 +3,7 @@ export {
 	handleError,
 	handleFallback,
 	openDatabase,
-} from "./core";
+} from "./core"
 export {
 	authLoginRoute,
 	authBootstrapRoute,
@@ -13,91 +13,73 @@ export {
 	requireAuthenticatedUser,
 	requireAdminUser,
 	resolveAuthenticatedUser,
-} from "./auth";
-export {
-	groupDetailRoute,
-	groupsCollectionRoute,
-} from "./groups";
+} from "./auth"
+export { groupDetailRoute, groupsCollectionRoute } from "./groups"
 export {
 	ingredientDetailRoute,
 	ingredientsCollectionRoute,
-} from "./ingredients";
+} from "./ingredients"
 export {
 	productLinkDetailRoute,
 	productLinksCollectionRoute,
-} from "./product-links";
+} from "./product-links"
 export {
 	productDetailRoute,
 	productPictureRoute,
 	productsCollectionRoute,
-} from "./products";
-export {
-	productStatsRoute,
-} from "./product-stats";
+} from "./products"
+export { productStatsRoute } from "./product-stats"
 export {
 	inventoryItemDetailRoute,
 	inventoryItemImageDetailRoute,
 	inventoryItemImagesCollectionRoute,
 	inventoryItemsCollectionRoute,
-} from "./inventory-items";
+} from "./inventory-items"
 export {
 	inventoryContainerDetailRoute,
 	inventoryContainersCollectionRoute,
-} from "./inventory-containers";
+} from "./inventory-containers"
 export {
 	mealPlanItemDetailRoute,
 	mealPlanItemsCollectionRoute,
-} from "./meal-plan-items";
+} from "./meal-plan-items"
 export {
 	receiptDetailRoute,
 	receiptPictureRoute,
 	receiptsCollectionRoute,
-} from "./purchase-receipts";
+} from "./purchase-receipts"
 export {
 	receiptItemDetailRoute,
 	receiptItemsCollectionRoute,
-} from "./receipt-items";
+} from "./receipt-items"
 export {
 	recipeIngredientDetailRoute,
 	recipeIngredientsCollectionRoute,
-} from "./recipe-ingredients";
+} from "./recipe-ingredients"
 export {
 	recipeDetailRoute,
 	recipeImageDetailRoute,
 	recipeImagesCollectionRoute,
 	recipesCollectionRoute,
-} from "./recipes";
+} from "./recipes"
 export {
 	shoppingListItemDetailRoute,
 	shoppingListItemsCollectionRoute,
-} from "./shopping-list-items";
-export {
-	todoDetailRoute,
-	todosCollectionRoute,
-} from "./todos";
-export {
-	userDetailRoute,
-	usersCollectionRoute,
-} from "./users";
-export {
-	clientDetailRoute,
-	clientsCollectionRoute,
-} from "./clients";
+} from "./shopping-list-items"
+export { todoDetailRoute, todosCollectionRoute } from "./todos"
+export { userDetailRoute, usersCollectionRoute } from "./users"
+export { clientDetailRoute, clientsCollectionRoute } from "./clients"
 export {
 	projectDetailRoute,
 	projectMergeRoute,
 	projectsCollectionRoute,
-} from "./projects";
+} from "./projects"
 export {
 	timeEntriesCollectionRoute,
 	timeEntryDetailRoute,
 	timeEntryStartRoute,
 	timeEntryStopRoute,
-} from "./time-entries";
-export {
-	timeReportRoute,
-} from "./time-report";
-export {
-	spendingRoute,
-} from "./spending";
-export { createApiRoutes } from "./route-map";
+} from "./time-entries"
+export { timeReportRoute } from "./time-report"
+export { spendingRoute } from "./spending"
+export { createApiRoutes } from "./route-map"

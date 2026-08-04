@@ -1,63 +1,61 @@
-type HandlerResult = void | Promise<void>;
+type HandlerResult = void | Promise<void>
 type Handler = (
 	main: HTMLElement,
 	params: Record<string, string>,
-) => HandlerResult;
+) => HandlerResult
 
 type MatchResult = {
-	pattern: string;
-	handler: Handler;
-	params: Record<string, string>;
-} | null;
+	pattern: string
+	handler: Handler
+	params: Record<string, string>
+} | null
 
-let matcher: ReturnType<typeof patternMatcher> | null = null;
+let matcher: ReturnType<typeof patternMatcher> | null = null
 let renderShell = () => {
-	document.body.replaceChildren();
-	const main = document.createElement("main");
-	main.className = "page-shell page-shell--wide";
-	document.body.append(main);
-	return main;
-};
+	document.body.replaceChildren()
+	const main = document.createElement("main")
+	main.className = "page-shell page-shell--wide"
+	document.body.append(main)
+	return main
+}
 
-export const setRouteShellRenderer = (
-	renderer: () => HTMLElement,
-) => {
-	renderShell = renderer;
-};
+export const setRouteShellRenderer = (renderer: () => HTMLElement) => {
+	renderShell = renderer
+}
 
 export function patternMatcher(handlers: Record<string, Handler>) {
 	const routes = Object.keys(handlers).sort((a, b) => {
-		if (!a.includes("*") && !a.includes(":")) return -1;
-		if (!b.includes("*") && !b.includes(":")) return 1;
+		if (!a.includes("*") && !a.includes(":")) return -1
+		if (!b.includes("*") && !b.includes(":")) return 1
 
-		if (a.includes(":") && !b.includes(":")) return -1;
-		if (!a.includes(":") && b.includes(":")) return 1;
+		if (a.includes(":") && !b.includes(":")) return -1
+		if (!a.includes(":") && b.includes(":")) return 1
 
-		if (a.includes("*") && !b.includes("*")) return 1;
-		if (!a.includes("*") && b.includes("*")) return -1;
+		if (a.includes("*") && !b.includes("*")) return 1
+		if (!a.includes("*") && b.includes("*")) return -1
 
-		return b.length - a.length;
-	});
+		return b.length - a.length
+	})
 
 	return {
 		match(path: string): MatchResult {
 			for (const route of routes) {
-				const params = matchRoute(route, path);
+				const params = matchRoute(route, path)
 				if (params !== null) {
-					const handler = handlers[route];
+					const handler = handlers[route]
 					if (!handler) {
-						continue;
+						continue
 					}
 					return {
 						pattern: route,
 						handler,
 						params,
-					};
+					}
 				}
 			}
-			return null;
+			return null
 		},
-	};
+	}
 }
 
 function matchRoute(
@@ -66,99 +64,99 @@ function matchRoute(
 ): Record<string, string> | null {
 	const patternParts = pattern
 		.split("/")
-		.filter((segment) => segment.length > 0);
-	const pathParts = path.split("/").filter((segment) => segment.length > 0);
+		.filter((segment) => segment.length > 0)
+	const pathParts = path.split("/").filter((segment) => segment.length > 0)
 
 	if (pattern === "/*") {
-		return {};
+		return {}
 	}
 
 	if (patternParts.length !== pathParts.length) {
-		const lastPattern = patternParts[patternParts.length - 1] ?? "";
+		const lastPattern = patternParts[patternParts.length - 1] ?? ""
 		if (
 			lastPattern === "*" &&
 			pathParts.length >= patternParts.length - 1
 		) {
-			return {};
+			return {}
 		}
-		return null;
+		return null
 	}
 
-	const params: Record<string, string> = {};
+	const params: Record<string, string> = {}
 
 	for (let index = 0; index < patternParts.length; index += 1) {
-		const patternPart = patternParts[index]!;
-		const pathPart = pathParts[index]!;
+		const patternPart = patternParts[index]!
+		const pathPart = pathParts[index]!
 
 		if (patternPart === "*") {
-			return params;
+			return params
 		}
 		if (patternPart.startsWith(":")) {
-			params[patternPart.slice(1)] = pathPart;
-			continue;
+			params[patternPart.slice(1)] = pathPart
+			continue
 		}
 		if (patternPart !== pathPart) {
-			return null;
+			return null
 		}
 	}
 
-	return params;
+	return params
 }
 
 const handleRoute = async (path: string) => {
 	if (!matcher) {
-		return;
+		return
 	}
 	if (path !== "/login" && !getCurrentUser()) {
-		const redirect = `/login?redirect=${encodeURIComponent(path)}`;
-		window.history.replaceState({}, "", redirect);
-		path = "/login";
+		const redirect = `/login?redirect=${encodeURIComponent(path)}`
+		window.history.replaceState({}, "", redirect)
+		path = "/login"
 	}
 	if (path === "/login" && getCurrentUser()) {
-		path = "/";
-		window.history.replaceState({}, "", path);
+		path = "/"
+		window.history.replaceState({}, "", path)
 	}
-	const match = matcher.match(path);
+	const match = matcher.match(path)
 	if (!match) {
-		console.error("No route found for", path);
-		return;
+		console.error("No route found for", path)
+		return
 	}
-	const main = renderShell();
-	await Promise.resolve(match.handler(main, match.params) as HandlerResult);
-};
+	const main = renderShell()
+	await Promise.resolve(match.handler(main, match.params) as HandlerResult)
+}
 
 window.addEventListener("popstate", () => {
-	void handleRoute(window.location.pathname);
-});
+	void handleRoute(window.location.pathname)
+})
 
 export const routes = (handlers: Record<string, Handler>) => {
-	matcher = patternMatcher(handlers);
-	void handleRoute(window.location.pathname);
-};
+	matcher = patternMatcher(handlers)
+	void handleRoute(window.location.pathname)
+}
 
 export const installLinkInterceptor = (root: ParentNode = document) => {
 	root.addEventListener("click", (event) => {
-		const target = event.target;
+		const target = event.target
 		if (!(target instanceof Element)) {
-			return;
+			return
 		}
-		const link = target.closest("a[data-link]");
+		const link = target.closest("a[data-link]")
 		if (!(link instanceof HTMLAnchorElement)) {
-			return;
+			return
 		}
-		const href = link.getAttribute("href");
+		const href = link.getAttribute("href")
 		if (!href || href.startsWith("http")) {
-			return;
+			return
 		}
-		event.preventDefault();
-		navigate(href);
-	});
-};
+		event.preventDefault()
+		navigate(href)
+	})
+}
 
 export const navigate = (path: string) => {
 	if (window.location.pathname !== path) {
-		window.history.pushState({}, "", path);
+		window.history.pushState({}, "", path)
 	}
-	void handleRoute(path);
-};
-import { getCurrentUser } from "./auth";
+	void handleRoute(path)
+}
+import { getCurrentUser } from "./auth"

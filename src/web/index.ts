@@ -1,54 +1,50 @@
-import {
-	installLinkInterceptor,
-	routes,
-	setRouteShellRenderer,
-} from "./router";
-import { installAuthFetchGuard, loadAuthSession } from "./auth";
-import { renderAppShell } from "./app";
-import { renderOverviewPage } from "./pages/overview";
+import { installLinkInterceptor, routes, setRouteShellRenderer } from "./router"
+import { installAuthFetchGuard, loadAuthSession } from "./auth"
+import { renderAppShell } from "./app"
+import { renderOverviewPage } from "./pages/overview"
 import {
 	renderSpendingItemsPage,
 	renderSpendingMonthlyPage,
 	renderSpendingOverviewPage,
 	renderSpendingPage,
-} from "./pages/spending";
-import { renderExpirationsPage } from "./pages/expirations";
-import { renderRecipesPage } from "./pages/recipes";
-import { renderRecipeDetailPage } from "./pages/recipe-detail";
-import { renderRecipeCreatePage } from "./pages/recipe-create";
-import { renderProductsPage } from "./pages/products";
-import { renderProductStatsPage } from "./pages/product-stats";
-import { renderClientsPage } from "./pages/clients";
-import { renderClientDetailPage } from "./pages/client-detail";
-import { renderProjectsPage } from "./pages/projects";
-import { renderProductDetailPage } from "./pages/product-detail";
-import { renderInventoryPage } from "./pages/inventory";
-import { renderInventoryItemDetailPage } from "./pages/inventory-item-detail";
-import { renderInventoryContainerDetailPage } from "./pages/inventory-container-detail";
-import { renderReceiptsPage } from "./pages/receipts";
-import { renderShoppingListsPage } from "./pages/shopping-lists";
+} from "./pages/spending"
+import { renderExpirationsPage } from "./pages/expirations"
+import { renderRecipesPage } from "./pages/recipes"
+import { renderRecipeDetailPage } from "./pages/recipe-detail"
+import { renderRecipeCreatePage } from "./pages/recipe-create"
+import { renderProductsPage } from "./pages/products"
+import { renderProductStatsPage } from "./pages/product-stats"
+import { renderClientsPage } from "./pages/clients"
+import { renderClientDetailPage } from "./pages/client-detail"
+import { renderProjectsPage } from "./pages/projects"
+import { renderProductDetailPage } from "./pages/product-detail"
+import { renderInventoryPage } from "./pages/inventory"
+import { renderInventoryItemDetailPage } from "./pages/inventory-item-detail"
+import { renderInventoryContainerDetailPage } from "./pages/inventory-container-detail"
+import { renderReceiptsPage } from "./pages/receipts"
+import { renderShoppingListsPage } from "./pages/shopping-lists"
 import {
 	renderTimeMonthlyPage,
 	renderTimeOverviewPage,
 	renderTimePage,
 	renderTimeWeeklyPage,
-} from "./pages/time";
-import { renderTodosPage } from "./pages/todos";
-import { renderGroupDetailPage } from "./pages/group-detail";
-import { renderReceiptDetailPage } from "./pages/receipt-detail";
-import { renderNotFoundPage } from "./pages/not-found";
-import { renderLoginPage } from "./pages/login";
-import { renderSettingsPage } from "./pages/settings";
-import { renderUsersPage } from "./pages/users";
+} from "./pages/time"
+import { renderTodosPage } from "./pages/todos"
+import { renderGroupDetailPage } from "./pages/group-detail"
+import { renderReceiptDetailPage } from "./pages/receipt-detail"
+import { renderNotFoundPage } from "./pages/not-found"
+import { renderLoginPage } from "./pages/login"
+import { renderSettingsPage } from "./pages/settings"
+import { renderUsersPage } from "./pages/users"
 
 window.onload = async () => {
-	installLinkInterceptor(document.body);
-	setRouteShellRenderer(renderAppShell);
-	installAuthFetchGuard();
+	installLinkInterceptor(document.body)
+	setRouteShellRenderer(renderAppShell)
+	installAuthFetchGuard()
 	try {
-		await loadAuthSession();
+		await loadAuthSession()
 	} catch (error) {
-		console.error(error);
+		console.error(error)
 	}
 
 	routes({
@@ -86,5 +82,5 @@ window.onload = async () => {
 		"/recipes/:id": (_main, params) => renderRecipeDetailPage(params),
 		"/recipes": renderRecipesPage,
 		"/*": renderNotFoundPage,
-	});
-};
+	})
+}

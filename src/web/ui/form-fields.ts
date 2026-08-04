@@ -1,4 +1,4 @@
-import { createElement } from "../lib/dom";
+import { createElement } from "../lib/dom"
 
 const UNIT_GROUPS = [
 	{
@@ -61,11 +61,11 @@ const UNIT_GROUPS = [
 			["ft", "Feet (ft)"],
 		],
 	},
-] as const;
+] as const
 
 const KNOWN_UNIT_VALUES: ReadonlySet<string> = new Set(
 	UNIT_GROUPS.flatMap((group) => group.options.map(([value]) => value)),
-);
+)
 
 const PRODUCT_CATEGORY_OPTIONS = [
 	["food", "Food"],
@@ -76,17 +76,17 @@ const PRODUCT_CATEGORY_OPTIONS = [
 	["health", "Health"],
 	["pet", "Pet"],
 	["other", "Other"],
-] as const;
+] as const
 
 export const createProductCategoryInput = (options: {
-	id: string;
-	name?: string;
-	label: string;
-	value?: string | null;
-	placeholder?: string;
-	required?: boolean;
+	id: string
+	name?: string
+	label: string
+	value?: string | null
+	placeholder?: string
+	required?: boolean
 }) => {
-	const listId = `${options.id}-options`;
+	const listId = `${options.id}-options`
 	const input = createElement("input", {
 		id: options.id,
 		properties: {
@@ -96,53 +96,72 @@ export const createProductCategoryInput = (options: {
 			required: options.required ?? false,
 		},
 		attributes: { list: listId },
-	});
-	const list = createElement("datalist", { id: listId });
+	})
+	const list = createElement("datalist", { id: listId })
 	for (const [value, label] of PRODUCT_CATEGORY_OPTIONS) {
-		list.append(createElement("option", { text: label, properties: { value } }));
+		list.append(
+			createElement("option", { text: label, properties: { value } }),
+		)
 	}
-	return createElement("label", { attributes: { for: options.id } }, options.label, input, list);
-};
+	return createElement(
+		"label",
+		{ attributes: { for: options.id } },
+		options.label,
+		input,
+		list,
+	)
+}
 
 export const createUnitSelect = (options: {
-	id: string;
-	name: string;
-	label: string;
-	selectedValue: string | null;
-	placeholderLabel?: string;
-	required?: boolean;
+	id: string
+	name: string
+	label: string
+	selectedValue: string | null
+	placeholderLabel?: string
+	required?: boolean
 }) => {
 	const select = createElement("select", {
 		id: options.id,
 		properties: { name: options.name, required: options.required ?? false },
-	});
-	const selected = options.selectedValue?.trim() ?? "";
+	})
+	const selected = options.selectedValue?.trim() ?? ""
 	if (options.placeholderLabel) {
-		select.append(createElement("option", {
-			text: options.placeholderLabel,
-			properties: { value: "", selected: !selected },
-		}));
+		select.append(
+			createElement("option", {
+				text: options.placeholderLabel,
+				properties: { value: "", selected: !selected },
+			}),
+		)
 	}
 	if (selected && !KNOWN_UNIT_VALUES.has(selected)) {
 		const custom = createElement("option", {
 			text: `${selected} (Custom)`,
 			properties: { value: selected, selected: true },
-		});
-		custom.dataset.unitCustom = "true";
-		select.append(custom);
+		})
+		custom.dataset.unitCustom = "true"
+		select.append(custom)
 	}
 	for (const group of UNIT_GROUPS) {
-		const optionGroup = createElement("optgroup", { properties: { label: group.label } });
+		const optionGroup = createElement("optgroup", {
+			properties: { label: group.label },
+		})
 		for (const [value, label] of group.options) {
-			optionGroup.append(createElement("option", {
-				text: label,
-				properties: { value, selected: value === selected },
-			}));
+			optionGroup.append(
+				createElement("option", {
+					text: label,
+					properties: { value, selected: value === selected },
+				}),
+			)
 		}
-		select.append(optionGroup);
+		select.append(optionGroup)
 	}
-	return createElement("label", { attributes: { for: options.id } }, options.label, select);
-};
+	return createElement(
+		"label",
+		{ attributes: { for: options.id } },
+		options.label,
+		select,
+	)
+}
 
 export const setUnitSelectValue = (
 	select: HTMLSelectElement,
@@ -152,22 +171,22 @@ export const setUnitSelectValue = (
 	for (const option of select.querySelectorAll<HTMLOptionElement>(
 		"option[data-unit-custom]",
 	)) {
-		option.remove();
+		option.remove()
 	}
 
-	const trimmedValue = value?.trim() ?? "";
+	const trimmedValue = value?.trim() ?? ""
 	if (!trimmedValue) {
-		select.value = fallbackValue;
-		return;
+		select.value = fallbackValue
+		return
 	}
 
 	if (!KNOWN_UNIT_VALUES.has(trimmedValue)) {
-		const customOption = document.createElement("option");
-		customOption.value = trimmedValue;
-		customOption.textContent = `${trimmedValue} (Custom)`;
-		customOption.dataset.unitCustom = "true";
-		select.insertBefore(customOption, select.firstChild);
+		const customOption = document.createElement("option")
+		customOption.value = trimmedValue
+		customOption.textContent = `${trimmedValue} (Custom)`
+		customOption.dataset.unitCustom = "true"
+		select.insertBefore(customOption, select.firstChild)
 	}
 
-	select.value = trimmedValue;
-};
+	select.value = trimmedValue
+}

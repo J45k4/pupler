@@ -1,6 +1,6 @@
-import type { BunRequest } from "bun";
+import type { BunRequest } from "bun"
 
-import { db } from "../db";
+import { db } from "../db"
 import {
 	assertKnownFields,
 	empty,
@@ -20,19 +20,19 @@ import {
 	utcNow,
 	type Database,
 	type JsonObject,
-} from "./core";
+} from "./core"
 import {
 	deleteStoredFileBestEffort,
 	readStoredFile,
 	writeUploadedFile,
-} from "./file-storage";
+} from "./file-storage"
 import {
 	fileDetailSelect,
 	ingredientSummarySelect,
 	productSummarySelect,
-} from "./reference-details";
+} from "./reference-details"
 
-const MAX_RECIPE_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_RECIPE_IMAGE_BYTES = 10 * 1024 * 1024
 const SORT_FIELDS = new Set([
 	"id",
 	"name",
@@ -42,17 +42,17 @@ const SORT_FIELDS = new Set([
 	"is_active",
 	"created_at",
 	"updated_at",
-]);
+])
 const WRITABLE_FIELDS = [
 	"name",
 	"description",
 	"instructions",
 	"servings",
 	"is_active",
-];
+]
 
 const fetchRecipe = (db: Database, id: number) =>
-	db.client.recipe.findUnique({ where: { id } });
+	db.client.recipe.findUnique({ where: { id } })
 
 const fetchRecipeDetail = (db: Database, id: number) =>
 	db.client.recipe.findUnique({
@@ -79,12 +79,12 @@ const fetchRecipeDetail = (db: Database, id: number) =>
 				},
 				orderBy: [{ created_at: "asc" }, { id: "asc" }],
 			},
-				recipe_images: {
-					select: recipeImageSelect,
-					orderBy: [{ created_at: "desc" }, { id: "desc" }],
-				},
+			recipe_images: {
+				select: recipeImageSelect,
+				orderBy: [{ created_at: "desc" }, { id: "desc" }],
 			},
-		});
+		},
+	})
 
 const recipeImageSelect = {
 	id: true,
@@ -94,49 +94,48 @@ const recipeImageSelect = {
 	file: {
 		select: fileDetailSelect,
 	},
-} as const;
+} as const
 
-const fetchRecipeImage = (
-	db: Database,
-	recipeId: number,
-	pictureId: number,
-) =>
+const fetchRecipeImage = (db: Database, recipeId: number, pictureId: number) =>
 	db.client.recipeImage.findFirst({
 		where: { id: pictureId, recipe_id: recipeId },
 		include: { file: true },
-	});
+	})
 
 const fetchRecipeImages = (db: Database, recipeId: number) =>
 	db.client.recipeImage.findMany({
 		where: { recipe_id: recipeId },
 		select: recipeImageSelect,
 		orderBy: [{ created_at: "desc" }, { id: "desc" }],
-	});
+	})
 
 const ensureRecipeExists = async (db: Database, recipeId: number) => {
-	const recipe = await fetchRecipe(db, recipeId);
+	const recipe = await fetchRecipe(db, recipeId)
 	if (!recipe) {
-		throw new HttpError(404, "Resource not found");
+		throw new HttpError(404, "Resource not found")
 	}
-	return recipe;
-};
+	return recipe
+}
 
 const parseUploadedRecipeImages = (files: Array<File | string>) =>
 	files.map((entry) => {
 		if (!(entry instanceof File)) {
-			throw new HttpError(400, "Multipart form-data must include one or more `file` fields");
+			throw new HttpError(
+				400,
+				"Multipart form-data must include one or more `file` fields",
+			)
 		}
 		if (!entry.type.startsWith("image/")) {
-			throw new HttpError(400, "Uploaded file must be an image");
+			throw new HttpError(400, "Uploaded file must be an image")
 		}
 		if (entry.size === 0) {
-			throw new HttpError(400, "Uploaded file may not be empty");
+			throw new HttpError(400, "Uploaded file may not be empty")
 		}
 		if (entry.size > MAX_RECIPE_IMAGE_BYTES) {
-			throw new HttpError(413, "Uploaded file exceeds the 10 MB limit");
+			throw new HttpError(413, "Uploaded file exceeds the 10 MB limit")
 		}
-		return entry;
-	});
+		return entry
+	})
 
 const createRecipeImages = async (
 	db: Database,
@@ -144,10 +143,10 @@ const createRecipeImages = async (
 	files: File[],
 ) => {
 	const writtenFiles: Array<{
-		createdAt: string;
-		file: File;
-		relativePath: string;
-	}> = [];
+		createdAt: string
+		file: File
+		relativePath: string
+	}> = []
 
 	try {
 		for (const file of files) {
@@ -155,20 +154,20 @@ const createRecipeImages = async (
 				assetType: "recipe-images",
 				file,
 				resourceId: recipeId,
-			});
+			})
 			writtenFiles.push({
 				createdAt: utcNow(),
 				file,
 				relativePath: storedFile.relativePath,
-			});
+			})
 		}
 	} catch (error) {
 		await Promise.all(
 			writtenFiles.map(({ relativePath }) =>
 				deleteStoredFileBestEffort(db, relativePath),
 			),
-		);
-		throw error;
+		)
+		throw error
 	}
 
 	try {
@@ -193,134 +192,144 @@ const createRecipeImages = async (
 					select: recipeImageSelect,
 				}),
 			),
-		);
+		)
 	} catch (error) {
 		await Promise.all(
 			writtenFiles.map(({ relativePath }) =>
 				deleteStoredFileBestEffort(db, relativePath),
 			),
-		);
-		throw error;
+		)
+		throw error
 	}
-};
+}
 
 const parseSort = (url: URL) => {
-	const sort = url.searchParams.get("sort");
-	if (!sort) return [{ id: "asc" }] as const;
+	const sort = url.searchParams.get("sort")
+	if (!sort) return [{ id: "asc" }] as const
 	if (!SORT_FIELDS.has(sort)) {
-		throw new HttpError(400, `Unknown sort field \`${sort}\``);
+		throw new HttpError(400, `Unknown sort field \`${sort}\``)
 	}
-	return [{ [sort]: parseSortOrder(url) }];
-};
+	return [{ [sort]: parseSortOrder(url) }]
+}
 
 const parseFilters = (url: URL) => {
-	const where: Record<string, unknown> = {};
+	const where: Record<string, unknown> = {}
 	for (const [key, value] of url.searchParams.entries()) {
-		if (key === "sort" || key === "order") continue;
+		if (key === "sort" || key === "order") continue
 		switch (key) {
 			case "id":
 			case "servings":
-				where[key] = value === "null" ? null : parseIntegerQuery(key, value);
-				break;
+				where[key] =
+					value === "null" ? null : parseIntegerQuery(key, value)
+				break
 			case "name":
 			case "description":
 			case "instructions":
 			case "created_at":
 			case "updated_at":
-				where[key] = value === "null" ? null : value;
-				break;
+				where[key] = value === "null" ? null : value
+				break
 			case "is_active":
-				where.is_active = parseBooleanQuery(key, value);
-				break;
+				where.is_active = parseBooleanQuery(key, value)
+				break
 			default:
-				throw new HttpError(400, `Unknown query parameter \`${key}\``);
+				throw new HttpError(400, `Unknown query parameter \`${key}\``)
 		}
 	}
-	return where;
-};
+	return where
+}
 
 const parseCreateValues = (body: JsonObject) => {
-	assertKnownFields(body, WRITABLE_FIELDS);
-	const now = utcNow();
+	assertKnownFields(body, WRITABLE_FIELDS)
+	const now = utcNow()
 	return {
 		name: requireBodyField(body, "name", expectString),
 		description:
-			readOptionalBodyField(body, "description", expectNullableString) ?? null,
+			readOptionalBodyField(body, "description", expectNullableString) ??
+			null,
 		instructions:
-			readOptionalBodyField(body, "instructions", expectNullableString) ?? null,
+			readOptionalBodyField(body, "instructions", expectNullableString) ??
+			null,
 		servings:
-			readOptionalBodyField(body, "servings", expectNullableInteger) ?? null,
+			readOptionalBodyField(body, "servings", expectNullableInteger) ??
+			null,
 		is_active: requireBodyField(body, "is_active", expectBoolean),
 		created_at: now,
 		updated_at: now,
-	};
-};
+	}
+}
 
 const parseReplaceValues = (
 	body: JsonObject,
 	existingRow: Awaited<ReturnType<typeof fetchRecipe>>,
 ) => {
-	assertKnownFields(body, WRITABLE_FIELDS);
+	assertKnownFields(body, WRITABLE_FIELDS)
 	return {
 		name: requireBodyField(body, "name", expectString),
 		description:
-			readOptionalBodyField(body, "description", expectNullableString) ?? null,
+			readOptionalBodyField(body, "description", expectNullableString) ??
+			null,
 		instructions:
-			readOptionalBodyField(body, "instructions", expectNullableString) ?? null,
+			readOptionalBodyField(body, "instructions", expectNullableString) ??
+			null,
 		servings:
-			readOptionalBodyField(body, "servings", expectNullableInteger) ?? null,
+			readOptionalBodyField(body, "servings", expectNullableInteger) ??
+			null,
 		is_active: requireBodyField(body, "is_active", expectBoolean),
 		created_at: existingRow?.created_at ?? utcNow(),
 		updated_at: utcNow(),
-	};
-};
+	}
+}
 
 const parsePatchValues = (body: JsonObject) => {
-	assertKnownFields(body, WRITABLE_FIELDS);
-	const values: Record<string, unknown> = {};
+	assertKnownFields(body, WRITABLE_FIELDS)
+	const values: Record<string, unknown> = {}
 
-	const name = readOptionalBodyField(body, "name", expectString);
+	const name = readOptionalBodyField(body, "name", expectString)
 	const description = readOptionalBodyField(
 		body,
 		"description",
 		expectNullableString,
-	);
+	)
 	const instructions = readOptionalBodyField(
 		body,
 		"instructions",
 		expectNullableString,
-	);
+	)
 	const servings = readOptionalBodyField(
 		body,
 		"servings",
 		expectNullableInteger,
-	);
-	const isActive = readOptionalBodyField(body, "is_active", expectBoolean);
+	)
+	const isActive = readOptionalBodyField(body, "is_active", expectBoolean)
 
-	if (name !== undefined) values.name = name;
-	if (description !== undefined) values.description = description;
-	if (instructions !== undefined) values.instructions = instructions;
-	if (servings !== undefined) values.servings = servings;
-	if (isActive !== undefined) values.is_active = isActive;
+	if (name !== undefined) values.name = name
+	if (description !== undefined) values.description = description
+	if (instructions !== undefined) values.instructions = instructions
+	if (servings !== undefined) values.servings = servings
+	if (isActive !== undefined) values.is_active = isActive
 
 	if (Object.keys(values).length === 0) {
-		throw new HttpError(400, "PATCH request must contain at least one writable field");
+		throw new HttpError(
+			400,
+			"PATCH request must contain at least one writable field",
+		)
 	}
 
-	values.updated_at = utcNow();
-	return values;
-};
+	values.updated_at = utcNow()
+	return values
+}
 
 export const recipesCollectionRoute = async (req: Request) => {
 	if (req.method === "GET") {
-		const url = new URL(req.url);
+		const url = new URL(req.url)
 		return json(
 			200,
 			await db.client.recipe.findMany({
 				where: parseFilters(url),
 				orderBy: parseSort(url),
 			}),
-		);
+		)
 	}
 	if (req.method === "POST") {
 		return json(
@@ -328,87 +337,90 @@ export const recipesCollectionRoute = async (req: Request) => {
 			await db.client.recipe.create({
 				data: parseCreateValues(await readJsonObject(req)),
 			}),
-		);
+		)
 	}
-	throw new HttpError(405, "Method not allowed for this route");
-};
+	throw new HttpError(405, "Method not allowed for this route")
+}
 
 export const recipeDetailRoute = async (req: BunRequest<string>) => {
-	const id = parseIdParam(req.params.id);
-	const existingRow = await fetchRecipe(db, id);
-	if (!existingRow) throw new HttpError(404, "Resource not found");
+	const id = parseIdParam(req.params.id)
+	const existingRow = await fetchRecipe(db, id)
+	if (!existingRow) throw new HttpError(404, "Resource not found")
 
 	if (req.method === "GET") {
-		return json(200, await fetchRecipeDetail(db, id));
+		return json(200, await fetchRecipeDetail(db, id))
 	}
 	if (req.method === "PUT") {
 		await db.client.recipe.update({
 			where: { id },
 			data: parseReplaceValues(await readJsonObject(req), existingRow),
-		});
-		return json(200, await fetchRecipeDetail(db, id));
+		})
+		return json(200, await fetchRecipeDetail(db, id))
 	}
 	if (req.method === "PATCH") {
 		await db.client.recipe.update({
 			where: { id },
 			data: parsePatchValues(await readJsonObject(req)),
-		});
-		return json(200, await fetchRecipeDetail(db, id));
+		})
+		return json(200, await fetchRecipeDetail(db, id))
 	}
 	if (req.method === "DELETE") {
 		const images = await db.client.recipeImage.findMany({
 			where: { recipe_id: id },
 			select: { file: { select: { id: true, path: true } } },
-		});
+		})
 		await db.client.recipeImage.deleteMany({
 			where: { recipe_id: id },
-		});
+		})
 		await db.client.file.deleteMany({
 			where: {
 				id: {
 					in: images.map((image) => image.file.id),
 				},
 			},
-		});
-		await db.client.recipe.delete({ where: { id } });
+		})
+		await db.client.recipe.delete({ where: { id } })
 		await Promise.all(
 			images.map((image) =>
 				deleteStoredFileBestEffort(db, image.file.path),
 			),
-		);
-		return empty(204);
+		)
+		return empty(204)
 	}
-	throw new HttpError(405, "Method not allowed for this route");
-};
+	throw new HttpError(405, "Method not allowed for this route")
+}
 
 export const recipeImagesCollectionRoute = async (req: BunRequest<string>) => {
-	const recipeId = parseIdParam(req.params.id);
-	await ensureRecipeExists(db, recipeId);
+	const recipeId = parseIdParam(req.params.id)
+	await ensureRecipeExists(db, recipeId)
 
 	if (req.method === "GET") {
-		return json(200, await fetchRecipeImages(db, recipeId));
+		return json(200, await fetchRecipeImages(db, recipeId))
 	}
 
 	if (req.method === "POST") {
-		const formData = await req.formData();
-		const uploaded = parseUploadedRecipeImages(formData.getAll("file"));
+		const formData = await req.formData()
+		const uploaded = parseUploadedRecipeImages(formData.getAll("file"))
 		if (uploaded.length === 0) {
-			throw new HttpError(400, "Multipart form-data must include one or more `file` fields");
+			throw new HttpError(
+				400,
+				"Multipart form-data must include one or more `file` fields",
+			)
 		}
 
-		return json(201, await createRecipeImages(db, recipeId, uploaded));
+		return json(201, await createRecipeImages(db, recipeId, uploaded))
 	}
 
-	throw new HttpError(405, "Method not allowed for this route");
-};
+	throw new HttpError(405, "Method not allowed for this route")
+}
 
 export const recipeImageDetailRoute = async (req: BunRequest<string>) => {
-	const recipeId = parseIdParam(req.params.id);
-	const pictureId = parseIdParam(req.params.pictureId);
-	await ensureRecipeExists(db, recipeId);
-	const image = await fetchRecipeImage(db, recipeId, pictureId);
+	const recipeId = parseIdParam(req.params.id)
+	const pictureId = parseIdParam(req.params.pictureId)
+	await ensureRecipeExists(db, recipeId)
+	const image = await fetchRecipeImage(db, recipeId, pictureId)
 	if (!image) {
-		throw new HttpError(404, "Recipe image not found");
+		throw new HttpError(404, "Recipe image not found")
 	}
 
 	if (req.method === "GET") {
@@ -426,17 +438,17 @@ export const recipeImageDetailRoute = async (req: BunRequest<string>) => {
 						: {}),
 				},
 			},
-		);
+		)
 	}
 
 	if (req.method === "DELETE") {
 		await db.client.recipeImage.delete({
 			where: { id: pictureId },
-		});
-		await db.client.file.delete({ where: { id: image.file.id } });
-		await deleteStoredFileBestEffort(db, image.file.path);
-		return empty(204);
+		})
+		await db.client.file.delete({ where: { id: image.file.id } })
+		await deleteStoredFileBestEffort(db, image.file.path)
+		return empty(204)
 	}
 
-	throw new HttpError(405, "Method not allowed for this route");
-};
+	throw new HttpError(405, "Method not allowed for this route")
+}
