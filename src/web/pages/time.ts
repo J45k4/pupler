@@ -1752,7 +1752,6 @@ const createRunningEditModal = (
 	const open = () => {
 		root.hidden = false
 		document.body.classList.add("modal-open")
-		projectSelect.focus()
 	}
 
 	closeButton.onClick = close
