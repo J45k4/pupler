@@ -1582,7 +1582,6 @@ const createTimeEntryEditModal = (
 			row,
 			actions,
 		)
-		window.setTimeout(() => projectSelect.focus(), 0)
 	}
 
 	function close() {
@@ -1599,6 +1598,7 @@ const createTimeEntryEditModal = (
 		root.hidden = false
 		document.body.classList.add("modal-open")
 		setLocalStatus("")
+		root.focus()
 	}
 
 	closeButton.onClick = close
@@ -1752,6 +1752,7 @@ const createRunningEditModal = (
 	const open = () => {
 		root.hidden = false
 		document.body.classList.add("modal-open")
+		root.focus()
 	}
 
 	closeButton.onClick = close
@@ -2150,8 +2151,11 @@ const createQuickActions = (context: TimePageContext) => {
 	})
 }
 
-const createTimeEntryRow = (context: TimePageContext, entry: TimeEntry) => {
-	const isRunning = entry.ended_at === null
+const createTimeEntryRow = (
+	context: TimePageContext,
+	entry: TimeEntry,
+	onEditEntry: (entry: TimeEntry) => void,
+) => {
 	const root = div(
 		`time-entry-row ${entry.ended_at ? "" : "time-entry-row--running"}`,
 	)
@@ -2219,127 +2223,15 @@ const createTimeEntryRow = (context: TimePageContext, entry: TimeEntry) => {
 	summaryActions.append(startAgain.root)
 	summary.append(main, summaryActions)
 
-	const form = document.createElement("form")
-	form.className = "time-entry-edit-form"
-	form.hidden = true
-	const projectSelect = selectProject(
-		context.store.get().projects,
-		entry.project_id,
-	)
-	projectSelect.setAttribute("aria-label", "Entry project")
-	const descriptionInput = document.createElement("input")
-	descriptionInput.value = entry.description ?? ""
-	descriptionInput.setAttribute("aria-label", "Entry description")
-
-	const startedAt = document.createElement("input")
-	startedAt.type = "datetime-local"
-	startedAt.value = formatTimestampForDateTimeLocalInput(entry.started_at)
-	startedAt.required = true
-
-	const endedAt = document.createElement("input")
-	endedAt.type = "datetime-local"
-	endedAt.value = entry.ended_at
-		? formatTimestampForDateTimeLocalInput(entry.ended_at)
-		: ""
-
-	const row = div("row")
-	const startField = field("Start", startedAt)
-	startField.append(timeAdjustmentButtons("Start", startedAt))
-	row.append(startField)
-	if (!isRunning) {
-		const endField = field("End", endedAt)
-		endField.append(timeAdjustmentButtons("End", endedAt))
-		row.append(endField)
-	}
-
-	const actions = div("actions")
-	const save = new Button({
-		text: "Save",
-		className: "primary",
-		type: "submit",
-	})
-	const cancel = new Button({ text: "Cancel", className: "secondary" })
-	const remove = new Button({ text: "Delete", className: "secondary" })
-	actions.append(save.root, cancel.root, remove.root)
-
-	form.append(
-		field("Project", projectSelect),
-		field("Description", descriptionInput),
-		row,
-		actions,
-	)
-
-	const showEdit = () => {
-		summary.hidden = true
-		form.hidden = false
-		projectSelect.focus()
-	}
-	const hideEdit = () => {
-		form.hidden = true
-		summary.hidden = false
-	}
-
-	editButton.onClick = showEdit
-	cancel.onClick = hideEdit
-	remove.onClick = async () => {
-		try {
-			await context.actions.deleteEntry(entry)
-			setStatus(context.status, "Entry deleted.")
-		} catch (error) {
-			setStatus(
-				context.status,
-				error instanceof Error
-					? error.message
-					: "Failed to delete entry.",
-				true,
-			)
-		}
-	}
-	form.addEventListener("submit", async (event) => {
-		event.preventDefault()
-		const startedAtValue = parseDateTimeLocalInput(startedAt.value)
-		const endedAtValue =
-			!isRunning && endedAt.value.trim()
-				? parseDateTimeLocalInput(endedAt.value)
-				: null
-		if (
-			!startedAtValue ||
-			(!isRunning && endedAt.value.trim() && !endedAtValue)
-		) {
-			setStatus(context.status, "Entry times are invalid.", true)
-			return
-		}
-
-		try {
-			if (!projectSelect.value && !isRunning) {
-				setStatus(context.status, "Project is required.", true)
-				return
-			}
-			await context.actions.updateEntry(entry, {
-				projectId: projectSelect.value
-					? Number(projectSelect.value)
-					: null,
-				description: descriptionInput.value.trim() || null,
-				startedAt: startedAtValue,
-				endedAt: endedAtValue,
-			})
-			setStatus(context.status, "Entry saved.")
-		} catch (error) {
-			setStatus(
-				context.status,
-				error instanceof Error
-					? error.message
-					: "Failed to save entry.",
-				true,
-			)
-		}
-	})
-
-	root.append(summary, form)
+	editButton.onClick = () => onEditEntry(entry)
+	root.append(summary)
 	return new UiComponent(root)
 }
 
-const createTimeEntriesList = (context: TimePageContext) => {
+const createTimeEntriesList = (
+	context: TimePageContext,
+	onEditEntry: (entry: TimeEntry) => void,
+) => {
 	const root = div("time-entry-list")
 
 	const render = () => {
@@ -2353,7 +2245,7 @@ const createTimeEntriesList = (context: TimePageContext) => {
 		}
 		root.append(
 			...recentEntries.map(
-				(entry) => createTimeEntryRow(context, entry).root,
+				(entry) => createTimeEntryRow(context, entry, onEditEntry).root,
 			),
 		)
 	}
@@ -3393,8 +3285,9 @@ export const renderTimePage = (page: HTMLElement) => {
 
 	const timerPanel = createTimerPanel(context)
 	const quickActions = createQuickActions(context)
-	const entriesList = createTimeEntriesList(context)
 	const entryCreateModal = createTimeEntryCreateModal(context)
+	const entryEditModal = createTimeEntryEditModal(context)
+	const entriesList = createTimeEntriesList(context, entryEditModal.open)
 
 	const workspace = div("workspace time-workspace")
 	const sidebar = div("time-sidebar")
@@ -3421,7 +3314,7 @@ export const renderTimePage = (page: HTMLElement) => {
 	main.append(entriesBlock)
 
 	workspace.append(sidebar, main)
-	page.append(workspace, entryCreateModal.root)
+	page.append(workspace, entryCreateModal.root, entryEditModal.root)
 
 	void actions.loadInitial()
 }
