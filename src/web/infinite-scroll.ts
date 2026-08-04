@@ -1,23 +1,23 @@
 type InfiniteScrollOptions<T> = {
 	batchSize?: number;
-	emptyHtml: string;
-	renderItem: (item: T, index: number) => string;
+	empty: () => Node;
+	renderItem: (item: T, index: number) => Node;
 	root: HTMLElement;
 };
 
 export class InfiniteScroll<T> {
 	private readonly batchSize: number;
-	private readonly emptyHtml: string;
+	private readonly empty: () => Node;
 	private readonly items: T[];
 	private observer: IntersectionObserver | null = null;
-	private readonly renderItem: (item: T, index: number) => string;
+	private readonly renderItem: (item: T, index: number) => Node;
 	private renderedCount = 0;
 	private readonly root: HTMLElement;
 	private sentinel: HTMLDivElement | null = null;
 
 	constructor(options: InfiniteScrollOptions<T>, items: T[]) {
 		this.batchSize = options.batchSize ?? 12;
-		this.emptyHtml = options.emptyHtml;
+		this.empty = options.empty;
 		this.items = items;
 		this.renderItem = options.renderItem;
 		this.root = options.root;
@@ -32,11 +32,11 @@ export class InfiniteScroll<T> {
 
 	render() {
 		this.destroy();
-		this.root.innerHTML = "";
+		this.root.replaceChildren();
 		this.renderedCount = 0;
 
 		if (!this.items.length) {
-			this.root.innerHTML = this.emptyHtml;
+			this.root.replaceChildren(this.empty());
 			return;
 		}
 
@@ -72,13 +72,10 @@ export class InfiniteScroll<T> {
 			return;
 		}
 
-		const fragment = document.createRange().createContextualFragment(
-			slice
-				.map((item, index) =>
-					this.renderItem(item, this.renderedCount + index),
-				)
-				.join(""),
-		);
+		const fragment = document.createDocumentFragment();
+		for (const [index, item] of slice.entries()) {
+			fragment.append(this.renderItem(item, this.renderedCount + index));
+		}
 
 		if (this.sentinel) {
 			this.root.insertBefore(fragment, this.sentinel);

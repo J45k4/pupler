@@ -4,34 +4,29 @@ import {
 	renderPage,
 	renderProductDetail,
 } from "../app";
+import { createElement, createPageMessage, withQueryRoot } from "../lib/dom";
 
-export const renderProductDetailPage = (params: Record<string, string>) => {
-	renderPage('<div id="product-detail-page"></div>');
+export const renderProductDetailPage = async (params: Record<string, string>) => {
+	const productId = Number.parseInt(params.id ?? "", 10);
+	const page = createElement("div", { id: "product-detail-page" });
+	if (!Number.isInteger(productId)) {
+		page.append(createPageMessage("Product id is invalid."));
+		renderPage(page);
+		return;
+	}
 
-	void (async () => {
-		const rawId = params.id ?? "";
-		const productId = Number.parseInt(rawId, 10);
-		const page = document.getElementById("product-detail-page");
-		if (!page) {
-			return;
-		}
-
-		if (!Number.isInteger(productId)) {
-			page.innerHTML =
-				'<div class="card panel page-panel"><p class="page-copy">Product id is invalid.</p></div>';
-			return;
-		}
-
-		try {
-			const product = await fetchProduct(productId);
+	try {
+		const product = await fetchProduct(productId);
+		withQueryRoot(page, () => {
 			renderProductDetail(product);
 			attachProductDetailEvents(productId);
-		} catch (error) {
-			page.innerHTML = `
-				<div class="card panel page-panel">
-					<p class="page-copy">${error instanceof Error ? error.message : "Failed to load product."}</p>
-				</div>
-			`;
-		}
-	})();
+		});
+	} catch (error) {
+		page.append(
+			createPageMessage(
+				error instanceof Error ? error.message : "Failed to load product.",
+			),
+		);
+	}
+	renderPage(page);
 };

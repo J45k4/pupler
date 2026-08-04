@@ -1,3 +1,5 @@
+import { createElement } from "./lib/dom";
+
 type NavItem = {
 	href: string;
 	label: string;
@@ -20,14 +22,6 @@ type NavigationEntry = {
 	group: string;
 	keywords?: string;
 };
-
-const escapeHtml = (value: string) =>
-	value
-		.replace(/&/g, "&amp;")
-		.replace(/</g, "&lt;")
-		.replace(/>/g, "&gt;")
-		.replace(/"/g, "&quot;")
-		.replace(/'/g, "&#39;");
 
 export const primaryNavItems: NavItem[] = [
 	{ href: "/", label: "Overview", mobileLabel: "Home" },
@@ -116,22 +110,45 @@ const isActiveNavHref = (currentPath: string, href: string) =>
 
 const renderAccountMenu = (user: NavbarUser | null) => {
 	if (!user) {
-		return `<a class="account-login" href="/login" data-link>Login</a>`;
+		const login = createElement("a", {
+			className: "account-login",
+			text: "Login",
+		});
+		login.href = "/login";
+		login.dataset.link = "";
+		return login;
 	}
 
-	const label = escapeHtml(user.username ?? user.name);
-	return `
-		<div class="account-menu">
-			<button class="account-menu__trigger" type="button" aria-haspopup="true">
-				${label}
-			</button>
-			<div class="account-menu__dropdown">
-				<div class="account-menu__username">${label}</div>
-				<a class="account-menu__link" href="/settings" data-link>Settings</a>
-				<button class="account-menu__logout" type="button">Logout</button>
-			</div>
-		</div>
-	`;
+	const label = user.username ?? user.name;
+	const trigger = createElement("button", {
+		className: "account-menu__trigger",
+		text: label,
+	});
+	trigger.type = "button";
+	trigger.setAttribute("aria-haspopup", "true");
+	const settings = createElement("a", {
+		className: "account-menu__link",
+		text: "Settings",
+	});
+	settings.href = "/settings";
+	settings.dataset.link = "";
+	const logout = createElement("button", {
+		className: "account-menu__logout",
+		text: "Logout",
+	});
+	logout.type = "button";
+	return createElement(
+		"div",
+		{ className: "account-menu" },
+		trigger,
+		createElement(
+			"div",
+			{ className: "account-menu__dropdown" },
+			createElement("div", { className: "account-menu__username", text: label }),
+			settings,
+			logout,
+		),
+	);
 };
 
 export const renderNavbar = (currentPath: string, user: NavbarUser | null = null) => {
@@ -139,69 +156,94 @@ export const renderNavbar = (currentPath: string, user: NavbarUser | null = null
 		? navigationEntries
 		: navigationEntries.filter((entry) => entry.href !== "/users");
 	const activeEntry = activeNavigationEntry(currentPath, visibleNavigationEntries);
-	return `
-		<header class="site-header">
-			<div class="site-header__inner">
-				<a class="brand" href="/" data-link>
-					<span class="brand__badge">Pupler</span>
-				</a>
-				${user ? `
-				<div class="navigation-hub">
-					<button
-						class="navigation-hub__trigger"
-						id="navigation-hub-trigger"
-						type="button"
-						aria-haspopup="dialog"
-						aria-expanded="false"
-						aria-controls="navigation-hub-menu"
-					>
-						<img class="navigation-hub__logo" src="/favicon.png" alt="" aria-hidden="true" />
-						<span class="navigation-hub__label">${escapeHtml(activeEntry.label)}</span>
-					</button>
-					<div class="navigation-menu card" id="navigation-hub-menu" hidden>
-						<input
-							class="navigation-menu__search"
-							id="navigation-menu-search"
-							type="search"
-							placeholder="Search or jump to a page"
-							autocomplete="off"
-						/>
-						<div class="navigation-menu__section-title">Pages</div>
-						<div class="navigation-menu__results" id="navigation-menu-results">
-							${visibleNavigationEntries
-								.map(
-									(entry) => `
-										<a
-											class="navigation-menu__result${isActiveNavHref(currentPath, entry.href) ? " navigation-menu__result--active" : ""}"
-											href="${entry.href}"
-											data-link
-											data-navigation-entry
-											data-label="${escapeHtml(`${entry.label} ${entry.group} ${entry.keywords ?? ""}`.toLowerCase())}"
-										>
-											<span class="navigation-menu__result-mark" aria-hidden="true">${escapeHtml(entry.label.slice(0, 1))}</span>
-											<span>
-												<strong>${escapeHtml(entry.label)}</strong>
-												<small>${escapeHtml(entry.group)}</small>
-											</span>
-										</a>
-									`,
-								)
-								.join("")}
-						</div>
-					</div>
-				</div>` : ""}
-				${currentPath === "/login" ? "" : renderAccountMenu(user)}
-			</div>
-		</header>
-	`;
+	const brand = createElement("a", { className: "brand" });
+	brand.href = "/";
+	brand.dataset.link = "";
+	brand.append(createElement("span", { className: "brand__badge", text: "Pupler" }));
+	const inner = createElement("div", { className: "site-header__inner" }, brand);
+
+	if (user) {
+		const trigger = createElement("button", {
+			id: "navigation-hub-trigger",
+			className: "navigation-hub__trigger",
+		});
+		trigger.type = "button";
+		trigger.setAttribute("aria-haspopup", "dialog");
+		trigger.setAttribute("aria-expanded", "false");
+		trigger.setAttribute("aria-controls", "navigation-hub-menu");
+		const logo = createElement("img", { className: "navigation-hub__logo" });
+		logo.src = "/favicon.png";
+		logo.alt = "";
+		logo.setAttribute("aria-hidden", "true");
+		trigger.append(
+			logo,
+			createElement("span", {
+				className: "navigation-hub__label",
+				text: activeEntry.label,
+			}),
+		);
+
+		const search = createElement("input", {
+			id: "navigation-menu-search",
+			className: "navigation-menu__search",
+		});
+		search.type = "search";
+		search.placeholder = "Search or jump to a page";
+		search.autocomplete = "off";
+		const results = createElement("div", {
+			id: "navigation-menu-results",
+			className: "navigation-menu__results",
+		});
+		for (const entry of visibleNavigationEntries) {
+			const link = createElement("a", {
+				className: `navigation-menu__result${isActiveNavHref(currentPath, entry.href) ? " navigation-menu__result--active" : ""}`,
+			});
+			link.href = entry.href;
+			link.dataset.link = "";
+			link.dataset.navigationEntry = "";
+			link.dataset.label = `${entry.label} ${entry.group} ${entry.keywords ?? ""}`.toLowerCase();
+			const mark = createElement("span", {
+				className: "navigation-menu__result-mark",
+				text: entry.label.slice(0, 1),
+			});
+			mark.setAttribute("aria-hidden", "true");
+			link.append(
+				mark,
+				createElement(
+					"span",
+					{},
+					createElement("strong", { text: entry.label }),
+					createElement("small", { text: entry.group }),
+				),
+			);
+			results.append(link);
+		}
+		const menu = createElement(
+			"div",
+			{ id: "navigation-hub-menu", className: "navigation-menu card" },
+			search,
+			createElement("div", {
+				className: "navigation-menu__section-title",
+				text: "Pages",
+			}),
+			results,
+		);
+		menu.hidden = true;
+		inner.append(createElement("div", { className: "navigation-hub" }, trigger, menu));
+	}
+	if (currentPath !== "/login") inner.append(renderAccountMenu(user));
+	return createElement("header", { className: "site-header" }, inner);
 };
 
-export const attachNavigationMenu = (signal?: AbortSignal) => {
-	const trigger = document.getElementById("navigation-hub-trigger");
-	const menu = document.getElementById("navigation-hub-menu");
-	const search = document.getElementById("navigation-menu-search");
+export const attachNavigationMenu = (
+	root: ParentNode = document,
+	signal?: AbortSignal,
+) => {
+	const trigger = root.querySelector("#navigation-hub-trigger");
+	const menu = root.querySelector("#navigation-hub-menu");
+	const search = root.querySelector("#navigation-menu-search");
 	const resultLinks = Array.from(
-		document.querySelectorAll<HTMLAnchorElement>("[data-navigation-entry]"),
+		root.querySelectorAll<HTMLAnchorElement>("[data-navigation-entry]"),
 	);
 	if (
 		!(trigger instanceof HTMLButtonElement) ||

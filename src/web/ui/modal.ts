@@ -1,9 +1,9 @@
-import { escapeHtml } from "../lib/html";
+import { createElement, getElementById, type DomChild } from "../lib/dom";
 
-type RenderModalOptions = {
+type CreateModalOptions = {
 	id: string;
 	title: string;
-	children: string;
+	children: DomChild | DomChild[];
 	closeDataAttribute: string;
 	ariaLabel?: string;
 	className?: string;
@@ -20,7 +20,7 @@ type AttachModalOptions = {
 	onClose?: () => void;
 };
 
-export const renderModal = ({
+export const createModal = ({
 	id,
 	title,
 	children,
@@ -29,30 +29,41 @@ export const renderModal = ({
 	className = "",
 	headerClassName = "",
 	titleId = `${id}-title`,
-}: RenderModalOptions) => `
-	<div class="app-modal ${className}" id="${id}" hidden>
-		<div class="app-modal__backdrop" ${closeDataAttribute}></div>
-		<div
-			class="app-modal__dialog card panel"
-			role="dialog"
-			aria-modal="true"
-			${ariaLabel ? `aria-label="${escapeHtml(ariaLabel)}"` : `aria-labelledby="${titleId}"`}
-		>
-			<div class="section-header ${headerClassName}">
-				<h2 id="${titleId}">${escapeHtml(title)}</h2>
-				<button
-					class="secondary"
-					type="button"
-					aria-label="Close ${escapeHtml(title.toLowerCase())} modal"
-					${closeDataAttribute}
-				>
-					Close
-				</button>
-			</div>
-			${children}
-		</div>
-	</div>
-`;
+}: CreateModalOptions) => {
+	const backdrop = createElement("div", { className: "app-modal__backdrop" });
+	backdrop.setAttribute(closeDataAttribute, "");
+	const close = createElement("button", {
+		className: "secondary",
+		text: "Close",
+	});
+	close.type = "button";
+	close.setAttribute("aria-label", `Close ${title.toLowerCase()} modal`);
+	close.setAttribute(closeDataAttribute, "");
+	const header = createElement(
+		"div",
+		{ className: `section-header${headerClassName ? ` ${headerClassName}` : ""}` },
+		createElement("h2", { id: titleId, text: title }),
+		close,
+	);
+	const dialog = createElement(
+		"div",
+		{ className: "app-modal__dialog card panel" },
+		header,
+		children,
+	);
+	dialog.role = "dialog";
+	dialog.setAttribute("aria-modal", "true");
+	if (ariaLabel) dialog.setAttribute("aria-label", ariaLabel);
+	else dialog.setAttribute("aria-labelledby", titleId);
+	const modal = createElement(
+		"div",
+		{ id, className: `app-modal${className ? ` ${className}` : ""}` },
+		backdrop,
+		dialog,
+	);
+	modal.hidden = true;
+	return modal;
+};
 
 export const attachModalControls = ({
 	modalId,
@@ -62,7 +73,7 @@ export const attachModalControls = ({
 	onOpen,
 	onClose,
 }: AttachModalOptions) => {
-	const modal = document.getElementById(modalId);
+	const modal = getElementById(modalId);
 	if (!(modal instanceof HTMLElement)) {
 		return {
 			open: () => {},
@@ -87,7 +98,7 @@ export const attachModalControls = ({
 	};
 
 	if (openButtonId) {
-		document.getElementById(openButtonId)?.addEventListener("click", open);
+		getElementById(openButtonId)?.addEventListener("click", open);
 	}
 
 	modal.addEventListener("click", (event) => {

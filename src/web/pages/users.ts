@@ -1,6 +1,12 @@
-import { escapeHtml, renderPage, setStatus } from "../app";
+import { renderPage, setStatus } from "../app";
 import { getCurrentUser } from "../auth";
-import { attachModalControls, renderModal } from "../ui/modal";
+import {
+	createElement,
+	createEmptyState,
+	getElementById,
+	withQueryRoot,
+} from "../lib/dom";
+import { attachModalControls, createModal } from "../ui/modal";
 
 type User = {
 	id: number;
@@ -39,49 +45,50 @@ const nullableText = (value: FormDataEntryValue | null) => {
 };
 
 const renderUsers = (users: User[]) => {
-	const results = document.getElementById("user-results");
+	const results = getElementById("user-results");
 	if (!results) return;
 
 	if (!users.length) {
-		results.innerHTML = '<div class="empty">No users yet.</div>';
+		results.replaceChildren(createEmptyState("No users yet."));
 		return;
 	}
 
-	results.innerHTML = `
-		<div class="user-table-wrap">
-			<table class="user-table">
-				<thead>
-					<tr>
-						<th scope="col">Name</th>
-						<th scope="col">Username</th>
-						<th scope="col">Email</th>
-						<th scope="col">Password</th>
-						<th scope="col">Admin</th>
-						<th scope="col">Actions</th>
-					</tr>
-				</thead>
-				<tbody>
-					${users
-						.map(
-							(user) => `
-								<tr>
-									<td>${escapeHtml(user.name)}</td>
-									<td>${escapeHtml(user.username ?? "—")}</td>
-									<td>${escapeHtml(user.email ?? "—")}</td>
-									<td class="user-table__password">••••••••</td>
-									<td class="user-table__admin">${user.is_admin ? '<span class="tag">Admin</span>' : "—"}</td>
-									<td class="user-table__actions">
-										<button class="secondary" type="button" data-user-edit-id="${user.id}">Edit</button>
-										<button class="secondary" type="button" data-user-delete-id="${user.id}">Delete</button>
-									</td>
-								</tr>
-							`,
-						)
-						.join("")}
-				</tbody>
-			</table>
-		</div>
-	`;
+	const table = createElement("table", { className: "user-table" });
+	const header = document.createElement("tr");
+	for (const label of ["Name", "Username", "Email", "Password", "Admin", "Actions"]) {
+		const cell = createElement("th", { text: label });
+		cell.scope = "col";
+		header.append(cell);
+	}
+	const head = document.createElement("thead");
+	head.append(header);
+	const body = document.createElement("tbody");
+	for (const user of users) {
+		const edit = createElement("button", { className: "secondary", text: "Edit" });
+		edit.type = "button";
+		edit.dataset.userEditId = String(user.id);
+		const remove = createElement("button", { className: "secondary", text: "Delete" });
+		remove.type = "button";
+		remove.dataset.userDeleteId = String(user.id);
+		const adminCell = createElement("td", { className: "user-table__admin" });
+		adminCell.append(
+			user.is_admin
+				? createElement("span", { className: "tag", text: "Admin" })
+				: "—",
+		);
+		const row = document.createElement("tr");
+		row.append(
+			createElement("td", { text: user.name }),
+			createElement("td", { text: user.username ?? "—" }),
+			createElement("td", { text: user.email ?? "—" }),
+			createElement("td", { className: "user-table__password", text: "••••••••" }),
+			adminCell,
+			createElement("td", { className: "user-table__actions" }, edit, remove),
+		);
+		body.append(row);
+	}
+	table.append(head, body);
+	results.replaceChildren(createElement("div", { className: "user-table-wrap" }, table));
 };
 
 const loadUsers = async () => {
@@ -114,7 +121,7 @@ const attachUserEvents = () => {
 		closeSelector: "[data-user-create-modal-close]",
 		focusSelector: "input[name='name']",
 		onOpen: () => {
-			const form = document.getElementById("user-create-form");
+			const form = getElementById("user-create-form");
 			if (form instanceof HTMLFormElement) form.reset();
 			setStatus("user-create-status", "");
 		},
@@ -223,7 +230,7 @@ const attachUserEvents = () => {
 
 			const user = usersPageState.find((entry) => entry.id === userId);
 			if (!user) return;
-			const form = document.getElementById("user-edit-form");
+			const form = getElementById("user-edit-form");
 			if (!(form instanceof HTMLFormElement)) return;
 			form.dataset.userId = String(user.id);
 			(form.elements.namedItem("name") as HTMLInputElement).value = user.name;
@@ -238,68 +245,43 @@ const attachUserEvents = () => {
 
 export const renderUsersPage = () => {
 	if (!getCurrentUser()?.is_admin) {
-		renderPage(`
-			<section class="workspace workspace--single">
-				<div class="card panel"><h2>Administrator access required</h2></div>
-			</section>
-		`);
+		renderPage(createElement("section", { className: "workspace workspace--single" }, createElement("div", { className: "card panel" }, createElement("h2", {}, "Administrator access required"))));
 		return;
 	}
-	renderPage(`
-		<section class="workspace workspace--single">
-			<div class="card panel">
-				<div class="section-header">
-					<h2>Users</h2>
-					<button class="primary" id="open-user-create-modal" type="button">New User</button>
-				</div>
-				<div id="users-status" class="status" role="status"></div>
-				<div id="user-results"></div>
-			</div>
-		</section>
-
-		${renderModal({
+	const userForm = (id: string, editing = false) => createElement("form", { id },
+		createElement("label", {}, "Name", createElement("input", { properties: { name: "name", autocomplete: "name", required: true } })),
+		createElement("label", {}, "Username", createElement("input", { properties: { name: "username", autocomplete: "username" } })),
+		createElement("label", {}, "Email", createElement("input", { properties: { name: "email", type: "email", autocomplete: "email" } })),
+		createElement("label", {}, editing ? "New password" : "Password", createElement("input", { properties: { name: "password", type: "password", minLength: 8, autocomplete: "new-password", required: !editing, placeholder: editing ? "Leave unchanged" : "" } })),
+		createElement("label", { className: "inline-toggle" }, createElement("input", { properties: { name: "is_admin", type: "checkbox" } }), "Administrator"),
+		createElement("div", { className: "actions" },
+			createElement("button", { className: "primary", properties: { type: "submit" } }, editing ? "Save User" : "Create User"),
+			createElement("button", { className: "secondary", properties: { type: "button" }, attributes: { [editing ? "data-user-edit-modal-close" : "data-user-create-modal-close"]: "" } }, "Cancel"),
+		),
+		createElement("div", { id: editing ? "user-edit-status" : "user-create-status", className: "status", attributes: { role: "status" } }),
+	);
+	const page = document.createDocumentFragment();
+	page.append(
+		createElement("section", { className: "workspace workspace--single" }, createElement("div", { className: "card panel" },
+			createElement("div", { className: "section-header" }, createElement("h2", {}, "Users"), createElement("button", { id: "open-user-create-modal", className: "primary", properties: { type: "button" } }, "New User")),
+			createElement("div", { id: "users-status", className: "status", attributes: { role: "status" } }), createElement("div", { id: "user-results" }),
+		)),
+		createModal({
 			id: "user-create-modal",
 			title: "New User",
 			closeDataAttribute: "data-user-create-modal-close",
 			className: "user-create-modal",
-			children: `
-				<form id="user-create-form">
-					<label>Name<input name="name" autocomplete="name" required /></label>
-					<label>Username<input name="username" autocomplete="username" /></label>
-					<label>Email<input name="email" type="email" autocomplete="email" /></label>
-					<label>Password<input name="password" type="password" minlength="8" autocomplete="new-password" required /></label>
-					<label class="inline-toggle"><input name="is_admin" type="checkbox" /> Administrator</label>
-					<div class="actions">
-						<button class="primary" type="submit">Create User</button>
-						<button class="secondary" type="button" data-user-create-modal-close>Cancel</button>
-					</div>
-					<div id="user-create-status" class="status" role="status"></div>
-				</form>
-			`,
-		})}
-
-		${renderModal({
+			children: userForm("user-create-form"),
+		}),
+		createModal({
 			id: "user-edit-modal",
 			title: "Edit User",
 			closeDataAttribute: "data-user-edit-modal-close",
 			className: "user-edit-modal",
-			children: `
-				<form id="user-edit-form">
-					<label>Name<input name="name" autocomplete="name" required /></label>
-					<label>Username<input name="username" autocomplete="username" /></label>
-					<label>Email<input name="email" type="email" autocomplete="email" /></label>
-					<label>New password<input name="password" type="password" minlength="8" autocomplete="new-password" placeholder="Leave unchanged" /></label>
-					<label class="inline-toggle"><input name="is_admin" type="checkbox" /> Administrator</label>
-					<div class="actions">
-						<button class="primary" type="submit">Save User</button>
-						<button class="secondary" type="button" data-user-edit-modal-close>Cancel</button>
-					</div>
-					<div id="user-edit-status" class="status" role="status"></div>
-				</form>
-			`,
-		})}
-	`);
-
-	attachUserEvents();
+			children: userForm("user-edit-form", true),
+		}),
+	);
+	withQueryRoot(page, attachUserEvents);
+	renderPage(page);
 	void loadUsers();
 };

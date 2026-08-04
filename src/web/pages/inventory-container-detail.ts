@@ -1,33 +1,34 @@
 import {
+	createInventoryItemNodeLink,
 	deleteInventoryContainer,
 	fetchInventoryContainer,
 	fetchInventoryContainers,
 	fetchInventoryItemsByContainer,
 	navigate,
-	renderInventoryItemNodeLink,
 	renderPage,
 	setStatus,
 	updateInventoryContainer,
 } from "../app";
+import {
+	createElement,
+	createEmptyState,
+	createPageMessage,
+	getElementById,
+	withQueryRoot,
+} from "../lib/dom";
 
-export const renderInventoryContainerDetailPage = (params: Record<string, string>) => {
-	renderPage('<div id="inventory-container-detail-page"></div>');
+export const renderInventoryContainerDetailPage = async (
+	params: Record<string, string>,
+) => {
+	const containerId = Number.parseInt(params.id ?? "", 10);
+	const page = createElement("div", { id: "inventory-container-detail-page" });
+	if (!Number.isInteger(containerId)) {
+		page.append(createPageMessage("Container id is invalid."));
+		renderPage(page);
+		return;
+	}
 
-	void (async () => {
-		const rawId = params.id ?? "";
-		const containerId = Number.parseInt(rawId, 10);
-		const page = document.getElementById("inventory-container-detail-page");
-		if (!page) {
-			return;
-		}
-
-		if (!Number.isInteger(containerId)) {
-			page.innerHTML =
-				'<div class="card panel page-panel"><p class="page-copy">Container id is invalid.</p></div>';
-			return;
-		}
-
-		try {
+	try {
 			const [container, containers, items] = await Promise.all([
 				fetchInventoryContainer(containerId),
 				fetchInventoryContainers(),
@@ -57,115 +58,97 @@ export const renderInventoryContainerDetailPage = (params: Record<string, string
 
 			const parentOptions = containers
 				.filter((candidate) => !descendants.has(candidate.id))
-				.sort((left, right) => left.name.localeCompare(right.name))
-				.map(
-					(candidate) => `
-						<option
-							value="${candidate.id}"
-							${container.parent_container_id === candidate.id ? "selected" : ""}
-						>
-							${candidate.name}
-						</option>
-					`,
-				)
-				.join("");
+				.sort((left, right) => left.name.localeCompare(right.name));
 
-			page.innerHTML = `
-				<section class="page-heading page-heading--compact">
-					<a class="secondary action-link" href="/inventory" data-link>Back To Inventory</a>
-				</section>
+			withQueryRoot(page, () => {
+			const parentSelect = createElement("select", { id: "inventory-container-detail-parent", properties: { name: "parent_container_id" } }, createElement("option", { properties: { value: "" } }, "Top level"));
+			const detailForm = createElement("form", { id: "inventory-container-detail-form" },
+				createElement("label", {}, "Name", createElement("input", { id: "inventory-container-detail-name", properties: { name: "name", required: true } })),
+				createElement("label", {}, "Inside", parentSelect),
+				createElement("label", {}, "Notes", createElement("input", { id: "inventory-container-detail-notes", properties: { name: "notes", placeholder: "Pantry shelf or freezer drawer" } })),
+				createElement("div", { className: "actions" }, createElement("button", { className: "primary", properties: { type: "submit" } }, "Save"), createElement("button", { id: "inventory-container-detail-delete", className: "secondary", properties: { type: "button" } }, "Delete")),
+			);
+			const back = createElement("a", { className: "secondary action-link", properties: { href: "/inventory" }, attributes: { "data-link": "" } }, "Back To Inventory");
+			page.replaceChildren(
+				createElement("section", { className: "page-heading page-heading--compact" }, back),
+				createElement("section", { className: "workspace" },
+					createElement("div", { className: "card panel" }, createElement("h2", {}, "Container Details"), detailForm, createElement("div", { id: "inventory-container-detail-status", className: "status" })),
+					createElement("div", { className: "card panel" }, createElement("h2", {}, "Contents"), createElement("div", { className: "results" },
+						createElement("div", { className: "inventory-detail-block" }, createElement("h3", {}, "Child Containers"), createElement("div", { id: "inventory-container-detail-children" })),
+						createElement("div", { className: "inventory-detail-block" }, createElement("h3", {}, "Active Items"), createElement("div", { id: "inventory-container-detail-items" })),
+					)),
+				),
+			);
+			const nameInput = getElementById("inventory-container-detail-name");
+			const parentInput = getElementById("inventory-container-detail-parent");
+			const notesInput = getElementById("inventory-container-detail-notes");
+			if (nameInput instanceof HTMLInputElement) nameInput.value = container.name;
+			if (notesInput instanceof HTMLInputElement) notesInput.value = container.notes ?? "";
+			if (parentInput instanceof HTMLSelectElement) {
+				for (const candidate of parentOptions) {
+					const option = document.createElement("option");
+					option.value = String(candidate.id);
+					option.textContent = candidate.name;
+					parentInput.append(option);
+				}
+				parentInput.value = String(container.parent_container_id ?? "");
+			}
+			const childResults = getElementById("inventory-container-detail-children");
+			if (childResults) {
+				if (!children.length) {
+					childResults.replaceChildren(createEmptyState("No child containers."));
+				} else {
+					const list = createElement("div", { className: "inventory-detail-list" });
+					for (const child of children) {
+						const link = createElement(
+							"a",
+							{ className: "receipt-card" },
+							createElement(
+								"div",
+								{ className: "receipt-card__header" },
+								createElement("h3", { text: child.name }),
+							),
+							createElement("div", {
+								className: "section-copy",
+								text: child.notes ?? "No notes",
+							}),
+						);
+						link.href = `/inventory/containers/${child.id}`;
+						link.dataset.link = "";
+						list.append(link);
+					}
+					childResults.replaceChildren(list);
+				}
+			}
+			const itemResults = getElementById("inventory-container-detail-items");
+			if (itemResults) {
+				itemResults.replaceChildren(
+					items.length
+						? createElement(
+								"div",
+								{ className: "inventory-detail-list" },
+								items.map((item) => createInventoryItemNodeLink(item)),
+							)
+						: createEmptyState("No active items in this container."),
+				);
+			}
 
-				<section class="workspace">
-					<div class="card panel">
-						<h2>Container Details</h2>
-						<form id="inventory-container-detail-form">
-							<label>
-								Name
-								<input id="inventory-container-detail-name" name="name" value="${container.name}" required />
-							</label>
-							<label>
-								Inside
-								<select id="inventory-container-detail-parent" name="parent_container_id">
-									<option value="">Top level</option>
-									${parentOptions}
-								</select>
-							</label>
-							<label>
-								Notes
-								<input id="inventory-container-detail-notes" name="notes" value="${container.notes ?? ""}" placeholder="Pantry shelf or freezer drawer" />
-							</label>
-							<div class="actions">
-								<button class="primary" type="submit">Save</button>
-								<button
-									class="secondary"
-									type="button"
-									id="inventory-container-detail-delete"
-								>
-									Delete
-								</button>
-							</div>
-						</form>
-						<div id="inventory-container-detail-status" class="status"></div>
-					</div>
-
-					<div class="card panel">
-						<h2>Contents</h2>
-						<div class="results">
-							<div class="inventory-detail-block">
-								<h3>Child Containers</h3>
-								${
-									children.length
-										? `<div class="inventory-detail-list">${children
-												.map(
-													(child) => `
-														<a class="receipt-card" href="/inventory/containers/${child.id}" data-link>
-															<div class="receipt-card__header">
-																<h3>${child.name}</h3>
-															</div>
-															<div class="section-copy">${child.notes ?? "No notes"}</div>
-														</a>
-													`,
-												)
-												.join("")}</div>`
-										: '<div class="empty">No child containers.</div>'
-								}
-							</div>
-
-							<div class="inventory-detail-block">
-								<h3>Active Items</h3>
-								${
-									items.length
-										? `<div class="inventory-detail-list">${items
-												.map((item) => {
-													return `
-														${renderInventoryItemNodeLink(item)}
-													`;
-												})
-												.join("")}</div>`
-										: '<div class="empty">No active items in this container.</div>'
-								}
-							</div>
-						</div>
-					</div>
-				</section>
-			`;
-
-			const form = document.getElementById(
+			const form = getElementById(
 				"inventory-container-detail-form",
 			);
-			const deleteButton = document.getElementById(
+			const deleteButton = getElementById(
 				"inventory-container-detail-delete",
 			);
 
 			form?.addEventListener("submit", async (event) => {
 				event.preventDefault();
-				const nameInput = document.getElementById(
+				const nameInput = getElementById(
 					"inventory-container-detail-name",
 				);
-				const parentInput = document.getElementById(
+				const parentInput = getElementById(
 					"inventory-container-detail-parent",
 				);
-				const notesInput = document.getElementById(
+				const notesInput = getElementById(
 					"inventory-container-detail-notes",
 				);
 
@@ -224,12 +207,15 @@ export const renderInventoryContainerDetailPage = (params: Record<string, string
 					);
 				}
 			});
-		} catch (error) {
-			page.innerHTML = `
-				<div class="card panel page-panel">
-					<p class="page-copy">${error instanceof Error ? error.message : "Failed to load inventory container."}</p>
-				</div>
-			`;
-		}
-	})();
+			});
+	} catch (error) {
+			page.append(
+				createPageMessage(
+					error instanceof Error
+						? error.message
+						: "Failed to load inventory container.",
+				),
+			);
+	}
+	renderPage(page);
 };

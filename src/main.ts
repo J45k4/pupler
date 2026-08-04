@@ -92,6 +92,4 @@ const instance = Bun.serve({
 	},
 });
 
-console.log(
-	`Pupler ${version} listening on ${instance.url} using ${dbPath} with files at ${filesPath}`,
-);
+console.log(`Pupler ${version} listening on ${instance.url} using ${dbPath} with files at ${filesPath}`);

@@ -4,33 +4,59 @@ import {
 	loadDashboardTimer,
 	renderPage,
 } from "../app";
+import { createElement, withQueryRoot } from "../lib/dom";
+
+const dashboardPanel = (
+	title: string,
+	href: string,
+	linkText: string,
+	contentId: string,
+	statusId: string,
+	className: string,
+) => {
+	const link = createElement("a", {
+		className: "secondary action-link",
+		text: linkText,
+		properties: { href },
+	});
+	link.dataset.link = "";
+	return createElement(
+		"div",
+		{ className: `card panel ${className}` },
+		createElement(
+			"div",
+			{ className: "section-header" },
+			createElement("h2", { text: title }),
+			link,
+		),
+		createElement("div", { id: contentId }),
+		createElement("div", { id: statusId, className: "status" }),
+	);
+};
 
 export const renderOverviewPage = () => {
-	renderPage(
-		`
-			<section class="dashboard-grid">
-				<div class="card panel dashboard-timer-panel">
-					<div class="section-header">
-						<h2>Timer</h2>
-						<a class="secondary action-link" href="/time" data-link>Open Time</a>
-					</div>
-					<div id="dashboard-timer"></div>
-					<div id="dashboard-timer-status" class="status"></div>
-				</div>
-
-				<div class="card panel dashboard-shopping-panel">
-					<div class="section-header">
-						<h2>Shoppinglist</h2>
-						<a class="secondary action-link" href="/shoppinglist" data-link>View All</a>
-					</div>
-					<div id="dashboard-shopping-list"></div>
-					<div id="dashboard-shopping-status" class="status"></div>
-				</div>
-			</section>
-		`,
+	const page = createElement(
+		"section",
+		{ className: "dashboard-grid" },
+		dashboardPanel(
+			"Timer",
+			"/time",
+			"Open Time",
+			"dashboard-timer",
+			"dashboard-timer-status",
+			"dashboard-timer-panel",
+		),
+		dashboardPanel(
+			"Shoppinglist",
+			"/shoppinglist",
+			"View All",
+			"dashboard-shopping-list",
+			"dashboard-shopping-status",
+			"dashboard-shopping-panel",
+		),
 	);
-
-	attachDashboardTimerEvents();
+	withQueryRoot(page, attachDashboardTimerEvents);
+	renderPage(page);
 	void loadDashboardTimer();
 	void loadDashboardShoppingList();
 };

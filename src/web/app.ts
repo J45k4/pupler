@@ -3,30 +3,35 @@ import {
 	getCurrentUser,
 	logout,
 } from "./auth";
-import { escapeHtml } from "./lib/html";
 import { attachNavigationMenu, renderNavbar } from "./navbar";
 import {
 	navigate,
 } from "./router";
 import {
-	renderProductCategoryInput,
-	renderUnitSelect,
+	createProductCategoryInput,
+	createUnitSelect,
 	setUnitSelectValue,
 } from "./ui/form-fields";
 import {
 	attachUploadDropzones,
-	renderUploadDropzone,
+	createUploadDropzone,
 } from "./ui/upload-dropzone";
 import { displayCurrency, displayMoneyAmount } from "../currency";
+import {
+	createElement,
+	createEmptyState,
+	getElementById,
+	querySelector,
+	querySelectorAll,
+} from "./lib/dom";
 
-export { escapeHtml } from "./lib/html";
 export {
-	renderProductCategoryInput,
-	renderUnitSelect,
+	createProductCategoryInput,
+	createUnitSelect,
 } from "./ui/form-fields";
 export {
 	attachUploadDropzones,
-	renderUploadDropzone,
+	createUploadDropzone,
 } from "./ui/upload-dropzone";
 
 type IngredientSummary = {
@@ -319,7 +324,7 @@ let inventoryTreeState: {
 let collapsedInventoryContainerIds = new Set<number>();
 let inventoryItemMode: InventoryItemMode = "active";
 
-const render = (html: string) => {
+const resetPage = () => {
 	productInfiniteScroll?.destroy();
 	productInfiniteScroll = null;
 	expirationInfiniteScroll?.destroy();
@@ -338,20 +343,19 @@ const render = (html: string) => {
 	navbarAbortController = null;
 	document.documentElement.classList.remove("nav-open");
 	document.body.classList.remove("modal-open", "nav-open");
-	document.body.innerHTML = html;
+	document.body.replaceChildren();
 };
 
 export const renderAppShell = (shellClassName = "") => {
 	const shellClasses = [
 		...new Set(["page-shell", "page-shell--wide", shellClassName].filter(Boolean)),
 	].join(" ");
-	render(`
-		${renderNavbar(window.location.pathname, getCurrentUser())}
-		<main class="${shellClasses}"></main>
-	`);
+	resetPage();
+	const main = createElement("main", { className: shellClasses });
+	const navbar = renderNavbar(window.location.pathname, getCurrentUser());
 	navbarAbortController = new AbortController();
-	attachNavigationMenu(navbarAbortController.signal);
-	document
+	attachNavigationMenu(navbar, navbarAbortController.signal);
+	navbar
 		.querySelector(".account-menu__logout")
 		?.addEventListener("click", async () => {
 			try {
@@ -361,21 +365,18 @@ export const renderAppShell = (shellClassName = "") => {
 				console.error(error);
 			}
 		});
-	const main = document.querySelector<HTMLElement>("main");
-	if (!main) {
-		throw new Error("App shell main element was not rendered.");
-	}
+	document.body.append(navbar, main);
 	return main;
 };
 
-export const renderPage = (content: string, shellClassName = "") => {
+export const renderPage = (content: Node, shellClassName = "") => {
 	const main = renderAppShell(shellClassName);
-	main.innerHTML = content;
+	main.replaceChildren(content);
 	return main;
 };
 
 export const setStatus = (elementId: string, message: string, isError = false) => {
-	const status = document.getElementById(elementId);
+	const status = getElementById(elementId);
 	if (!status) {
 		return;
 	}
@@ -404,17 +405,6 @@ const getTimeRangeOption = (
 
 const getCurrentTimeRangeOption = () =>
 	getTimeRangeOption(new URLSearchParams(window.location.search).get("span"));
-
-const renderTimeRangeOptions = (selectedValue: string) =>
-	TIME_RANGE_OPTIONS.map(
-		(option) => `
-			<option value="${escapeHtml(option.value)}" ${
-				option.value === selectedValue ? "selected" : ""
-			}>
-				${escapeHtml(option.label)}
-			</option>
-		`,
-	).join("");
 
 export const formatShoppingDate = (value: string) =>
 	new Intl.DateTimeFormat(undefined, {
@@ -485,7 +475,7 @@ export const formatMoney = (value: number | null, currency: string) => {
 const normalizeGroupName = (name: string) => name.trim().toLowerCase();
 
 export const attachExpirationPageEvents = () => {
-	const results = document.getElementById("expiration-results");
+	const results = getElementById("expiration-results");
 	if (!results) {
 		return;
 	}
@@ -528,383 +518,120 @@ export const attachExpirationPageEvents = () => {
 	});
 };
 
-const renderRecipeIngredientList = (ingredients: RecipeIngredient[]) => {
-	if (!ingredients.length) {
-		return '<div class="empty">No ingredients added yet.</div>';
-	}
-
-	return `
-		<div class="recipe-ingredient-list">
-			${ingredients
-				.map((ingredient) => {
-					return `
-						<article class="recipe-ingredient-item">
-							<button
-								class="recipe-ingredient-item__select"
-								type="button"
-								data-edit-recipe-ingredient-id="${ingredient.id}"
-								data-recipe-ingredient-name="${encodeURIComponent(ingredient.name)}"
-								data-recipe-ingredient-quantity="${ingredient.quantity}"
-								data-recipe-ingredient-unit="${encodeURIComponent(ingredient.unit)}"
-								data-recipe-ingredient-optional="${ingredient.is_optional ? "true" : "false"}"
-								data-recipe-ingredient-notes="${encodeURIComponent(ingredient.notes ?? "")}"
-							>
-								<div class="recipe-ingredient-item__main">
-									<div class="recipe-ingredient-item__header">
-										<strong>${escapeHtml(ingredient.name)}</strong>
-										${ingredient.is_optional ? '<span class="tag tag--neutral">Optional</span>' : ""}
-									</div>
-									<div class="recipe-ingredient-item__meta">
-										<span>${escapeHtml(String(ingredient.quantity))} ${escapeHtml(ingredient.unit)}</span>
-										${
-											(ingredient.ingredient?.default_unit ??
-												ingredient.product?.default_unit) &&
-											(ingredient.ingredient?.default_unit ??
-												ingredient.product?.default_unit) !== ingredient.unit
-												? `<span>Default unit: ${escapeHtml((ingredient.ingredient?.default_unit ?? ingredient.product?.default_unit) as string)}</span>`
-												: ""
-										}
-									</div>
-									${
-										ingredient.product
-											? `<div class="section-copy">Product link: ${escapeHtml(ingredient.product.name)}</div>`
-											: ""
-									}
-									${
-										ingredient.notes
-											? `<div class="section-copy">${escapeHtml(ingredient.notes)}</div>`
-											: ""
-									}
-								</div>
-							</button>
-							<button
-								class="secondary"
-								type="button"
-								data-delete-recipe-ingredient-id="${ingredient.id}"
-							>
-								Remove
-							</button>
-						</article>
-					`;
-				})
-				.join("")}
-		</div>
-	`;
+const createRecipeIngredientList = (ingredients: RecipeIngredient[]) => {
+	if (!ingredients.length) return createEmptyState("No ingredients added yet.");
+	return createElement("div", { className: "recipe-ingredient-list" }, ...ingredients.map((ingredient) => {
+		const select = createElement("button", { className: "recipe-ingredient-item__select", properties: { type: "button" } });
+		select.dataset.editRecipeIngredientId = String(ingredient.id);
+		select.dataset.recipeIngredientName = encodeURIComponent(ingredient.name);
+		select.dataset.recipeIngredientQuantity = String(ingredient.quantity);
+		select.dataset.recipeIngredientUnit = encodeURIComponent(ingredient.unit);
+		select.dataset.recipeIngredientOptional = String(ingredient.is_optional);
+		select.dataset.recipeIngredientNotes = encodeURIComponent(ingredient.notes ?? "");
+		const defaultUnit = ingredient.ingredient?.default_unit ?? ingredient.product?.default_unit;
+		const header = createElement("div", { className: "recipe-ingredient-item__header" }, createElement("strong", {}, ingredient.name), ingredient.is_optional ? createElement("span", { className: "tag tag--neutral" }, "Optional") : null);
+		const meta = createElement("div", { className: "recipe-ingredient-item__meta" }, createElement("span", {}, `${ingredient.quantity} ${ingredient.unit}`), defaultUnit && defaultUnit !== ingredient.unit ? createElement("span", {}, `Default unit: ${defaultUnit}`) : null);
+		select.append(createElement("div", { className: "recipe-ingredient-item__main" }, header, meta, ingredient.product ? createElement("div", { className: "section-copy" }, `Product link: ${ingredient.product.name}`) : null, ingredient.notes ? createElement("div", { className: "section-copy" }, ingredient.notes) : null));
+		const remove = createElement("button", { className: "secondary", properties: { type: "button" } }, "Remove");
+		remove.dataset.deleteRecipeIngredientId = String(ingredient.id);
+		return createElement("article", { className: "recipe-ingredient-item" }, select, remove);
+	}));
 };
 
 export const renderRecipeDetail = (recipe: Recipe) => {
-	const page = document.getElementById("recipe-detail-page");
-	if (!page) {
-		return;
-	}
+	const page = getElementById("recipe-detail-page");
+	if (!page) return;
 	const ingredients = recipe.ingredients ?? [];
-	const recipeImages = recipe.recipe_images ?? [];
-
-	const servingsLabel =
-		recipe.servings === null
-			? "-"
-			: recipe.servings === 1
-				? "1 serving"
-				: `${recipe.servings} servings`;
-
-	page.innerHTML = `
-		<section class="page-heading page-heading--compact">
-			<a class="secondary action-link" href="/recipes" data-link>Back To Recipes</a>
-		</section>
-
-		<section class="workspace recipe-detail-grid">
-			<div class="card panel">
-				<h2>Images</h2>
-				${
-					recipeImages.length
-						? `
-							<div class="recipe-image-gallery">
-								${recipeImages
-									.map(
-										(image) => `
-											<article class="recipe-image-card">
-												<img
-													class="recipe-image-card__image"
-													src="/api/recipes/${recipe.id}/pictures/${image.id}?updated=${encodeURIComponent(image.created_at)}"
-													alt="${escapeHtml(image.file.filename ?? recipe.name)}"
-												/>
-												<div class="recipe-image-card__meta">
-													<div>
-														<strong>${escapeHtml(image.file.filename ?? `Image #${image.id}`)}</strong>
-														<div class="section-copy">${formatReceiptDateTime(image.created_at)}</div>
-													</div>
-													<button
-														class="secondary"
-														type="button"
-														data-delete-recipe-image-id="${image.id}"
-													>
-														Remove
-													</button>
-												</div>
-											</article>
-										`,
-									)
-									.join("")}
-							</div>
-						`
-						: '<div class="empty">No recipe images uploaded yet.</div>'
-				}
-				<form id="recipe-picture-form" class="recipe-picture__form">
-					${renderUploadDropzone({
-						inputId: "recipe-picture-input",
-						label: "Images",
-						name: "picture",
-						multiple: true,
-						submitOnDrop: true,
-						emptyText: "Choose one or more images or drop them here.",
-					})}
-					<div class="actions">
-						<button class="secondary" type="submit">Upload Images</button>
-					</div>
-				</form>
-				<h2>Summary</h2>
-				<dl class="receipt-metadata">
-					<div>
-						<dt>Status</dt>
-						<dd>${recipe.is_active ? "Active" : "Inactive"}</dd>
-					</div>
-					<div>
-						<dt>Servings</dt>
-						<dd>${servingsLabel}</dd>
-					</div>
-					<div>
-						<dt>Created</dt>
-						<dd>${formatReceiptDateTime(recipe.created_at)}</dd>
-					</div>
-					<div>
-						<dt>Updated</dt>
-						<dd>${formatReceiptDateTime(recipe.updated_at)}</dd>
-					</div>
-				</dl>
-				<div id="recipe-picture-status" class="status"></div>
-			</div>
-
-			<div class="recipe-detail-stack">
-				<div class="card panel">
-					<section class="recipe-detail-section">
-						<h2>Recipe Details</h2>
-						<form id="recipe-detail-form">
-							<label for="recipe-detail-name">
-								Name
-								<input
-									id="recipe-detail-name"
-									name="name"
-									value="${escapeHtml(recipe.name)}"
-									required
-								/>
-							</label>
-
-							<div class="row">
-								<label for="recipe-detail-servings">
-									Servings
-									<input
-										id="recipe-detail-servings"
-										name="servings"
-										type="number"
-										inputmode="numeric"
-										min="1"
-										step="1"
-										value="${recipe.servings ?? ""}"
-										placeholder="4"
-									/>
-								</label>
-
-								<label class="checkbox-toggle recipe-form__toggle" for="recipe-detail-is-active">
-									<input
-										id="recipe-detail-is-active"
-										name="is_active"
-										type="checkbox"
-										${recipe.is_active ? "checked" : ""}
-									/>
-									<span>Active recipe</span>
-								</label>
-							</div>
-
-							<label for="recipe-detail-description">
-								Description
-								<textarea
-									id="recipe-detail-description"
-									name="description"
-									rows="4"
-									placeholder="Short summary of the recipe"
-								>${escapeHtml(recipe.description ?? "")}</textarea>
-							</label>
-
-							<label for="recipe-detail-instructions">
-								Instructions
-								<textarea
-									id="recipe-detail-instructions"
-									name="instructions"
-									rows="10"
-									placeholder="Describe the cooking steps"
-								>${escapeHtml(recipe.instructions ?? "")}</textarea>
-							</label>
-
-							<div class="actions">
-								<button class="primary" type="submit">Save Recipe</button>
-							</div>
-						</form>
-						<div id="recipe-detail-status" class="status"></div>
-					</section>
-				</div>
-
-				<div class="card panel">
-					<section class="recipe-detail-section">
-						<div class="section-header recipe-detail-section__header">
-							<div class="recipe-ingredient-summary">
-								<h2>Ingredients</h2>
-								<span class="tag tag--neutral">
-									${ingredients.length} ${ingredients.length === 1 ? "item" : "items"}
-								</span>
-							</div>
-							<button
-								class="primary"
-								type="button"
-								id="open-recipe-ingredient-modal-button"
-							>
-								Add Ingredient
-							</button>
-						</div>
-						${renderRecipeIngredientList(ingredients)}
-						<div id="recipe-ingredient-status" class="status"></div>
-					</section>
-				</div>
-			</div>
-		</section>
-
-		<div class="recipe-ingredient-modal" id="recipe-ingredient-modal" hidden>
-			<div
-				class="recipe-ingredient-modal__backdrop"
-				data-recipe-ingredient-modal-close
-			></div>
-			<div
-				class="recipe-ingredient-modal__dialog card panel"
-				role="dialog"
-				aria-modal="true"
-				aria-labelledby="recipe-ingredient-modal-title"
-			>
-				<div class="section-header section-header--end">
-					<h2 id="recipe-ingredient-modal-title">Add Ingredient</h2>
-					<button
-						class="secondary"
-						type="button"
-						aria-label="Close add ingredient modal"
-						data-recipe-ingredient-modal-close
-					>
-						Close
-					</button>
-				</div>
-				<form id="recipe-ingredient-modal-form" class="recipe-ingredient-form">
-					<input id="recipe-ingredient-id" name="ingredient_id" type="hidden" />
-					<label for="recipe-ingredient-name">
-						Ingredient
-						<input
-							id="recipe-ingredient-name"
-							name="name"
-							placeholder="Tomatoes"
-							required
-						/>
-					</label>
-
-					<div class="recipe-ingredient-form__row">
-						<label for="recipe-ingredient-quantity">
-							Quantity
-							<input
-								id="recipe-ingredient-quantity"
-								name="quantity"
-								type="number"
-								inputmode="decimal"
-								min="0.01"
-								step="0.01"
-								value="1"
-								required
-							/>
-						</label>
-
-						${renderUnitSelect({
-							id: "recipe-ingredient-unit",
-							name: "unit",
-							label: "Unit",
-							selectedValue: "pcs",
-							required: true,
-						})}
-
-						<label class="checkbox-toggle recipe-ingredient-form__toggle" for="recipe-ingredient-optional">
-							<input
-								id="recipe-ingredient-optional"
-								name="is_optional"
-								type="checkbox"
-							/>
-							<span>Optional</span>
-						</label>
-					</div>
-
-					<label for="recipe-ingredient-notes">
-						Notes
-						<input
-							id="recipe-ingredient-notes"
-							name="notes"
-							placeholder="Finely chopped or room temperature"
-						/>
-					</label>
-
-					<div class="actions">
-						<button
-							class="primary"
-							id="recipe-ingredient-modal-submit"
-							type="submit"
-						>
-							Add Ingredient
-						</button>
-					</div>
-				</form>
-				<div id="recipe-ingredient-modal-status" class="status"></div>
-			</div>
-		</div>
-		`;
-
+	const images = recipe.recipe_images ?? [];
+	const back = createElement("a", { className: "secondary action-link", properties: { href: "/recipes" }, attributes: { "data-link": "" } }, "Back To Recipes");
+	const gallery = images.length ? createElement("div", { className: "recipe-image-gallery" }, ...images.map((image) => {
+		const remove = createElement("button", { className: "secondary", properties: { type: "button" } }, "Remove");
+		remove.dataset.deleteRecipeImageId = String(image.id);
+		return createElement("article", { className: "recipe-image-card" },
+			createElement("img", { className: "recipe-image-card__image", properties: { src: `/api/recipes/${recipe.id}/pictures/${image.id}?updated=${encodeURIComponent(image.created_at)}`, alt: image.file.filename ?? recipe.name } }),
+			createElement("div", { className: "recipe-image-card__meta" }, createElement("div", {}, createElement("strong", {}, image.file.filename ?? `Image #${image.id}`), createElement("div", { className: "section-copy" }, formatReceiptDateTime(image.created_at))), remove),
+		);
+	})) : createEmptyState("No recipe images uploaded yet.");
+	const pictureForm = createElement("form", { id: "recipe-picture-form", className: "recipe-picture__form" }, createUploadDropzone({ inputId: "recipe-picture-input", label: "Images", name: "picture", multiple: true, submitOnDrop: true, emptyText: "Choose one or more images or drop them here." }), createElement("div", { className: "actions" }, createElement("button", { className: "secondary", properties: { type: "submit" } }, "Upload Images")));
+	const summary = createElement("dl", { className: "receipt-metadata" }, ...[
+		["Status", recipe.is_active ? "Active" : "Inactive"],
+		["Servings", recipe.servings === null ? "-" : recipe.servings === 1 ? "1 serving" : `${recipe.servings} servings`],
+		["Created", formatReceiptDateTime(recipe.created_at)],
+		["Updated", formatReceiptDateTime(recipe.updated_at)],
+	].map(([label, value]) => createElement("div", {}, createElement("dt", {}, label), createElement("dd", {}, value))));
+	const active = createElement("input", { id: "recipe-detail-is-active", properties: { name: "is_active", type: "checkbox", checked: recipe.is_active } });
+	const detailForm = createElement("form", { id: "recipe-detail-form" },
+		createElement("label", { properties: { htmlFor: "recipe-detail-name" } }, "Name", createElement("input", { id: "recipe-detail-name", properties: { name: "name", value: recipe.name, required: true } })),
+		createElement("div", { className: "row" }, createElement("label", { properties: { htmlFor: "recipe-detail-servings" } }, "Servings", createElement("input", { id: "recipe-detail-servings", properties: { name: "servings", type: "number", inputMode: "numeric", min: "1", step: "1", value: recipe.servings === null ? "" : String(recipe.servings), placeholder: "4" } })), createElement("label", { className: "checkbox-toggle recipe-form__toggle", properties: { htmlFor: "recipe-detail-is-active" } }, active, createElement("span", {}, "Active recipe"))),
+		createElement("label", { properties: { htmlFor: "recipe-detail-description" } }, "Description", createElement("textarea", { id: "recipe-detail-description", properties: { name: "description", rows: 4, value: recipe.description ?? "", placeholder: "Short summary of the recipe" } })),
+		createElement("label", { properties: { htmlFor: "recipe-detail-instructions" } }, "Instructions", createElement("textarea", { id: "recipe-detail-instructions", properties: { name: "instructions", rows: 10, value: recipe.instructions ?? "", placeholder: "Describe the cooking steps" } })),
+		createElement("div", { className: "actions" }, createElement("button", { className: "primary", properties: { type: "submit" } }, "Save Recipe")),
+	);
+	const ingredientHeader = createElement("div", { className: "section-header recipe-detail-section__header" }, createElement("div", { className: "recipe-ingredient-summary" }, createElement("h2", {}, "Ingredients"), createElement("span", { className: "tag tag--neutral" }, `${ingredients.length} ${ingredients.length === 1 ? "item" : "items"}`)), createElement("button", { id: "open-recipe-ingredient-modal-button", className: "primary", properties: { type: "button" } }, "Add Ingredient"));
+	const optional = createElement("input", { id: "recipe-ingredient-optional", properties: { name: "is_optional", type: "checkbox" } });
+	const ingredientForm = createElement("form", { id: "recipe-ingredient-modal-form", className: "recipe-ingredient-form" },
+		createElement("input", { id: "recipe-ingredient-id", properties: { name: "ingredient_id", type: "hidden" } }),
+		createElement("label", { properties: { htmlFor: "recipe-ingredient-name" } }, "Ingredient", createElement("input", { id: "recipe-ingredient-name", properties: { name: "name", placeholder: "Tomatoes", required: true } })),
+		createElement("div", { className: "recipe-ingredient-form__row" }, createElement("label", { properties: { htmlFor: "recipe-ingredient-quantity" } }, "Quantity", createElement("input", { id: "recipe-ingredient-quantity", properties: { name: "quantity", type: "number", inputMode: "decimal", min: "0.01", step: "0.01", value: "1", required: true } })), createUnitSelect({ id: "recipe-ingredient-unit", name: "unit", label: "Unit", selectedValue: "pcs", required: true }), createElement("label", { className: "checkbox-toggle recipe-ingredient-form__toggle", properties: { htmlFor: "recipe-ingredient-optional" } }, optional, createElement("span", {}, "Optional"))),
+		createElement("label", { properties: { htmlFor: "recipe-ingredient-notes" } }, "Notes", createElement("input", { id: "recipe-ingredient-notes", properties: { name: "notes", placeholder: "Finely chopped or room temperature" } })),
+		createElement("div", { className: "actions" }, createElement("button", { id: "recipe-ingredient-modal-submit", className: "primary", properties: { type: "submit" } }, "Add Ingredient")),
+	);
+	const close = createElement("button", { className: "secondary", properties: { type: "button" }, attributes: { "aria-label": "Close add ingredient modal", "data-recipe-ingredient-modal-close": "" } }, "Close");
+	const backdrop = createElement("div", { className: "recipe-ingredient-modal__backdrop", attributes: { "data-recipe-ingredient-modal-close": "" } });
+	const modal = createElement("div", { id: "recipe-ingredient-modal", className: "recipe-ingredient-modal", properties: { hidden: true } }, backdrop, createElement("div", { className: "recipe-ingredient-modal__dialog card panel", attributes: { role: "dialog", "aria-modal": "true", "aria-labelledby": "recipe-ingredient-modal-title" } }, createElement("div", { className: "section-header section-header--end" }, createElement("h2", { id: "recipe-ingredient-modal-title" }, "Add Ingredient"), close), ingredientForm, createElement("div", { id: "recipe-ingredient-modal-status", className: "status" })));
+	page.replaceChildren(
+		createElement("section", { className: "page-heading page-heading--compact" }, back),
+		createElement("section", { className: "workspace recipe-detail-grid" },
+			createElement("div", { className: "card panel" }, createElement("h2", {}, "Images"), gallery, pictureForm, createElement("h2", {}, "Summary"), summary, createElement("div", { id: "recipe-picture-status", className: "status" })),
+			createElement("div", { className: "recipe-detail-stack" }, createElement("div", { className: "card panel" }, createElement("section", { className: "recipe-detail-section" }, createElement("h2", {}, "Recipe Details"), detailForm, createElement("div", { id: "recipe-detail-status", className: "status" }))), createElement("div", { className: "card panel" }, createElement("section", { className: "recipe-detail-section" }, ingredientHeader, createRecipeIngredientList(ingredients), createElement("div", { id: "recipe-ingredient-status", className: "status" })))),
+		),
+		modal,
+	);
 	attachUploadDropzones(page);
 	attachRecipeDetailEvents(recipe.id);
 };
 
-const renderProductCard = (product: Product) => {
-	const badge = product.is_perishable
-		? '<span class="tag">Perishable</span>'
-		: "";
-	return `
-		<a class="product" href="/products/${product.id}" data-link>
-			<div class="product__media">
-				<img class="product__image" src="/api/products/${product.id}/picture" alt="${escapeHtml(product.name)}" loading="lazy" onerror="this.parentElement.remove()" />
-			</div>
-			<header>
-				<h3>${escapeHtml(product.name)}</h3>
-				${badge}
-			</header>
-			<dl>
-				<div>
-					<dt>Category</dt>
-					<dd>${escapeHtml(product.category ?? "-")}</dd>
-				</div>
-				<div>
-					<dt>Barcode</dt>
-					<dd>${escapeHtml(product.barcode ?? "-")}</dd>
-				</div>
-				<div>
-					<dt>Unit</dt>
-					<dd>${escapeHtml(product.default_unit ?? "-")}</dd>
-				</div>
-			</dl>
-		</a>
-	`;
+const createProductCard = (product: Product) => {
+	const link = createElement("a", { className: "product" });
+	link.href = `/products/${product.id}`;
+	link.dataset.link = "";
+
+	const media = createElement("div", { className: "product__media" });
+	const image = createElement("img", { className: "product__image" });
+	image.src = `/api/products/${product.id}/picture`;
+	image.alt = product.name;
+	image.loading = "lazy";
+	image.addEventListener("error", () => media.remove());
+	media.append(image);
+
+	const header = document.createElement("header");
+	header.append(createElement("h3", { text: product.name }));
+	if (product.is_perishable) {
+		header.append(createElement("span", { className: "tag", text: "Perishable" }));
+	}
+
+	const details = document.createElement("dl");
+	for (const [label, value] of [
+		["Category", product.category ?? "-"],
+		["Barcode", product.barcode ?? "-"],
+		["Unit", product.default_unit ?? "-"],
+	] as const) {
+		details.append(
+			createElement(
+				"div",
+				{},
+				createElement("dt", { text: label }),
+				createElement("dd", { text: value }),
+			),
+		);
+	}
+
+	link.append(media, header, details);
+	return link;
 };
 
 const renderProducts = (products: Product[]) => {
-	const results = document.getElementById("results");
+	const results = getElementById("results");
 	if (!results) {
 		return;
 	}
@@ -913,8 +640,8 @@ const renderProducts = (products: Product[]) => {
 	productInfiniteScroll = new InfiniteScroll(
 		{
 			batchSize: 12,
-			emptyHtml: '<div class="empty">No products found.</div>',
-			renderItem: (product) => renderProductCard(product),
+			empty: () => createEmptyState("No products found."),
+			renderItem: createProductCard,
 			root: results,
 		},
 		products,
@@ -923,133 +650,37 @@ const renderProducts = (products: Product[]) => {
 };
 
 export const renderProductDetail = (product: Product) => {
-	const page = document.getElementById("product-detail-page");
-	if (!page) {
-		return;
-	}
-
-	const productPictureUpdated = product.picture_file?.created_at ?? null;
-	const pictureUrl = productPictureUpdated
-		? `/api/products/${product.id}/picture?updated=${encodeURIComponent(productPictureUpdated)}`
-		: `/api/products/${product.id}/picture`;
-
-	page.innerHTML = `
-		<section class="page-heading page-heading--compact">
-			<div>
-				<span class="eyebrow">Product</span>
-			</div>
-			<a class="secondary action-link" href="/products" data-link>Back To Products</a>
-		</section>
-
-		<section class="workspace product-detail-grid">
-			<div class="card panel">
-				<h2>Picture</h2>
-				<div class="receipt-picture">
-					<img
-						class="receipt-picture__image"
-						src="${pictureUrl}"
-						alt="${escapeHtml(product.name)}"
-						loading="lazy"
-						onerror="this.closest('.receipt-picture').innerHTML='<div class=&quot;empty&quot;>No product picture uploaded.</div>'"
-					/>
-				</div>
-				<form id="product-picture-form" class="product-picture__form">
-					${renderUploadDropzone({
-						inputId: "product-picture-input",
-						label: "Picture",
-						name: "picture",
-						submitOnDrop: true,
-						emptyText: "Choose a product image or drop one here.",
-					})}
-					<div class="actions">
-						<button class="secondary" type="submit">Upload Picture</button>
-						${
-								product.picture_file
-									? '<button class="secondary" type="button" id="product-picture-delete">Remove Picture</button>'
-									: ""
-						}
-					</div>
-				</form>
-				<div id="product-picture-status" class="status"></div>
-			</div>
-
-			<div class="card panel">
-				<div class="section-header">
-					<h2>Details</h2>
-					${
-						product.is_perishable
-							? '<span class="tag">Perishable</span>'
-							: '<span class="tag tag--neutral">Shelf stable</span>'
-					}
-				</div>
-				<form id="product-detail-form">
-					<label>
-						Name
-						<input id="product-detail-name" value="${escapeHtml(product.name)}" required />
-					</label>
-
-					<div class="row">
-						${renderProductCategoryInput({
-							id: "product-detail-category",
-							label: "Category",
-							value: product.category,
-							required: true,
-						})}
-
-						${renderUnitSelect({
-							id: "product-detail-default-unit",
-							name: "default_unit",
-							label: "Unit",
-							selectedValue: product.default_unit,
-							placeholderLabel: "No default unit",
-						})}
-					</div>
-
-					<label>
-						Ingredient
-						<input
-							id="product-detail-ingredient-name"
-							value="${escapeHtml(product.ingredient?.name ?? "")}"
-							placeholder="Sausage"
-						/>
-					</label>
-
-					<label>
-						Barcode
-						<input id="product-detail-barcode" value="${escapeHtml(product.barcode ?? "")}" placeholder="6414893400012" />
-					</label>
-
-					<label>
-						Perishable
-						<select id="product-detail-is-perishable">
-							<option value="true" ${product.is_perishable ? "selected" : ""}>true</option>
-							<option value="false" ${product.is_perishable ? "" : "selected"}>false</option>
-						</select>
-					</label>
-
-					<div class="actions">
-						<button class="primary" type="submit">Save Product</button>
-					</div>
-				</form>
-				<dl class="receipt-metadata">
-					<div>
-						<dt>Ingredient Link</dt>
-						<dd>${escapeHtml(product.ingredient?.name ?? "-")}</dd>
-					</div>
-					<div>
-						<dt>Created</dt>
-						<dd>${formatReceiptDateTime(product.created_at)}</dd>
-					</div>
-					<div>
-						<dt>Updated</dt>
-						<dd>${formatReceiptDateTime(product.updated_at)}</dd>
-					</div>
-				</dl>
-				<div id="product-detail-status" class="status"></div>
-			</div>
-		</section>
-	`;
-
+	const page = getElementById("product-detail-page");
+	if (!page) return;
+	const pictureUrl = product.picture_file?.created_at ? `/api/products/${product.id}/picture?updated=${encodeURIComponent(product.picture_file.created_at)}` : `/api/products/${product.id}/picture`;
+	const back = createElement("a", { className: "secondary action-link", properties: { href: "/products" }, attributes: { "data-link": "" } }, "Back To Products");
+	const picture = createElement("img", { className: "receipt-picture__image", properties: { src: pictureUrl, alt: product.name, loading: "lazy" } });
+	const pictureRoot = createElement("div", { className: "receipt-picture" }, picture);
+	picture.addEventListener("error", () => pictureRoot.replaceChildren(createEmptyState("No product picture uploaded.")));
+	const pictureActions = createElement("div", { className: "actions" }, createElement("button", { className: "secondary", properties: { type: "submit" } }, "Upload Picture"));
+	if (product.picture_file) pictureActions.append(createElement("button", { id: "product-picture-delete", className: "secondary", properties: { type: "button" } }, "Remove Picture"));
+	const pictureForm = createElement("form", { id: "product-picture-form", className: "product-picture__form" }, createUploadDropzone({ inputId: "product-picture-input", label: "Picture", name: "picture", submitOnDrop: true, emptyText: "Choose a product image or drop one here." }), pictureActions);
+	const perishable = createElement("select", { id: "product-detail-is-perishable" }, createElement("option", { properties: { value: "true", selected: product.is_perishable } }, "true"), createElement("option", { properties: { value: "false", selected: !product.is_perishable } }, "false"));
+	const detailForm = createElement("form", { id: "product-detail-form" },
+		createElement("label", {}, "Name", createElement("input", { id: "product-detail-name", properties: { value: product.name, required: true } })),
+		createElement("div", { className: "row" }, createProductCategoryInput({ id: "product-detail-category", label: "Category", value: product.category, required: true }), createUnitSelect({ id: "product-detail-default-unit", name: "default_unit", label: "Unit", selectedValue: product.default_unit, placeholderLabel: "No default unit" })),
+		createElement("label", {}, "Ingredient", createElement("input", { id: "product-detail-ingredient-name", properties: { value: product.ingredient?.name ?? "", placeholder: "Sausage" } })),
+		createElement("label", {}, "Barcode", createElement("input", { id: "product-detail-barcode", properties: { value: product.barcode ?? "", placeholder: "6414893400012" } })),
+		createElement("label", {}, "Perishable", perishable),
+		createElement("div", { className: "actions" }, createElement("button", { className: "primary", properties: { type: "submit" } }, "Save Product")),
+	);
+	const metadata = createElement("dl", { className: "receipt-metadata" }, ...[
+		["Ingredient Link", product.ingredient?.name ?? "-"],
+		["Created", formatReceiptDateTime(product.created_at)],
+		["Updated", formatReceiptDateTime(product.updated_at)],
+	].map(([label, value]) => createElement("div", {}, createElement("dt", {}, label), createElement("dd", {}, value))));
+	page.replaceChildren(
+		createElement("section", { className: "page-heading page-heading--compact" }, createElement("div", {}, createElement("span", { className: "eyebrow" }, "Product")), back),
+		createElement("section", { className: "workspace product-detail-grid" },
+			createElement("div", { className: "card panel" }, createElement("h2", {}, "Picture"), pictureRoot, pictureForm, createElement("div", { id: "product-picture-status", className: "status" })),
+			createElement("div", { className: "card panel" }, createElement("div", { className: "section-header" }, createElement("h2", {}, "Details"), createElement("span", { className: product.is_perishable ? "tag" : "tag tag--neutral" }, product.is_perishable ? "Perishable" : "Shelf stable")), detailForm, metadata, createElement("div", { id: "product-detail-status", className: "status" })),
+		),
+	);
 	attachUploadDropzones(page);
 };
 
@@ -1065,7 +696,7 @@ const timeApiJson = async <T>(path: string, options: RequestInit = {}) => {
 
 	if (!response.ok) {
 		throw new Error(
-			"error" in body
+			typeof body === "object" && body !== null && "error" in body
 				? (body.error ?? "Time tracking request failed")
 				: "Time tracking request failed",
 		);
@@ -1073,9 +704,6 @@ const timeApiJson = async <T>(path: string, options: RequestInit = {}) => {
 
 	return body as T;
 };
-
-const fetchTimeProjects = () =>
-	timeApiJson<TimeProject[]>("/api/projects?sort=name&order=asc");
 
 const fetchTimeEntries = () =>
 	timeApiJson<TimeEntry[]>("/api/time-entries?sort=started_at&order=desc");
@@ -1085,592 +713,6 @@ const stopTimeEntry = (id: number) =>
 		method: "POST",
 		body: JSON.stringify({}),
 	});
-
-const createTimeProject = (name: string) =>
-	timeApiJson<TimeProject>("/api/projects", {
-		method: "POST",
-		body: JSON.stringify({ name, archived_at: null }),
-	});
-
-const createTimeEntry = (values: {
-	project_id: number;
-	description: string | null;
-	started_at: string;
-	ended_at: string | null;
-}) =>
-	timeApiJson<TimeEntry>("/api/time-entries", {
-		method: "POST",
-		body: JSON.stringify(values),
-	});
-
-const timeRangeQuery = (option: TimeRangeOption) => {
-	const params = new URLSearchParams();
-	const now = new Date();
-	params.set("to", now.toISOString());
-	if (option.value === "all") {
-		params.delete("to");
-		params.set("range", "all");
-		return params;
-	}
-	if (option.value === "today") {
-		const start = new Date(now);
-		start.setHours(0, 0, 0, 0);
-		params.set("from", start.toISOString());
-		return params;
-	}
-	const days = Number.parseInt(option.value, 10);
-	params.set(
-		"from",
-		new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString(),
-	);
-	return params;
-};
-
-const fetchTimeReport = (option: TimeRangeOption) =>
-	timeApiJson<TimeReport>(`/api/time-report?${timeRangeQuery(option).toString()}`);
-
-const renderTimeProjectOptions = (
-	projects: TimeProject[],
-	selectedId?: number | null,
-) =>
-	projects
-		.filter((project) => project.archived_at === null || project.id === selectedId)
-		.map(
-			(project) => `
-				<option value="${project.id}" ${project.id === selectedId ? "selected" : ""}>
-					${escapeHtml(project.name)}
-				</option>
-			`,
-		)
-		.join("");
-
-const normalizeTimeDescription = (description: string | null | undefined) =>
-	description?.trim() ?? "";
-
-const normalizeTimeProjectName = (name: string) => name.trim().toLowerCase();
-const NEW_TIME_PROJECT_VALUE = "__new_time_project__";
-
-const buildTimeProjectChoices = (
-	entries: TimeEntry[],
-	projects: TimeProject[],
-): TimeProjectChoice[] => {
-	const choiceByProjectId = new Map<number, TimeProjectChoice>();
-	for (const project of projects) {
-		if (project.archived_at !== null) continue;
-		choiceByProjectId.set(project.id, {
-			project,
-			entry_count: 0,
-			total_seconds: 0,
-			latest_started_at: null,
-		});
-	}
-
-	for (const entry of entries) {
-		const choice = choiceByProjectId.get(entry.project_id);
-		if (!choice) continue;
-		choice.entry_count += 1;
-		choice.total_seconds += timeEntryDurationSeconds(entry);
-		if (
-			choice.latest_started_at === null ||
-			Date.parse(entry.started_at) > Date.parse(choice.latest_started_at)
-		) {
-			choice.latest_started_at = entry.started_at;
-		}
-	}
-
-	return [...choiceByProjectId.values()].sort((first, second) => {
-		if (second.entry_count !== first.entry_count) {
-			return second.entry_count - first.entry_count;
-		}
-		if (second.total_seconds !== first.total_seconds) {
-			return second.total_seconds - first.total_seconds;
-		}
-		const latestDifference =
-			Date.parse(second.latest_started_at ?? "1970-01-01T00:00:00.000Z") -
-			Date.parse(first.latest_started_at ?? "1970-01-01T00:00:00.000Z");
-		if (latestDifference !== 0) return latestDifference;
-		return first.project.name.localeCompare(second.project.name);
-	});
-};
-
-const findTimeProjectChoice = (name: string) => {
-	const normalizedName = normalizeTimeProjectName(name);
-	return currentTimeProjectChoices.find(
-		(choice) => normalizeTimeProjectName(choice.project.name) === normalizedName,
-	);
-};
-
-const findTimeProjectChoiceById = (id: number) =>
-	currentTimeProjectChoices.find((choice) => choice.project.id === id);
-
-const renderTimeProjectSelectOptions = (
-	choices: TimeProjectChoice[],
-	selectedId?: number | null,
-) =>
-	choices
-		.map(
-			(choice) => `
-				<option value="${choice.project.id}" ${choice.project.id === selectedId ? "selected" : ""}>
-					${escapeHtml(choice.project.name)}
-				</option>
-			`,
-		)
-		.join("");
-
-export const defaultTimeEntryCreateRange = () => {
-	const endedAt = new Date();
-	const startedAt = new Date(endedAt.getTime() - 60 * 60 * 1000);
-	return {
-		startedAt: formatDateTimeLocalInput(startedAt),
-		endedAt: formatDateTimeLocalInput(endedAt),
-	};
-};
-
-export const timeEntryCreateProjectOptions = () =>
-	currentTimeProjectChoices.map((choice) => ({
-		value: String(choice.project.id),
-		label: choice.project.name,
-	}));
-
-export const addTimeEntryFromPage = async (values: {
-	projectName: string;
-	description: string | null;
-	startedAt: string;
-	endedAt: string | null;
-}) => {
-	const projectName = values.projectName.trim();
-	const startedAt = parseDateTimeLocalInput(values.startedAt);
-	const endedAt = values.endedAt?.trim()
-		? parseDateTimeLocalInput(values.endedAt)
-		: null;
-
-	if (!projectName) {
-		throw new Error("Project is required.");
-	}
-	if (!startedAt || (values.endedAt?.trim() && !endedAt)) {
-		throw new Error("Entry times are invalid.");
-	}
-
-	const project =
-		findTimeProjectChoice(projectName)?.project ??
-		(await createTimeProject(projectName));
-	if (!findTimeProjectChoiceById(project.id)) {
-		currentTimeProjectChoices.push({
-			project,
-			entry_count: 0,
-			total_seconds: 0,
-			latest_started_at: null,
-		});
-	}
-
-	await createTimeEntry({
-		project_id: project.id,
-		description: values.description?.trim() || null,
-		started_at: startedAt,
-		ended_at: endedAt,
-	});
-	setStatus("time-status", "Entry added.");
-	await loadTimeTrackingPage();
-};
-
-const buildTimeQuickActions = (
-	entries: TimeEntry[],
-	projects: TimeProject[],
-): TimeQuickAction[] => {
-	const projectById = new Map(projects.map((project) => [project.id, project]));
-	const activeProjectIds = new Set(
-		projects
-			.filter((project) => project.archived_at === null)
-			.map((project) => project.id),
-	);
-	const actionByKey = new Map<string, TimeQuickAction>();
-
-	for (const entry of entries) {
-		if (!activeProjectIds.has(entry.project_id)) continue;
-		const description = normalizeTimeDescription(entry.description);
-		const key = `${entry.project_id}\u0000${description}`;
-		const existing = actionByKey.get(key);
-		if (existing) {
-			existing.entry_count += 1;
-			existing.total_seconds += timeEntryDurationSeconds(entry);
-			if (Date.parse(entry.started_at) > Date.parse(existing.latest_started_at)) {
-				existing.latest_started_at = entry.started_at;
-			}
-			continue;
-		}
-		actionByKey.set(key, {
-			project_id: entry.project_id,
-			description,
-			entry_count: 1,
-			latest_started_at: entry.started_at,
-			total_seconds: timeEntryDurationSeconds(entry),
-			project: entry.project ?? projectById.get(entry.project_id),
-		});
-	}
-
-	return [...actionByKey.values()]
-		.sort((first, second) => {
-			if (second.entry_count !== first.entry_count) {
-				return second.entry_count - first.entry_count;
-			}
-			return (
-				Date.parse(second.latest_started_at) -
-				Date.parse(first.latest_started_at)
-			);
-		})
-		.slice(0, 8);
-};
-
-const findPreviousTimeEntryEnd = (
-	entries: TimeEntry[],
-	runningEntry: TimeEntry | null,
-) => {
-	if (!runningEntry) return null;
-	const previousEntry = entries
-		.filter((entry) => entry.id !== runningEntry.id && entry.ended_at !== null)
-		.sort(
-			(first, second) =>
-				Date.parse(second.ended_at ?? "") - Date.parse(first.ended_at ?? ""),
-		)[0];
-	return previousEntry?.ended_at ?? null;
-};
-
-const renderTimeTimer = (
-	runningEntry: TimeEntry | null,
-	previousEndedAt: string | null,
-) => {
-	const root = document.getElementById("time-timer-panel");
-	if (!root) return;
-
-	root.innerHTML = `
-		<div class="section-header">
-			<h2>Start Timer</h2>
-			${runningEntry ? '<span class="tag">Running</span>' : '<span class="tag tag--neutral">Stopped</span>'}
-		</div>
-		${runningEntry
-			? `
-				<div class="time-running">
-					<div class="time-running__project">
-						<span class="time-color" style="--time-color: ${escapeHtml(runningEntry.project?.color ?? "#2d7c6f")}"></span>
-						<strong>${escapeHtml(runningEntry.project?.name ?? "Project")}</strong>
-					</div>
-					<div id="running-timer-duration" class="time-running__duration">
-						${formatDuration(timeEntryDurationSeconds(runningEntry))}
-					</div>
-					${runningEntry.description ? `<p class="section-copy">${escapeHtml(runningEntry.description)}</p>` : ""}
-					<div class="time-running__actions">
-						<button class="secondary" type="button" data-time-running-edit-open>Edit</button>
-						<button class="primary" type="button" id="time-stop-button" data-time-entry-id="${runningEntry.id}">Stop</button>
-					</div>
-				</div>
-				<div class="time-entry-edit-modal" id="time-running-edit-modal" hidden>
-					<div
-						class="time-entry-edit-modal__backdrop"
-						data-time-running-edit-modal-close
-					></div>
-					<div
-						class="time-entry-edit-modal__dialog card panel"
-						role="dialog"
-						aria-modal="true"
-						aria-labelledby="time-running-edit-modal-title"
-					>
-						<div class="section-header">
-							<h2 id="time-running-edit-modal-title">Edit Timer</h2>
-							<button
-								class="secondary"
-								type="button"
-								aria-label="Close edit timer modal"
-								data-time-running-edit-modal-close
-							>
-								Close
-							</button>
-						</div>
-						<form class="time-running__start-form" id="time-running-start-form" data-time-entry-id="${runningEntry.id}">
-							<label>
-								Project
-								<select id="time-running-project-select" aria-label="Running timer project" required>
-									${renderTimeProjectSelectOptions(currentTimeProjectChoices, runningEntry.project_id)}
-								</select>
-							</label>
-							<label>
-								Description
-								<input
-									id="time-running-description"
-									value="${escapeHtml(runningEntry.description ?? "")}"
-									placeholder="What are you working on?"
-									autocomplete="off"
-								/>
-							</label>
-							<label>
-								Started At
-								<input
-									id="time-running-started-at"
-									type="datetime-local"
-									value="${formatTimestampForDateTimeLocalInput(runningEntry.started_at)}"
-									required
-								/>
-							</label>
-							${previousEndedAt
-								? `<div>
-									<button
-										class="secondary"
-										type="button"
-										data-time-running-previous-ended-at="${escapeHtml(previousEndedAt)}"
-									>
-										Set start to previous end
-									</button>
-									<div class="section-copy">Previous end: ${formatReceiptDateTime(previousEndedAt)}</div>
-								</div>`
-								: ""}
-							<div class="actions">
-								<button class="primary" type="submit">Update Timer</button>
-							</div>
-						</form>
-					</div>
-				</div>
-			`
-			: ""}
-			<form id="time-entry-start-form" class="time-start-form">
-				<label>
-					Project
-					<select id="time-entry-project-select" aria-label="Project">
-						<option value="">Choose or create a project</option>
-						${renderTimeProjectSelectOptions(currentTimeProjectChoices)}
-						<option value="${NEW_TIME_PROJECT_VALUE}">Create new project...</option>
-					</select>
-				</label>
-				<label>
-					Description
-				<input id="time-entry-description" placeholder="What are you working on?" autocomplete="off" />
-			</label>
-			<button class="primary" type="submit">Start Timer</button>
-		</form>
-	`;
-
-	if (timeTimerInterval !== null) {
-		window.clearInterval(timeTimerInterval);
-		timeTimerInterval = null;
-	}
-	if (runningEntry) {
-		timeTimerInterval = window.setInterval(() => {
-			const duration = document.getElementById("running-timer-duration");
-			if (duration) {
-				duration.textContent = formatDuration(timeEntryDurationSeconds(runningEntry));
-			}
-		}, 1000);
-	}
-};
-
-const renderTimeQuickActions = (actions: TimeQuickAction[]) => {
-	const root = document.getElementById("time-quick-actions");
-	if (!root) return;
-	if (!actions.length) {
-		root.innerHTML = '<div class="empty">No repeated timers yet.</div>';
-		return;
-	}
-
-	root.innerHTML = actions
-		.map(
-			(action) => `
-				<div class="time-action-row">
-					<div class="time-action-row__main">
-						<div class="time-entry-row__title">
-							<span class="time-color" style="--time-color: ${escapeHtml(action.project?.color ?? "#2d7c6f")}"></span>
-							<strong>${escapeHtml(action.project?.name ?? "Project")}</strong>
-						</div>
-						<div class="time-entry-row__description">
-							${action.description ? escapeHtml(action.description) : "No description"}
-						</div>
-						<div class="section-copy">
-							${action.entry_count} entr${action.entry_count === 1 ? "y" : "ies"} - ${formatDuration(action.total_seconds)}
-						</div>
-					</div>
-					<button
-						class="secondary"
-						type="button"
-						data-start-time-project-id="${action.project_id}"
-						data-start-time-description="${escapeHtml(action.description)}"
-					>
-						Start
-					</button>
-				</div>
-			`,
-		)
-		.join("");
-};
-
-const renderTimeProjects = (projects: TimeProject[]) => {
-	const root = document.getElementById("time-project-results");
-	if (!root) return;
-	if (!projects.length) {
-		root.innerHTML = '<div class="empty">No time projects yet.</div>';
-		return;
-	}
-
-	root.innerHTML = projects
-		.map(
-			(project) => `
-				<div class="time-project-row ${project.archived_at ? "time-project-row--archived" : ""}">
-					<span class="time-color" style="--time-color: ${escapeHtml(project.color)}"></span>
-					<input data-time-project-name="${project.id}" value="${escapeHtml(project.name)}" aria-label="Project name" />
-					<input data-time-project-color="${project.id}" value="${escapeHtml(project.color)}" aria-label="Project color" />
-					<button class="secondary" type="button" data-save-time-project-id="${project.id}">Save</button>
-					<button class="secondary" type="button" data-archive-time-project-id="${project.id}" ${project.archived_at ? "disabled" : ""}>Archive</button>
-				</div>
-			`,
-		)
-		.join("");
-};
-
-const renderTimeEntries = (entries: TimeEntry[], projects: TimeProject[]) => {
-	const root = document.getElementById("time-entry-results");
-	if (!root) return;
-	const recentEntries = entries.slice(0, 30);
-	if (!recentEntries.length) {
-		root.innerHTML = '<div class="empty">No time entries yet.</div>';
-		return;
-	}
-
-	root.innerHTML = recentEntries
-		.map((entry) => {
-			const description = normalizeTimeDescription(entry.description);
-			const startedAt = formatTimestampForDateTimeLocalInput(entry.started_at);
-			const endedAt = entry.ended_at
-				? formatTimestampForDateTimeLocalInput(entry.ended_at)
-				: "";
-			const project =
-				entry.project ?? projects.find((item) => item.id === entry.project_id);
-			const projectName = project?.name ?? "Project";
-			const projectColor = project?.color ?? "#2d7c6f";
-			const duration = entry.ended_at
-				? formatDuration(timeEntryDurationSeconds(entry))
-				: "Running";
-			return `
-				<div class="time-entry-row ${entry.ended_at ? "" : "time-entry-row--running"}" data-time-entry-row="${entry.id}">
-					<div class="time-entry-row__summary" data-time-entry-summary="${entry.id}">
-						<div class="time-entry-row__main">
-							<div class="time-entry-row__header">
-								<div class="time-entry-row__title">
-									<span class="time-color" style="--time-color: ${escapeHtml(projectColor)}"></span>
-									<strong>${escapeHtml(projectName)}</strong>
-									<span class="tag ${entry.ended_at ? "tag--neutral" : ""}">
-										${duration}
-									</span>
-								</div>
-								<button class="secondary time-entry-row__edit" type="button" data-edit-time-entry-id="${entry.id}">Edit</button>
-							</div>
-							<div class="time-entry-row__description">
-								${description ? escapeHtml(description) : "No description"}
-							</div>
-							<div class="section-copy">
-								${formatReceiptDateTime(entry.started_at)}${entry.ended_at ? ` - ${formatReceiptDateTime(entry.ended_at)}` : ""}
-							</div>
-						</div>
-						<div class="time-entry-row__actions">
-							<button
-								class="secondary"
-								type="button"
-								data-start-time-project-id="${entry.project_id}"
-								data-start-time-description="${escapeHtml(description)}"
-							>
-								Start Again
-							</button>
-						</div>
-					</div>
-					<form class="time-entry-edit-form" data-time-entry-edit-form="${entry.id}" hidden>
-						<label>
-							Project
-							<select data-time-entry-project="${entry.id}" aria-label="Entry project">
-								${renderTimeProjectOptions(projects, entry.project_id)}
-							</select>
-						</label>
-						<label>
-							Description
-							<input data-time-entry-description="${entry.id}" value="${escapeHtml(entry.description ?? "")}" aria-label="Entry description" />
-						</label>
-						<div class="row">
-							<label>
-								Start
-								<input data-time-entry-started-at="${entry.id}" type="datetime-local" value="${startedAt}" required />
-							</label>
-							<label>
-								End
-								<input data-time-entry-ended-at="${entry.id}" type="datetime-local" value="${endedAt}" />
-							</label>
-						</div>
-						<div class="actions">
-							<button class="primary" type="button" data-save-time-entry-id="${entry.id}">Save</button>
-							<button class="secondary" type="button" data-cancel-time-entry-id="${entry.id}">Cancel</button>
-							<button class="secondary" type="button" data-delete-time-entry-id="${entry.id}">Delete</button>
-						</div>
-					</form>
-				</div>
-			`;
-		})
-		.join("");
-};
-
-const renderTimeReport = (report: TimeReport) => {
-	const summaryRoot = document.getElementById("time-report-summary");
-	const resultsRoot = document.getElementById("time-report-results");
-	if (!summaryRoot || !resultsRoot) return;
-
-	summaryRoot.innerHTML = `
-		<div class="time-report-summary">
-			<div>
-				<span>Total</span>
-				<strong>${formatDuration(report.total_seconds)}</strong>
-			</div>
-			<div>
-				<span>Projects</span>
-				<strong>${report.project_totals.length}</strong>
-			</div>
-		</div>
-	`;
-
-	if (!report.project_totals.length) {
-		resultsRoot.innerHTML = '<div class="empty">No tracked time in this range.</div>';
-		return;
-	}
-
-	resultsRoot.innerHTML = report.project_totals
-		.map(
-			(project) => `
-				<div class="time-report-row">
-					<div>
-						<span class="time-color" style="--time-color: ${escapeHtml(project.project_color)}"></span>
-						<strong>${escapeHtml(project.project_name)}</strong>
-						<span class="section-copy">${project.entry_count} entr${project.entry_count === 1 ? "y" : "ies"}</span>
-					</div>
-					<strong>${formatDuration(project.total_seconds)}</strong>
-				</div>
-			`,
-		)
-		.join("");
-};
-
-export const loadTimeTrackingPage = async () => {
-	try {
-		setStatus("time-status", "Loading time tracking...");
-		const [projects, entries] = await Promise.all([
-			fetchTimeProjects(),
-			fetchTimeEntries(),
-		]);
-		const runningEntry =
-			entries.find((entry) => entry.ended_at === null) ?? null;
-		currentTimeProjectChoices = buildTimeProjectChoices(entries, projects);
-		renderTimeTimer(runningEntry, findPreviousTimeEntryEnd(entries, runningEntry));
-		renderTimeQuickActions(buildTimeQuickActions(entries, projects));
-		renderTimeEntries(entries, projects);
-		setStatus("time-status", `Loaded ${entries.length} time entr${entries.length === 1 ? "y" : "ies"}.`);
-	} catch (error) {
-		setStatus(
-			"time-status",
-			error instanceof Error ? error.message : "Failed to load time tracking.",
-			true,
-		);
-	}
-};
 
 const buildContainerChildren = (containers: InventoryContainer[]) => {
 	const children = new Map<number | null, InventoryContainer[]>();
@@ -1725,56 +767,6 @@ const getInventoryItemMeta = (item: InventoryItem) => {
 	}
 
 	return parts.join(" • ");
-};
-
-export const renderInventoryItemNodeLink = (
-	item: InventoryItem,
-	options: { draggable?: boolean; showConsumeAction?: boolean } = {},
-) => {
-	const meta = getInventoryItemMeta(item);
-	const isConsumed = item.consumed_at !== null;
-	const draggableAttributes = options.draggable
-		? `
-			draggable="true"
-			data-drag-kind="item"
-			data-drag-id="${item.id}"
-			data-source-container-id="${item.container_id ?? ""}"
-		`
-		: "";
-
-	return `
-		<div
-			class="inventory-node inventory-node--item${isConsumed ? " inventory-node--consumed" : ""}"
-			${draggableAttributes}
-		>
-			<a
-				class="inventory-node__main inventory-node__link"
-				href="/inventory/items/${item.id}"
-				data-link
-			>
-				<strong>${escapeHtml(item.name)}</strong>
-				<div class="inventory-node__meta">
-					<span>${item.quantity} ${escapeHtml(item.unit)}</span>
-					${meta ? `<span>${escapeHtml(meta)}</span>` : ""}
-				</div>
-			</a>
-			${
-				options.showConsumeAction
-					? `
-						<div class="inventory-node__actions">
-							<button
-								class="secondary inventory-node__button"
-								type="button"
-								data-consume-inventory-item-id="${item.id}"
-							>
-								Consume
-							</button>
-						</div>
-					`
-					: ""
-			}
-		</div>
-	`;
 };
 
 const compareInventoryItemsByExpiration = (
@@ -1857,43 +849,49 @@ const renderExpirationItem = (
 	const tag = getExpirationTag(item);
 	const location = getInventoryItemLocation(item, containersById);
 
-	return `
-		<div class="inventory-expiration-item">
-			<a
-				class="inventory-expiration-item__main"
-				href="/inventory/items/${item.id}"
-				data-link
-			>
-				<strong>${escapeHtml(item.name)}</strong>
-				<div class="inventory-node__meta">
-					<span>${item.quantity} ${escapeHtml(item.unit)}</span>
-					<span>${escapeHtml(location)}</span>
-					<span>${
-						item.expires_at
-							? `Expires ${formatReceiptDateTime(item.expires_at)}`
-							: "No expiration date"
-					}</span>
-				</div>
-			</a>
-			<div class="inventory-expiration-item__actions">
-				<span class="${tag.className}">${escapeHtml(tag.label)}</span>
-				${
-					options.showConsumeAction
-						? `
-							<button
-								class="secondary inventory-node__button"
-								type="button"
-								data-consume-expiration-item-id="${item.id}"
-								data-consume-expiration-item-name="${escapeHtml(item.name)}"
-							>
-								Consume
-							</button>
-						`
-						: ""
-				}
-			</div>
-		</div>
-	`;
+	const link = createElement("a", {
+		className: "inventory-expiration-item__main",
+	});
+	link.href = `/inventory/items/${item.id}`;
+	link.dataset.link = "";
+	link.append(createElement("strong", { text: item.name }));
+	link.append(
+		createElement(
+			"div",
+			{ className: "inventory-node__meta" },
+			createElement("span", { text: `${item.quantity} ${item.unit}` }),
+			createElement("span", { text: location }),
+			createElement("span", {
+				text: item.expires_at
+					? `Expires ${formatReceiptDateTime(item.expires_at)}`
+					: "No expiration date",
+			}),
+		),
+	);
+
+	const actions = createElement("div", {
+		className: "inventory-expiration-item__actions",
+	});
+	actions.append(
+		createElement("span", { className: tag.className, text: tag.label }),
+	);
+	if (options.showConsumeAction) {
+		const consume = createElement("button", {
+			className: "secondary inventory-node__button",
+			text: "Consume",
+		});
+		consume.type = "button";
+		consume.dataset.consumeExpirationItemId = String(item.id);
+		consume.dataset.consumeExpirationItemName = item.name;
+		actions.append(consume);
+	}
+
+	return createElement(
+		"div",
+		{ className: "inventory-expiration-item" },
+		link,
+		actions,
+	);
 };
 
 const createContainerNameMap = (containers: InventoryContainer[]) =>
@@ -1930,33 +928,33 @@ const renderExpirationPreview = (
 	containers: InventoryContainer[],
 	items: InventoryItem[],
 ) => {
-	const root = document.getElementById("dashboard-expiration-list");
+	const root = getElementById("dashboard-expiration-list");
 	if (!root) {
 		return;
 	}
 
 	if (!items.length) {
-		root.innerHTML = '<div class="empty">No active inventory items.</div>';
+		root.replaceChildren(createEmptyState("No active inventory items."));
 		return;
 	}
 
 	const containersById = createContainerNameMap(containers);
 	const sortedItems = sortInventoryItemsByExpiration(items).slice(0, 5);
 
-	root.innerHTML = `
-		<div class="inventory-expiration-list">
-			${sortedItems
-				.map((item) => renderExpirationItem(item, containersById))
-				.join("")}
-		</div>
-	`;
+	root.replaceChildren(
+		createElement(
+			"div",
+			{ className: "inventory-expiration-list" },
+			sortedItems.map((item) => renderExpirationItem(item, containersById)),
+		),
+	);
 };
 
 const renderExpirationResults = (
 	containers: InventoryContainer[],
 	items: InventoryItem[],
 ) => {
-	const root = document.getElementById("expiration-results");
+	const root = getElementById("expiration-results");
 	if (!root) {
 		return;
 	}
@@ -1966,7 +964,7 @@ const renderExpirationResults = (
 	expirationInfiniteScroll = new InfiniteScroll(
 		{
 			batchSize: 20,
-			emptyHtml: '<div class="empty">No active inventory items.</div>',
+			empty: () => createEmptyState("No active inventory items."),
 			renderItem: (item) =>
 				renderExpirationItem(item, containersById, { showConsumeAction: true }),
 			root,
@@ -2013,22 +1011,14 @@ const getSpendingTotalsByCurrency = (receipts: PurchaseReceipt[]) => {
 	);
 };
 
-const renderSpendingTotalValues = (totals: Array<[string, number]>) =>
-	totals.length
-		? totals
-				.map(
-					([currency, total]) => `
-						<strong>${formatMoney(total, currency)}</strong>
-					`,
-				)
-				.join("")
-		: "<strong>-</strong>";
+const createSpendingTotalValues = (totals: Array<[string, number]>) =>
+	createElement("div", { className: "dashboard-spending-total__values" }, ...(totals.length ? totals.map(([currency, total]) => createElement("strong", {}, formatMoney(total, currency))) : [createElement("strong", {}, "-")]));
 
 const renderSpendingSummary = (
 	receipts: PurchaseReceipt[],
 	spendingBreakdown?: SpendingBreakdown,
 ) => {
-	const root = document.getElementById("dashboard-spending-summary");
+	const root = getElementById("dashboard-spending-summary");
 	if (!root) {
 		return;
 	}
@@ -2058,60 +1048,16 @@ const renderSpendingSummary = (
 	).length;
 
 	if (!receipts.length) {
-		root.innerHTML =
-			'<div class="empty">No receipts recorded yet.</div>';
+		root.replaceChildren(createEmptyState("No receipts recorded yet."));
 		return;
 	}
 
-	root.innerHTML = `
-		<div class="dashboard-spending-summary">
-			<div class="dashboard-spending-total">
-				<span>Last 30 Days</span>
-				<div class="dashboard-spending-total__values">
-					${renderSpendingTotalValues(last30DayTotals)}
-				</div>
-			</div>
-			<div class="dashboard-spending-total">
-				<span>Average Month Spending</span>
-				<div class="dashboard-spending-total__values">
-					${renderSpendingTotalValues(averageMonthTotals)}
-				</div>
-			</div>
-			<div class="dashboard-spending-total">
-				<span>Average Weekly Spending</span>
-				<div class="dashboard-spending-total__values">
-					${renderSpendingTotalValues(averageWeekTotals)}
-				</div>
-			</div>
-			<div class="dashboard-spending-total">
-				<span>Average Daily Spending</span>
-				<div class="dashboard-spending-total__values">
-					${renderSpendingTotalValues(averageDayTotals)}
-				</div>
-			</div>
-			<div class="dashboard-spending-total">
-				<span>This Month Spending</span>
-				<div class="dashboard-spending-total__values">
-					${renderSpendingTotalValues(currentMonthTotals)}
-				</div>
-			</div>
-			<div class="dashboard-spending-total">
-				<span>Year To Date Spending</span>
-				<div class="dashboard-spending-total__values">
-					${renderSpendingTotalValues(yearToDateTotals)}
-				</div>
-			</div>
-			${
-				missingTotalCount
-					? `<div class="section-copy">${missingTotalCount} year-to-date receipt(s) have no total amount.</div>`
-					: ""
-			}
-		</div>
-	`;
+	const total = (label: string, values: Array<[string, number]>) => createElement("div", { className: "dashboard-spending-total" }, createElement("span", {}, label), createSpendingTotalValues(values));
+	root.replaceChildren(createElement("div", { className: "dashboard-spending-summary" }, total("Last 30 Days", last30DayTotals), total("Average Month Spending", averageMonthTotals), total("Average Weekly Spending", averageWeekTotals), total("Average Daily Spending", averageDayTotals), total("This Month Spending", currentMonthTotals), total("Year To Date Spending", yearToDateTotals), missingTotalCount ? createElement("div", { className: "section-copy" }, `${missingTotalCount} year-to-date receipt(s) have no total amount.`) : null));
 };
 
 const renderDashboardTimer = (runningEntry: TimeEntry | null) => {
-	const root = document.getElementById("dashboard-timer");
+	const root = getElementById("dashboard-timer");
 	if (!root) {
 		return;
 	}
@@ -2122,37 +1068,16 @@ const renderDashboardTimer = (runningEntry: TimeEntry | null) => {
 	}
 
 	if (!runningEntry) {
-		root.innerHTML = `
-			<div class="dashboard-timer-empty">
-				<div class="empty">No timer running.</div>
-				<a class="primary action-link" href="/time" data-link>Start Timer</a>
-			</div>
-		`;
+		root.replaceChildren(createElement("div", { className: "dashboard-timer-empty" }, createEmptyState("No timer running."), createElement("a", { className: "primary action-link", properties: { href: "/time" }, attributes: { "data-link": "" } }, "Start Timer")));
 		return;
 	}
 
-	root.innerHTML = `
-		<div class="time-running dashboard-timer-running">
-			<div class="time-running__project">
-				<span class="time-color" style="--time-color: ${escapeHtml(runningEntry.project?.color ?? "#2d7c6f")}"></span>
-				<strong>${escapeHtml(runningEntry.project?.name ?? "No project")}</strong>
-			</div>
-			<div id="dashboard-running-timer-duration" class="time-running__duration">
-				${formatDuration(timeEntryDurationSeconds(runningEntry))}
-			</div>
-			${runningEntry.description ? `<p class="section-copy">${escapeHtml(runningEntry.description)}</p>` : ""}
-			<div class="time-running__actions">
-				<a class="secondary action-link" href="/time" data-link>Edit</a>
-				<button
-					class="primary"
-					type="button"
-					data-dashboard-stop-time-entry-id="${runningEntry.id}"
-				>
-					Stop
-				</button>
-			</div>
-		</div>
-	`;
+	const color = createElement("span", { className: "time-color" });
+	color.style.setProperty("--time-color", runningEntry.project?.color ?? "#2d7c6f");
+	const edit = createElement("a", { className: "secondary action-link", properties: { href: "/time" }, attributes: { "data-link": "" } }, "Edit");
+	const stop = createElement("button", { className: "primary", properties: { type: "button" } }, "Stop");
+	stop.dataset.dashboardStopTimeEntryId = String(runningEntry.id);
+	root.replaceChildren(createElement("div", { className: "time-running dashboard-timer-running" }, createElement("div", { className: "time-running__project" }, color, createElement("strong", {}, runningEntry.project?.name ?? "No project")), createElement("div", { id: "dashboard-running-timer-duration", className: "time-running__duration" }, formatDuration(timeEntryDurationSeconds(runningEntry))), runningEntry.description ? createElement("p", { className: "section-copy" }, runningEntry.description) : null, createElement("div", { className: "time-running__actions" }, edit, stop)));
 
 	dashboardTimerInterval = window.setInterval(() => {
 		if (!root.isConnected) {
@@ -2160,7 +1085,7 @@ const renderDashboardTimer = (runningEntry: TimeEntry | null) => {
 			dashboardTimerInterval = null;
 			return;
 		}
-		const duration = document.getElementById("dashboard-running-timer-duration");
+		const duration = getElementById("dashboard-running-timer-duration");
 		if (duration) {
 			duration.textContent = formatDuration(timeEntryDurationSeconds(runningEntry));
 		}
@@ -2168,48 +1093,35 @@ const renderDashboardTimer = (runningEntry: TimeEntry | null) => {
 };
 
 const renderDashboardShoppingList = (items: ShoppingListItem[]) => {
-	const root = document.getElementById("dashboard-shopping-list");
+	const root = getElementById("dashboard-shopping-list");
 	if (!root) {
 		return;
 	}
 
 	const activeItems = items.slice(0, 8);
 	if (!activeItems.length) {
-		root.innerHTML = '<div class="empty">No active shoppinglist items.</div>';
+		root.replaceChildren(createEmptyState("No active shoppinglist items."));
 		return;
 	}
 
-	root.innerHTML = `
-		<div class="dashboard-shopping-list">
-			${activeItems
-				.map((item) => {
-					const productPictureUrl = item.product?.picture_file_id
-						? `/api/products/${item.product.id}/picture?updated=${encodeURIComponent(item.product.picture_file?.created_at ?? item.updated_at)}`
-						: null;
-					return `
-						<a class="dashboard-shopping-item" href="/shoppinglist" data-link>
-							${
-								productPictureUrl
-									? `<img class="dashboard-shopping-item__image" src="${productPictureUrl}" alt="${escapeHtml(item.product?.name ?? item.name)}" loading="lazy" onerror="this.remove()" />`
-									: '<span class="dashboard-shopping-item__image dashboard-shopping-item__image--placeholder"></span>'
-							}
-							<div class="dashboard-shopping-item__main">
-								<strong>${escapeHtml(item.name)}</strong>
-								<span>${escapeHtml(`${item.quantity} ${item.unit}`.trim())}</span>
-							</div>
-						</a>
-					`;
-				})
-				.join("")}
-		</div>
-	`;
+	root.replaceChildren(createElement("div", { className: "dashboard-shopping-list" }, ...activeItems.map((item) => {
+		const href = createElement("a", { className: "dashboard-shopping-item", properties: { href: "/shoppinglist" }, attributes: { "data-link": "" } });
+		const pictureUrl = item.product?.picture_file_id ? `/api/products/${item.product.id}/picture?updated=${encodeURIComponent(item.product.picture_file?.created_at ?? item.updated_at)}` : null;
+		if (pictureUrl) {
+			const image = createElement("img", { className: "dashboard-shopping-item__image", properties: { src: pictureUrl, alt: item.product?.name ?? item.name, loading: "lazy" } });
+			image.addEventListener("error", () => image.remove());
+			href.append(image);
+		} else href.append(createElement("span", { className: "dashboard-shopping-item__image dashboard-shopping-item__image--placeholder" }));
+		href.append(createElement("div", { className: "dashboard-shopping-item__main" }, createElement("strong", {}, item.name), createElement("span", {}, `${item.quantity} ${item.unit}`.trim())));
+		return href;
+	})));
 };
 
 const renderInventoryTree = (
 	containers: InventoryContainer[],
 	items: InventoryItem[],
 ) => {
-	const root = document.getElementById("inventory-tree-root");
+	const root = getElementById("inventory-tree-root");
 	if (!root) {
 		return;
 	}
@@ -2237,35 +1149,21 @@ const renderInventoryTree = (
 
 	const renderInventoryItemNode = (item: InventoryItem) => {
 		const isConsumed = item.consumed_at !== null;
-
-		return `
-			<li class="inventory-tree__leaf">
-				${renderInventoryItemNodeLink(item, {
-					draggable: !isConsumed,
-					showConsumeAction: !isConsumed,
-				})}
-			</li>
-		`;
+		return createElement("li", { className: "inventory-tree__leaf" }, createInventoryItemNodeLink(item, { draggable: !isConsumed, showConsumeAction: !isConsumed }));
 	};
 
 	const renderInventoryItemsList = (containerId: number | null) => {
 		const bucket = containerItems.get(containerId) ?? [];
-		if (!bucket.length) {
-			return "";
-		}
+		if (!bucket.length) return null;
 
 		const sortedItems = [...bucket].sort((left, right) => {
 			return left.name.localeCompare(right.name);
 		});
 
-		return `
-			<ul class="inventory-tree__items">
-				${sortedItems.map((item) => renderInventoryItemNode(item)).join("")}
-			</ul>
-		`;
+		return createElement("ul", { className: "inventory-tree__items" }, ...sortedItems.map(renderInventoryItemNode));
 	};
 
-	const renderContainerNode = (container: InventoryContainer): string => {
+	const createContainerNode = (container: InventoryContainer): HTMLLIElement => {
 		const childContainers = containerChildren.get(container.id) ?? [];
 		const hasChildren =
 			childContainers.length > 0 ||
@@ -2274,83 +1172,18 @@ const renderInventoryTree = (
 		const isCollapsed =
 			hasChildren && collapsedInventoryContainerIds.has(container.id);
 
-		return `
-			<li class="inventory-tree__branch">
-				<div
-					class="inventory-node inventory-node--container inventory-drop-target"
-					draggable="true"
-					data-drag-kind="container"
-					data-drag-id="${container.id}"
-					data-drop-kind="container"
-					data-drop-id="${container.id}"
-				>
-					<div class="inventory-node__main">
-						<div class="inventory-node__title-row">
-							${
-								hasChildren
-									? `
-										<button
-											class="inventory-node__toggle"
-											type="button"
-											aria-label="${isCollapsed ? "Expand" : "Collapse"} ${container.name}"
-											aria-expanded="${isCollapsed ? "false" : "true"}"
-											data-toggle-inventory-container-id="${container.id}"
-										>
-											${isCollapsed ? "▸" : "▾"}
-										</button>
-									`
-									: '<span class="inventory-node__toggle-placeholder"></span>'
-							}
-							<strong>${container.name}</strong>
-						</div>
-						<div class="inventory-node__meta">
-							<span>${itemCount === 1 ? "1 item" : `${itemCount} items`}</span>
-							${container.notes ? `<span>${container.notes}</span>` : ""}
-						</div>
-					</div>
-					<div class="inventory-node__actions">
-						<a
-							class="secondary action-link inventory-node__button"
-							href="/inventory/containers/${container.id}"
-							data-link
-						>
-							Open
-						</a>
-						<button
-							class="secondary inventory-node__button"
-							type="button"
-							data-delete-inventory-container-id="${container.id}"
-							data-delete-inventory-container-name="${container.name}"
-						>
-							Delete
-						</button>
-					</div>
-				</div>
-				${
-					isCollapsed
-						? ""
-						: `
-							<div class="inventory-tree__children">
-								${renderInventoryItemsList(container.id)}
-								${
-									childContainers.length
-										? `<ul class="inventory-tree__containers">${childContainers
-												.map((child) =>
-													renderContainerNode(child),
-												)
-												.join("")}</ul>`
-										: ""
-								}
-								${
-									!hasChildren
-										? ""
-										: ""
-								}
-							</div>
-						`
-				}
-			</li>
-		`;
+		const toggle = hasChildren ? createElement("button", { className: "inventory-node__toggle", properties: { type: "button" }, attributes: { "aria-label": `${isCollapsed ? "Expand" : "Collapse"} ${container.name}`, "aria-expanded": String(!isCollapsed) } }, isCollapsed ? "▸" : "▾") : createElement("span", { className: "inventory-node__toggle-placeholder" });
+		if (toggle instanceof HTMLButtonElement) toggle.dataset.toggleInventoryContainerId = String(container.id);
+		const main = createElement("div", { className: "inventory-node__main" }, createElement("div", { className: "inventory-node__title-row" }, toggle, createElement("strong", {}, container.name)), createElement("div", { className: "inventory-node__meta" }, createElement("span", {}, itemCount === 1 ? "1 item" : `${itemCount} items`), container.notes ? createElement("span", {}, container.notes) : null));
+		const open = createElement("a", { className: "secondary action-link inventory-node__button", properties: { href: `/inventory/containers/${container.id}` }, attributes: { "data-link": "" } }, "Open");
+		const remove = createElement("button", { className: "secondary inventory-node__button", properties: { type: "button" } }, "Delete");
+		remove.dataset.deleteInventoryContainerId = String(container.id);
+		remove.dataset.deleteInventoryContainerName = container.name;
+		const node = createElement("div", { className: "inventory-node inventory-node--container inventory-drop-target", properties: { draggable: true } }, main, createElement("div", { className: "inventory-node__actions" }, open, remove));
+		Object.assign(node.dataset, { dragKind: "container", dragId: String(container.id), dropKind: "container", dropId: String(container.id) });
+		const branch = createElement("li", { className: "inventory-tree__branch" }, node);
+		if (!isCollapsed) branch.append(createElement("div", { className: "inventory-tree__children" }, renderInventoryItemsList(container.id), childContainers.length ? createElement("ul", { className: "inventory-tree__containers" }, ...childContainers.map(createContainerNode)) : null));
+		return branch;
 	};
 
 	const topLevelContainers = containerChildren.get(null) ?? [];
@@ -2358,90 +1191,104 @@ const renderInventoryTree = (
 	const hasRootContent =
 		unplacedItems.length > 0 || topLevelContainers.length > 0;
 
-	root.innerHTML = `
-		<div
-			class="inventory-root inventory-drop-target"
-			data-drop-kind="root"
-			data-drop-id=""
-		>
-			<div class="inventory-tree__toolbar">
-				<div id="inventory-status" class="status"></div>
-				<select
-					id="inventory-item-mode"
-					class="inventory-tree__filter"
-					aria-label="Inventory view"
-				>
-					<option value="active" ${inventoryItemMode === "active" ? "selected" : ""}>Active</option>
-					<option value="consumed" ${inventoryItemMode === "consumed" ? "selected" : ""}>Consumed</option>
-					<option value="all" ${inventoryItemMode === "all" ? "selected" : ""}>All</option>
-				</select>
-				<button
-					class="primary inventory-node__button"
-					type="button"
-					data-open-inventory-container-modal
-				>
-					Add Container
-				</button>
-			</div>
-			<div class="inventory-tree__root-content">
-				${
-					items.length
-						? ""
-						: `<div class="inventory-tree__empty">${getInventoryEmptyMessage(inventoryItemMode)}</div>`
-				}
-				${unplacedItems.length ? renderInventoryItemsList(null) : ""}
-				${
-					topLevelContainers.length
-						? `<ul class="inventory-tree__containers inventory-tree__containers--root">${topLevelContainers
-								.map((container) =>
-									renderContainerNode(container),
-								)
-								.join("")}</ul>`
-						: ""
-				}
-				${
-					hasRootContent || !items.length
-						? ""
-						: `<div class="inventory-tree__empty">${getInventoryEmptyMessage(inventoryItemMode)}</div>`
-				}
-			</div>
-		</div>
-	`;
+	const mode = createElement("select", { id: "inventory-item-mode", className: "inventory-tree__filter", attributes: { "aria-label": "Inventory view" } }, ...([ ["active", "Active"], ["consumed", "Consumed"], ["all", "All"] ] as const).map(([value, label]) => createElement("option", { properties: { value, selected: inventoryItemMode === value } }, label)));
+	const add = createElement("button", { className: "primary inventory-node__button", properties: { type: "button" }, attributes: { "data-open-inventory-container-modal": "" } }, "Add Container");
+	const content = createElement("div", { className: "inventory-tree__root-content" }, !items.length ? createElement("div", { className: "inventory-tree__empty" }, getInventoryEmptyMessage(inventoryItemMode)) : null, unplacedItems.length ? renderInventoryItemsList(null) : null, topLevelContainers.length ? createElement("ul", { className: "inventory-tree__containers inventory-tree__containers--root" }, ...topLevelContainers.map(createContainerNode)) : null, !hasRootContent && items.length ? createElement("div", { className: "inventory-tree__empty" }, getInventoryEmptyMessage(inventoryItemMode)) : null);
+	const inventoryRoot = createElement("div", { className: "inventory-root inventory-drop-target" }, createElement("div", { className: "inventory-tree__toolbar" }, createElement("div", { id: "inventory-status", className: "status" }), mode, add), content);
+	Object.assign(inventoryRoot.dataset, { dropKind: "root", dropId: "" });
+	root.replaceChildren(inventoryRoot);
 };
 
-export const renderReceiptCard = (
+export const createInventoryItemNodeLink = (
+	item: InventoryItem,
+	options: { draggable?: boolean; showConsumeAction?: boolean } = {},
+) => {
+	const isConsumed = item.consumed_at !== null;
+	const root = createElement("div", {
+		className: `inventory-node inventory-node--item${isConsumed ? " inventory-node--consumed" : ""}`,
+	});
+	if (options.draggable) {
+		root.draggable = true;
+		root.dataset.dragKind = "item";
+		root.dataset.dragId = String(item.id);
+		root.dataset.sourceContainerId = String(item.container_id ?? "");
+	}
+	const link = createElement("a", {
+		className: "inventory-node__main inventory-node__link",
+	});
+	link.href = `/inventory/items/${item.id}`;
+	link.dataset.link = "";
+	const metadata = createElement(
+		"div",
+		{ className: "inventory-node__meta" },
+		createElement("span", { text: `${item.quantity} ${item.unit}` }),
+	);
+	const meta = getInventoryItemMeta(item);
+	if (meta) metadata.append(createElement("span", { text: meta }));
+	link.append(createElement("strong", { text: item.name }), metadata);
+	root.append(link);
+	if (options.showConsumeAction) {
+		const consume = createElement("button", {
+			className: "secondary inventory-node__button",
+			text: "Consume",
+		});
+		consume.type = "button";
+		consume.dataset.consumeInventoryItemId = String(item.id);
+		root.append(
+			createElement("div", { className: "inventory-node__actions" }, consume),
+		);
+	}
+	return root;
+};
+
+export const createReceiptCard = (
 	receipt: PurchaseReceipt,
 	options: { className?: string; draggable?: boolean } = {},
-) => `
-	<a
-		class="receipt-card${options.className ? ` ${options.className}` : ""}"
-		href="/receipts/${receipt.id}"
-		data-link
-		${options.draggable === false ? "" : `draggable="true" data-receipt-drag-id="${receipt.id}"`}
-	>
-		<div class="receipt-card__header">
-			<h3>${escapeHtml(receipt.store_name)}</h3>
-			<div class="receipt-card__tags">
-				${
-					receipt.group
-						? `<span class="tag">${escapeHtml(receipt.group.name)}</span>`
-						: '<span class="tag tag--neutral">Ungrouped</span>'
-				}
-				<span class="tag tag--neutral">${escapeHtml(receipt.currency)}</span>
-			</div>
-		</div>
-		<dl class="receipt-card__meta">
-			<div>
-				<dt>Purchased</dt>
-				<dd>${formatReceiptDateTime(receipt.purchased_at)}</dd>
-			</div>
-			<div>
-				<dt>Total</dt>
-				<dd>${formatMoney(receipt.total_amount, receipt.currency)}</dd>
-			</div>
-		</dl>
-	</a>
-`;
+) => {
+	const card = createElement("a", {
+		className: `receipt-card${options.className ? ` ${options.className}` : ""}`,
+	});
+	card.href = `/receipts/${receipt.id}`;
+	card.dataset.link = "";
+	if (options.draggable !== false) {
+		card.draggable = true;
+		card.dataset.receiptDragId = String(receipt.id);
+	}
+
+	const tags = createElement("div", { className: "receipt-card__tags" });
+	tags.append(
+		createElement("span", {
+			className: receipt.group ? "tag" : "tag tag--neutral",
+			text: receipt.group?.name ?? "Ungrouped",
+		}),
+		createElement("span", {
+			className: "tag tag--neutral",
+			text: receipt.currency,
+		}),
+	);
+	const header = createElement(
+		"div",
+		{ className: "receipt-card__header" },
+		createElement("h3", { text: receipt.store_name }),
+		tags,
+	);
+	const metadata = createElement("dl", { className: "receipt-card__meta" });
+	for (const [label, value] of [
+		["Purchased", formatReceiptDateTime(receipt.purchased_at)],
+		["Total", formatMoney(receipt.total_amount, receipt.currency)],
+	] as const) {
+		metadata.append(
+			createElement(
+				"div",
+				{},
+				createElement("dt", { text: label }),
+				createElement("dd", { text: value }),
+			),
+		);
+	}
+	card.append(header, metadata);
+	return card;
+};
 
 const createReceiptTimelineEntries = (receipts: PurchaseReceipt[]) => {
 	if (!receipts.length) {
@@ -2468,24 +1315,31 @@ const createReceiptTimelineEntries = (receipts: PurchaseReceipt[]) => {
 	return entries;
 };
 
-const renderReceiptCutoffMarker = () => `
-	<div class="receipt-timeline__cutoff" role="note">
-		<span class="receipt-timeline__cutoff-line"></span>
-		<span class="tag">30-day spending counter cutoff</span>
-		<span class="receipt-timeline__cutoff-line"></span>
-	</div>
-`;
+const createReceiptCutoffMarker = () => {
+	const marker = createElement(
+		"div",
+		{ className: "receipt-timeline__cutoff" },
+		createElement("span", { className: "receipt-timeline__cutoff-line" }),
+		createElement("span", {
+			className: "tag",
+			text: "30-day spending counter cutoff",
+		}),
+		createElement("span", { className: "receipt-timeline__cutoff-line" }),
+	);
+	marker.role = "note";
+	return marker;
+};
 
 const renderReceiptTimelineEntry = (entry: ReceiptTimelineEntry) =>
 	entry.kind === "cutoff"
-		? renderReceiptCutoffMarker()
-		: renderReceiptCard(entry.receipt, {
+		? createReceiptCutoffMarker()
+		: createReceiptCard(entry.receipt, {
 				className: "receipt-card--timeline",
 				draggable: false,
 			});
 
 const renderReceiptTimeline = (receipts: PurchaseReceipt[]) => {
-	const results = document.getElementById("receipt-results");
+	const results = getElementById("receipt-results");
 	if (!results) {
 		return;
 	}
@@ -2496,7 +1350,7 @@ const renderReceiptTimeline = (receipts: PurchaseReceipt[]) => {
 	receiptInfiniteScroll = new InfiniteScroll(
 		{
 			batchSize: 20,
-			emptyHtml: '<div class="empty">No receipts yet.</div>',
+			empty: () => createEmptyState("No receipts yet."),
 			renderItem: renderReceiptTimelineEntry,
 			root: results,
 		},
@@ -2509,13 +1363,13 @@ const attachReceiptKanbanScrollSync = () => {
 	receiptKanbanScrollCleanup?.();
 	receiptKanbanScrollCleanup = null;
 
-	const scrollbar = document.querySelector<HTMLElement>(
+	const scrollbar = querySelector<HTMLElement>(
 		"[data-receipt-kanban-scrollbar]",
 	);
-	const scrollbarInner = document.querySelector<HTMLElement>(
+	const scrollbarInner = querySelector<HTMLElement>(
 		"[data-receipt-kanban-scrollbar-inner]",
 	);
-	const board = document.querySelector<HTMLElement>("[data-receipt-kanban]");
+	const board = querySelector<HTMLElement>("[data-receipt-kanban]");
 	if (!scrollbar || !scrollbarInner || !board) {
 		return;
 	}
@@ -2548,13 +1402,13 @@ const renderReceiptBoard = (
 	groups: Group[] = [],
 	selectedFilter = "all",
 ) => {
-	const results = document.getElementById("receipt-results");
+	const results = getElementById("receipt-results");
 	if (!results) {
 		return;
 	}
 
 	if (!receipts.length && !groups.length) {
-		results.innerHTML = '<div class="empty">No receipts yet.</div>';
+		results.replaceChildren(createEmptyState("No receipts yet."));
 		return;
 	}
 
@@ -2571,52 +1425,15 @@ const renderReceiptBoard = (
 		...visibleGroups.map((group) => ({ id: group.id, name: group.name })),
 	];
 
-	results.innerHTML = `
-		<div class="receipt-kanban-scrollbar" data-receipt-kanban-scrollbar>
-			<div
-				class="receipt-kanban-scrollbar__inner"
-				data-receipt-kanban-scrollbar-inner
-			></div>
-		</div>
-		<div class="receipt-kanban" data-receipt-kanban>
-			${columns
-				.map((column) => {
-					const columnReceipts = receipts.filter((receipt) =>
-						column.id === null
-							? receipt.group_id === null
-							: receipt.group_id === column.id,
-					);
-
-					return `
-						<section
-							class="receipt-kanban__column receipt-drop-target"
-							data-receipt-drop-group-id="${column.id ?? ""}"
-						>
-							<header class="receipt-kanban__header">
-								<h3>
-									${
-										column.id === null
-											? escapeHtml(column.name)
-											: `<a class="receipt-kanban__title-link" href="/groups/${column.id}" data-link>${escapeHtml(column.name)}</a>`
-									}
-								</h3>
-								<span class="tag tag--neutral">${columnReceipts.length}</span>
-							</header>
-							<div class="receipt-kanban__list">
-								${
-									columnReceipts.length
-										? columnReceipts
-												.map((receipt) => renderReceiptCard(receipt))
-												.join("")
-										: '<div class="receipt-kanban__empty">No receipts</div>'
-								}
-							</div>
-						</section>
-					`;
-				})
-				.join("")}
-		</div>
-	`;
+	const scrollbar = createElement("div", { className: "receipt-kanban-scrollbar", attributes: { "data-receipt-kanban-scrollbar": "" } }, createElement("div", { className: "receipt-kanban-scrollbar__inner", attributes: { "data-receipt-kanban-scrollbar-inner": "" } }));
+	const board = createElement("div", { className: "receipt-kanban", attributes: { "data-receipt-kanban": "" } }, ...columns.map((column) => {
+		const columnReceipts = receipts.filter((receipt) => column.id === null ? receipt.group_id === null : receipt.group_id === column.id);
+		const title = column.id === null ? column.name : createElement("a", { className: "receipt-kanban__title-link", properties: { href: `/groups/${column.id}` }, attributes: { "data-link": "" } }, column.name);
+		const section = createElement("section", { className: "receipt-kanban__column receipt-drop-target" }, createElement("header", { className: "receipt-kanban__header" }, createElement("h3", {}, title), createElement("span", { className: "tag tag--neutral" }, columnReceipts.length)), createElement("div", { className: "receipt-kanban__list" }, ...(columnReceipts.length ? columnReceipts.map((receipt) => createReceiptCard(receipt)) : [createElement("div", { className: "receipt-kanban__empty" }, "No receipts")])));
+		section.dataset.receiptDropGroupId = String(column.id ?? "");
+		return section;
+	}));
+	results.replaceChildren(scrollbar, board);
 	attachReceiptKanbanScrollSync();
 };
 
@@ -2638,28 +1455,38 @@ const renderReceipts = (
 };
 
 const renderReceiptGroupControls = (groups: Group[], selectedFilter: string) => {
-	const groupOptions = document.getElementById("receipt-group-options");
+	const groupOptions = getElementById("receipt-group-options");
 	if (groupOptions instanceof HTMLDataListElement) {
-		groupOptions.innerHTML = groups
-			.map((group) => `<option value="${escapeHtml(group.name)}"></option>`)
-			.join("");
+		groupOptions.replaceChildren(
+			...groups.map((group) => {
+				const option = document.createElement("option");
+				option.value = group.name;
+				return option;
+			}),
+		);
 	}
 
-	const groupFilter = document.getElementById("receipt-group-filter");
+	const groupFilter = getElementById("receipt-group-filter");
 	if (!(groupFilter instanceof HTMLSelectElement)) {
 		return;
 	}
 
-	groupFilter.innerHTML = `
-		<option value="all">All groups</option>
-		<option value="ungrouped">Ungrouped</option>
-		${groups
-			.map(
-				(group) =>
-					`<option value="${group.id}">${escapeHtml(group.name)}</option>`,
-			)
-			.join("")}
-	`;
+	const all = document.createElement("option");
+	all.value = "all";
+	all.textContent = "All groups";
+	const ungrouped = document.createElement("option");
+	ungrouped.value = "ungrouped";
+	ungrouped.textContent = "Ungrouped";
+	groupFilter.replaceChildren(
+		all,
+		ungrouped,
+		...groups.map((group) => {
+			const option = document.createElement("option");
+			option.value = String(group.id);
+			option.textContent = group.name;
+			return option;
+		}),
+	);
 	groupFilter.value = selectedFilter;
 	if (groupFilter.value !== selectedFilter) {
 		groupFilter.value = "all";
@@ -2667,7 +1494,7 @@ const renderReceiptGroupControls = (groups: Group[], selectedFilter: string) => 
 };
 
 const getReceiptGroupFilter = () => {
-	const groupFilter = document.getElementById("receipt-group-filter");
+	const groupFilter = getElementById("receipt-group-filter");
 	if (!(groupFilter instanceof HTMLSelectElement)) {
 		return "all";
 	}
@@ -2681,7 +1508,7 @@ const getReceiptViewMode = (): ReceiptViewMode => {
 	if (receiptViewModeOverride) {
 		return receiptViewModeOverride;
 	}
-	const viewToggle = document.getElementById("receipt-chronological-view");
+	const viewToggle = getElementById("receipt-chronological-view");
 	if (viewToggle instanceof HTMLInputElement) {
 		return viewToggle.checked ? "chronological" : "board";
 	}
@@ -2694,181 +1521,31 @@ export const renderReceiptDetail = (
 	products: Product[],
 	groups: Group[],
 ) => {
-	const page = document.getElementById("receipt-detail-page");
-	if (!page) {
-		return;
-	}
-
-	const productsById = new Map(
-		products.map((product) => [product.id, product]),
+	const page = getElementById("receipt-detail-page");
+	if (!page) return;
+	const productsById = new Map(products.map((product) => [product.id, product]));
+	const updated = receipt.picture_file?.created_at;
+	const pictureUrl = updated ? `/api/receipts/${receipt.id}/picture?updated=${encodeURIComponent(updated)}` : `/api/receipts/${receipt.id}/picture`;
+	const back = createElement("a", { className: "secondary action-link", properties: { href: "/receipts" }, attributes: { "data-link": "" } }, "Back To Receipts");
+	const picture = createElement("img", { className: "receipt-picture__image", properties: { src: pictureUrl, alt: receipt.store_name, loading: "lazy" } });
+	const pictureRoot = createElement("div", { className: "receipt-picture" }, createElement("button", { className: "receipt-picture__trigger", properties: { type: "button" }, attributes: { "aria-label": "Open receipt picture in fullscreen" } }, picture));
+	picture.addEventListener("error", () => pictureRoot.replaceChildren(createEmptyState("No receipt picture uploaded.")));
+	const metadataValue = (label: string, value: Node | string) => createElement("div", {}, createElement("dt", {}, label), createElement("dd", {}, value));
+	const metadata = createElement("dl", { className: "receipt-metadata" },
+		metadataValue("Store", receipt.store_name), metadataValue("Group", receipt.group ? createElement("span", { className: "tag" }, receipt.group.name) : "-"), metadataValue("Purchased", formatReceiptDateTime(receipt.purchased_at)), metadataValue("Currency", receipt.currency), metadataValue("Total", formatMoney(receipt.total_amount, receipt.currency)), metadataValue("Created", formatReceiptDateTime(receipt.created_at)), metadataValue("Updated", formatReceiptDateTime(receipt.updated_at)),
 	);
-	const receiptPictureUpdated = receipt.picture_file?.created_at ?? null;
-	const receiptPictureUrl = receiptPictureUpdated
-		? `/api/receipts/${receipt.id}/picture?updated=${encodeURIComponent(receiptPictureUpdated)}`
-		: `/api/receipts/${receipt.id}/picture`;
-
-	page.innerHTML = `
-		<section class="page-heading page-heading--compact">
-			<div>
-				<span class="eyebrow">Receipt</span>
-			</div>
-			<a class="secondary action-link" href="/receipts" data-link>Back To Receipts</a>
-		</section>
-
-		<section class="workspace receipt-detail-grid">
-			<div class="card panel">
-				<h2>Original Picture</h2>
-				<div class="receipt-picture">
-					<button
-						class="receipt-picture__trigger"
-						type="button"
-						aria-label="Open receipt picture in fullscreen"
-					>
-						<img
-								class="receipt-picture__image"
-								src="${receiptPictureUrl}"
-								alt="${escapeHtml(receipt.store_name)}"
-							loading="lazy"
-							onerror="this.closest('.receipt-picture').innerHTML='<div class=&quot;empty&quot;>No receipt picture uploaded.</div>'"
-						/>
-					</button>
-				</div>
-			</div>
-
-			<div class="card panel">
-				<h2>Extracted Metadata</h2>
-				<dl class="receipt-metadata">
-					<div>
-						<dt>Store</dt>
-						<dd>${escapeHtml(receipt.store_name)}</dd>
-					</div>
-					<div>
-						<dt>Group</dt>
-						<dd>${
-							receipt.group
-								? `<span class="tag">${escapeHtml(receipt.group.name)}</span>`
-								: "-"
-						}</dd>
-					</div>
-					<div>
-						<dt>Purchased</dt>
-						<dd>${formatReceiptDateTime(receipt.purchased_at)}</dd>
-					</div>
-					<div>
-						<dt>Currency</dt>
-						<dd>${receipt.currency}</dd>
-					</div>
-					<div>
-						<dt>Total</dt>
-						<dd>${formatMoney(receipt.total_amount, receipt.currency)}</dd>
-					</div>
-					<div>
-						<dt>Created</dt>
-						<dd>${formatReceiptDateTime(receipt.created_at)}</dd>
-					</div>
-					<div>
-						<dt>Updated</dt>
-						<dd>${formatReceiptDateTime(receipt.updated_at)}</dd>
-					</div>
-				</dl>
-
-				<h2>Group</h2>
-				<form id="receipt-detail-group-form" class="receipt-group-form">
-					<label>
-						Group
-						<input
-							id="receipt-detail-group-name"
-							list="receipt-detail-group-options"
-							value="${escapeHtml(receipt.group?.name ?? "")}"
-							placeholder="grocery"
-						/>
-						<datalist id="receipt-detail-group-options">
-							${groups
-								.map(
-									(group) =>
-										`<option value="${escapeHtml(group.name)}"></option>`,
-								)
-								.join("")}
-						</datalist>
-					</label>
-					<div class="actions">
-						<button class="primary" type="submit">Save Group</button>
-						<button
-							class="secondary"
-							type="button"
-							id="receipt-detail-clear-group"
-						>
-							Clear Group
-						</button>
-					</div>
-				</form>
-				<div id="receipt-detail-group-status" class="status"></div>
-
-				<h2>Extracted Items</h2>
-				${
-					items.length
-						? `
-							<table class="shoppinglist-table">
-								<thead>
-									<tr>
-										<th>Product Name</th>
-										<th>Quantity</th>
-										<th>Line Total</th>
-									</tr>
-								</thead>
-								<tbody>
-									${items
-										.map((item) => {
-											const productName =
-												productsById.get(
-													item.product_id,
-												)?.name ??
-												`Product #${item.product_id}`;
-
-											return `
-												<tr>
-													<td>${productName}</td>
-													<td>${item.quantity} ${item.unit}</td>
-													<td>${item.line_total === null ? "-" : formatMoney(item.line_total, receipt.currency)}</td>
-												</tr>
-											`;
-										})
-										.join("")}
-								</tbody>
-							</table>
-						`
-						: '<div class="empty">No extracted line items yet.</div>'
-				}
-			</div>
-		</section>
-
-		<div class="receipt-modal" id="receipt-picture-modal" hidden>
-			<div class="receipt-modal__backdrop" data-receipt-modal-close></div>
-			<div
-				class="receipt-modal__dialog"
-				role="dialog"
-				aria-modal="true"
-				aria-label="Receipt picture"
-			>
-				<button
-					class="receipt-modal__close"
-					type="button"
-					aria-label="Close receipt picture"
-					data-receipt-modal-close
-				>
-					Close
-				</button>
-				<div class="receipt-modal__viewport">
-					<img
-						class="receipt-modal__image"
-						src="/api/receipts/${receipt.id}/picture"
-						alt="${escapeHtml(receipt.store_name)}"
-						draggable="false"
-					/>
-				</div>
-			</div>
-		</div>
-	`;
+	const groupName = createElement("input", { id: "receipt-detail-group-name", properties: { value: receipt.group?.name ?? "", placeholder: "grocery" }, attributes: { list: "receipt-detail-group-options" } });
+	const groupOptions = createElement("datalist", { id: "receipt-detail-group-options" }, ...groups.map((group) => createElement("option", { properties: { value: group.name } })));
+	const groupForm = createElement("form", { id: "receipt-detail-group-form", className: "receipt-group-form" }, createElement("label", {}, "Group", groupName, groupOptions), createElement("div", { className: "actions" }, createElement("button", { className: "primary", properties: { type: "submit" } }, "Save Group"), createElement("button", { id: "receipt-detail-clear-group", className: "secondary", properties: { type: "button" } }, "Clear Group")));
+	const extractedItems = items.length ? createElement("table", { className: "shoppinglist-table" }, createElement("thead", {}, createElement("tr", {}, ...["Product Name", "Quantity", "Line Total"].map((label) => createElement("th", {}, label)))), createElement("tbody", {}, ...items.map((item) => createElement("tr", {}, createElement("td", {}, productsById.get(item.product_id)?.name ?? `Product #${item.product_id}`), createElement("td", {}, `${item.quantity} ${item.unit}`), createElement("td", {}, item.line_total === null ? "-" : formatMoney(item.line_total, receipt.currency)))))) : createEmptyState("No extracted line items yet.");
+	const modalImage = createElement("img", { className: "receipt-modal__image", properties: { src: `/api/receipts/${receipt.id}/picture`, alt: receipt.store_name, draggable: false } });
+	const close = createElement("button", { className: "receipt-modal__close", properties: { type: "button" }, attributes: { "aria-label": "Close receipt picture", "data-receipt-modal-close": "" } }, "Close");
+	const modal = createElement("div", { id: "receipt-picture-modal", className: "receipt-modal", properties: { hidden: true } }, createElement("div", { className: "receipt-modal__backdrop", attributes: { "data-receipt-modal-close": "" } }), createElement("div", { className: "receipt-modal__dialog", attributes: { role: "dialog", "aria-modal": "true", "aria-label": "Receipt picture" } }, close, createElement("div", { className: "receipt-modal__viewport" }, modalImage)));
+	page.replaceChildren(
+		createElement("section", { className: "page-heading page-heading--compact" }, createElement("div", {}, createElement("span", { className: "eyebrow" }, "Receipt")), back),
+		createElement("section", { className: "workspace receipt-detail-grid" }, createElement("div", { className: "card panel" }, createElement("h2", {}, "Original Picture"), pictureRoot), createElement("div", { className: "card panel" }, createElement("h2", {}, "Extracted Metadata"), metadata, createElement("h2", {}, "Group"), groupForm, createElement("div", { id: "receipt-detail-group-status", className: "status" }), createElement("h2", {}, "Extracted Items"), extractedItems)),
+		modal,
+	);
 };
 
 export const attachReceiptDetailEvents = (
@@ -2890,9 +1567,9 @@ export const attachReceiptDetailEvents = (
 		setStatus("receipt-detail-group-status", statusMessage);
 	};
 
-	const groupForm = document.getElementById("receipt-detail-group-form");
-	const groupNameInput = document.getElementById("receipt-detail-group-name");
-	const clearGroupButton = document.getElementById("receipt-detail-clear-group");
+	const groupForm = getElementById("receipt-detail-group-form");
+	const groupNameInput = getElementById("receipt-detail-group-name");
+	const clearGroupButton = getElementById("receipt-detail-clear-group");
 
 	if (
 		groupForm instanceof HTMLFormElement &&
@@ -2963,14 +1640,14 @@ export const attachReceiptDetailEvents = (
 		);
 	}
 
-	const trigger = document.querySelector<HTMLButtonElement>(
+	const trigger = querySelector<HTMLButtonElement>(
 		".receipt-picture__trigger",
 	);
-	const modal = document.getElementById("receipt-picture-modal");
-	const modalViewport = document.querySelector<HTMLDivElement>(
+	const modal = getElementById("receipt-picture-modal");
+	const modalViewport = querySelector<HTMLDivElement>(
 		".receipt-modal__viewport",
 	);
-	const modalImage = document.querySelector<HTMLImageElement>(
+	const modalImage = querySelector<HTMLImageElement>(
 		".receipt-modal__image",
 	);
 	if (!trigger || !modal || !modalViewport || !modalImage) {
@@ -3895,8 +2572,8 @@ export const loadExpirationPageData = async (statusMessage?: string) => {
 };
 
 export const loadProducts = async () => {
-	const barcodeFilter = document.getElementById("barcode-filter");
-	const searchType = document.getElementById("product-search-type");
+	const barcodeFilter = getElementById("barcode-filter");
+	const searchType = getElementById("product-search-type");
 	if (
 		!(barcodeFilter instanceof HTMLInputElement) ||
 		!(searchType instanceof HTMLSelectElement)
@@ -4137,12 +2814,12 @@ export const attachProductPageEvents = () => {
 	productPageAbortController?.abort();
 	productPageAbortController = new AbortController();
 
-	const form = document.getElementById("product-form");
-	const barcodeFilter = document.getElementById("barcode-filter");
-	const filterButton = document.getElementById("filter-button");
-	const addButton = document.getElementById("open-product-modal-button");
-	const modal = document.getElementById("product-create-modal");
-	const modalCloseButtons = document.querySelectorAll(
+	const form = getElementById("product-form");
+	const barcodeFilter = getElementById("barcode-filter");
+	const filterButton = getElementById("filter-button");
+	const addButton = getElementById("open-product-modal-button");
+	const modal = getElementById("product-create-modal");
+	const modalCloseButtons = querySelectorAll(
 		"[data-product-modal-close]",
 	);
 
@@ -4160,7 +2837,7 @@ export const attachProductPageEvents = () => {
 		}
 		modal.hidden = false;
 		document.body.classList.add("modal-open");
-		const nameInput = document.getElementById("name");
+		const nameInput = getElementById("name");
 		if (nameInput instanceof HTMLInputElement) {
 			nameInput.focus();
 		}
@@ -4189,13 +2866,13 @@ export const attachProductPageEvents = () => {
 	form?.addEventListener("submit", async (event) => {
 		event.preventDefault();
 
-		const nameInput = document.getElementById("name");
-		const categoryInput = document.getElementById("category");
-		const ingredientNameInput = document.getElementById("ingredient_name");
-		const barcodeInput = document.getElementById("barcode");
-		const defaultUnitInput = document.getElementById("default_unit");
-		const isPerishableInput = document.getElementById("is_perishable");
-		const pictureInput = document.getElementById("picture");
+		const nameInput = getElementById("name");
+		const categoryInput = getElementById("category");
+		const ingredientNameInput = getElementById("ingredient_name");
+		const barcodeInput = getElementById("barcode");
+		const defaultUnitInput = getElementById("default_unit");
+		const isPerishableInput = getElementById("is_perishable");
+		const pictureInput = getElementById("picture");
 
 			if (
 				!(nameInput instanceof HTMLInputElement) ||
@@ -4252,7 +2929,7 @@ export const attachProductPageEvents = () => {
 			}
 			isPerishableInput.value = "true";
 
-			const barcodeFilter = document.getElementById("barcode-filter");
+			const barcodeFilter = getElementById("barcode-filter");
 			if (barcodeFilter instanceof HTMLInputElement) {
 				barcodeFilter.value = (body as Product).barcode ?? "";
 			}
@@ -4314,14 +2991,14 @@ export const attachProductDetailEvents = (productId: number) => {
 		return updated;
 	};
 
-	const pictureForm = document.getElementById("product-picture-form");
+	const pictureForm = getElementById("product-picture-form");
 	if (pictureForm instanceof HTMLFormElement) {
 		pictureForm.addEventListener(
 			"submit",
 			async (event) => {
 				event.preventDefault();
 
-				const pictureInput = document.getElementById("product-picture-input");
+				const pictureInput = getElementById("product-picture-input");
 				if (!(pictureInput instanceof HTMLInputElement)) {
 					return;
 				}
@@ -4357,7 +3034,7 @@ export const attachProductDetailEvents = (productId: number) => {
 		);
 	}
 
-	document.getElementById("product-picture-delete")?.addEventListener(
+	getElementById("product-picture-delete")?.addEventListener(
 		"click",
 		async () => {
 			try {
@@ -4377,7 +3054,7 @@ export const attachProductDetailEvents = (productId: number) => {
 		{ signal: productDetailAbortController.signal },
 	);
 
-	const form = document.getElementById("product-detail-form");
+	const form = getElementById("product-detail-form");
 	if (!(form instanceof HTMLFormElement)) {
 		return;
 	}
@@ -4387,16 +3064,16 @@ export const attachProductDetailEvents = (productId: number) => {
 		async (event) => {
 			event.preventDefault();
 
-			const nameInput = document.getElementById("product-detail-name");
-			const categoryInput = document.getElementById("product-detail-category");
-			const ingredientNameInput = document.getElementById(
+			const nameInput = getElementById("product-detail-name");
+			const categoryInput = getElementById("product-detail-category");
+			const ingredientNameInput = getElementById(
 				"product-detail-ingredient-name",
 			);
-			const barcodeInput = document.getElementById("product-detail-barcode");
-			const defaultUnitInput = document.getElementById(
+			const barcodeInput = getElementById("product-detail-barcode");
+			const defaultUnitInput = getElementById(
 				"product-detail-default-unit",
 			);
-			const isPerishableInput = document.getElementById(
+			const isPerishableInput = getElementById(
 				"product-detail-is-perishable",
 			);
 
@@ -4445,7 +3122,7 @@ export const attachProductDetailEvents = (productId: number) => {
 };
 
 export const attachDashboardTimerEvents = () => {
-	const root = document.getElementById("dashboard-timer");
+	const root = getElementById("dashboard-timer");
 	if (!root) return;
 
 	root.addEventListener("click", async (event) => {
@@ -4474,393 +3151,11 @@ export const attachDashboardTimerEvents = () => {
 	});
 };
 
-export const attachTimePageEvents = () => {
-	const page = document.getElementById("time-page");
-	if (!page) return;
-
-	page.addEventListener("submit", async (event) => {
-		const target = event.target;
-		if (!(target instanceof HTMLFormElement)) return;
-		if (
-			target.id !== "time-entry-start-form" &&
-			target.id !== "time-running-start-form"
-		) {
-			return;
-		}
-		event.preventDefault();
-
-		if (target.id === "time-running-start-form") {
-			const projectInput = document.getElementById("time-running-project-select");
-			const descriptionInput = document.getElementById("time-running-description");
-			const startInput = document.getElementById("time-running-started-at");
-			const entryId = target.dataset.timeEntryId;
-			if (
-				!(projectInput instanceof HTMLSelectElement) ||
-				!(startInput instanceof HTMLInputElement) ||
-				!entryId
-			) {
-				return;
-			}
-			const startedAt = parseDateTimeLocalInput(startInput.value);
-			const project = findTimeProjectChoiceById(Number(projectInput.value))?.project;
-			if (!project) {
-				setStatus("time-status", "Project is required.", true);
-				return;
-			}
-			if (!startedAt) {
-				setStatus("time-status", "Start time is invalid.", true);
-				return;
-			}
-
-			try {
-				await timeApiJson<TimeEntry>(`/api/time-entries/${entryId}`, {
-					method: "PATCH",
-					body: JSON.stringify({
-						project_id: project.id,
-						description:
-							descriptionInput instanceof HTMLInputElement &&
-							descriptionInput.value.trim()
-								? descriptionInput.value.trim()
-								: null,
-						started_at: startedAt,
-					}),
-				});
-				setStatus("time-status", "Running timer updated.");
-				await loadTimeTrackingPage();
-			} catch (error) {
-				setStatus(
-					"time-status",
-					error instanceof Error
-						? error.message
-						: "Failed to update running timer.",
-					true,
-				);
-			}
-			return;
-		}
-
-		const projectInput = document.getElementById("time-entry-project-select");
-		const descriptionInput = document.getElementById("time-entry-description");
-		if (!(projectInput instanceof HTMLSelectElement)) return;
-		if (!projectInput.value || projectInput.value === NEW_TIME_PROJECT_VALUE) {
-			setStatus("time-status", "Project is required.", true);
-			return;
-		}
-
-		try {
-			const project = findTimeProjectChoiceById(Number(projectInput.value))?.project;
-			if (!project) {
-				setStatus("time-status", "Project is required.", true);
-				return;
-			}
-			await timeApiJson<TimeEntry>("/api/time-entries/start", {
-				method: "POST",
-				body: JSON.stringify({
-					project_id: project.id,
-					description:
-						descriptionInput instanceof HTMLInputElement &&
-						descriptionInput.value.trim()
-							? descriptionInput.value.trim()
-							: null,
-				}),
-			});
-			setStatus("time-status", "Timer started.");
-			await loadTimeTrackingPage();
-		} catch (error) {
-			setStatus(
-				"time-status",
-				error instanceof Error ? error.message : "Failed to start timer.",
-				true,
-			);
-		}
-	});
-
-	const projectModal = document.getElementById("time-project-modal");
-	const projectModalForm = document.getElementById("time-project-modal-form");
-	const projectModalNameInput = document.getElementById("time-project-modal-name");
-
-	const closeTimeProjectModal = () => {
-		if (!(projectModal instanceof HTMLElement)) return;
-		projectModal.hidden = true;
-		document.body.classList.remove("modal-open");
-		if (projectModalForm instanceof HTMLFormElement) projectModalForm.reset();
-		setStatus("time-project-modal-status", "");
-		const projectSelect = document.getElementById("time-entry-project-select");
-		if (
-			projectSelect instanceof HTMLSelectElement &&
-			projectSelect.value === NEW_TIME_PROJECT_VALUE
-		) {
-			projectSelect.value = "";
-		}
-	};
-
-	const openTimeProjectModal = () => {
-		if (!(projectModal instanceof HTMLElement)) return;
-		projectModal.hidden = false;
-		document.body.classList.add("modal-open");
-		setStatus("time-project-modal-status", "");
-		if (projectModalNameInput instanceof HTMLInputElement) {
-			projectModalNameInput.focus();
-		}
-	};
-
-	const closeTimeRunningEditModal = () => {
-		const runningEditModal = document.getElementById("time-running-edit-modal");
-		if (!(runningEditModal instanceof HTMLElement)) return;
-		runningEditModal.hidden = true;
-		document.body.classList.remove("modal-open");
-	};
-
-	const openTimeRunningEditModal = () => {
-		const runningEditModal = document.getElementById("time-running-edit-modal");
-		if (!(runningEditModal instanceof HTMLElement)) return;
-		runningEditModal.hidden = false;
-		document.body.classList.add("modal-open");
-		document.getElementById("time-running-project-select")?.focus();
-	};
-
-	page.addEventListener("change", (event) => {
-		const target = event.target;
-		if (!(target instanceof HTMLSelectElement)) return;
-		if (target.id !== "time-entry-project-select") return;
-		if (target.value !== NEW_TIME_PROJECT_VALUE) {
-			return;
-		}
-		target.value = "";
-		openTimeProjectModal();
-	});
-
-	page.addEventListener("submit", async (event) => {
-		const target = event.target;
-		if (!(target instanceof HTMLFormElement)) return;
-		if (target.id !== "time-project-modal-form") return;
-		event.preventDefault();
-
-		const projectName =
-			projectModalNameInput instanceof HTMLInputElement
-				? projectModalNameInput.value.trim()
-				: "";
-		if (!projectName) {
-			setStatus("time-project-modal-status", "Project name is required.", true);
-			return;
-		}
-
-		try {
-			const project =
-				findTimeProjectChoice(projectName)?.project ??
-				(await createTimeProject(projectName));
-			if (!findTimeProjectChoiceById(project.id)) {
-				currentTimeProjectChoices.push({
-					project,
-					entry_count: 0,
-					total_seconds: 0,
-					latest_started_at: null,
-				});
-			}
-			const projectSelect = document.getElementById("time-entry-project-select");
-			if (projectSelect instanceof HTMLSelectElement) {
-				const existingOption = projectSelect.querySelector<HTMLOptionElement>(
-					`option[value="${project.id}"]`,
-				);
-				if (!existingOption) {
-					const option = document.createElement("option");
-					option.value = String(project.id);
-					option.textContent = project.name;
-					const createOption = projectSelect.querySelector<HTMLOptionElement>(
-						`option[value="${NEW_TIME_PROJECT_VALUE}"]`,
-					);
-					projectSelect.insertBefore(option, createOption);
-				}
-				projectSelect.value = String(project.id);
-			}
-
-			closeTimeProjectModal();
-		} catch (error) {
-			setStatus(
-				"time-project-modal-status",
-				error instanceof Error ? error.message : "Failed to create project.",
-				true,
-			);
-		}
-	});
-
-	page.addEventListener("click", (event) => {
-		const target = event.target;
-		if (!(target instanceof HTMLElement)) return;
-		if (target.closest("[data-time-project-modal-close]")) {
-			closeTimeProjectModal();
-		}
-		if (target.closest("[data-time-running-edit-modal-close]")) {
-			closeTimeRunningEditModal();
-		}
-	});
-
-	document.addEventListener("keydown", (event) => {
-		const runningEditModal = document.getElementById("time-running-edit-modal");
-		if (
-			event.key === "Escape" &&
-			projectModal instanceof HTMLElement &&
-			!projectModal.hidden
-		) {
-			closeTimeProjectModal();
-			return;
-		}
-		if (
-			event.key === "Escape" &&
-			runningEditModal instanceof HTMLElement &&
-			!runningEditModal.hidden
-		) {
-			closeTimeRunningEditModal();
-		}
-	});
-
-	page.addEventListener("click", async (event) => {
-		const target = event.target;
-		if (!(target instanceof HTMLElement)) return;
-
-		const stopButton = target.closest("[data-time-entry-id]");
-		const previousEndButton = target.closest(
-			"[data-time-running-previous-ended-at]",
-		);
-		const startButton = target.closest("[data-start-time-project-id]");
-		const runningEditButton = target.closest("[data-time-running-edit-open]");
-		const editEntryButton = target.closest("[data-edit-time-entry-id]");
-		const cancelEntryButton = target.closest("[data-cancel-time-entry-id]");
-		const saveEntryButton = target.closest("[data-save-time-entry-id]");
-		const deleteEntryButton = target.closest("[data-delete-time-entry-id]");
-
-		if (runningEditButton instanceof HTMLButtonElement) {
-			openTimeRunningEditModal();
-			return;
-		}
-
-		if (editEntryButton instanceof HTMLButtonElement) {
-			const id = editEntryButton.dataset.editTimeEntryId;
-			if (!id) return;
-			document.querySelector<HTMLElement>(`[data-time-entry-summary="${id}"]`)?.setAttribute("hidden", "");
-			document.querySelector<HTMLElement>(`[data-time-entry-edit-form="${id}"]`)?.removeAttribute("hidden");
-			return;
-		}
-
-		if (cancelEntryButton instanceof HTMLButtonElement) {
-			const id = cancelEntryButton.dataset.cancelTimeEntryId;
-			if (!id) return;
-			document.querySelector<HTMLElement>(`[data-time-entry-edit-form="${id}"]`)?.setAttribute("hidden", "");
-			document.querySelector<HTMLElement>(`[data-time-entry-summary="${id}"]`)?.removeAttribute("hidden");
-			return;
-		}
-
-		try {
-			if (previousEndButton instanceof HTMLButtonElement) {
-				const runningForm = document.getElementById("time-running-start-form");
-				const startedAtInput = document.getElementById("time-running-started-at");
-				const entryId =
-					runningForm instanceof HTMLFormElement
-						? runningForm.dataset.timeEntryId
-						: null;
-				const previousEndedAt = previousEndButton.dataset.timeRunningPreviousEndedAt;
-				if (
-					!(startedAtInput instanceof HTMLInputElement) ||
-					!entryId ||
-					!previousEndedAt
-				) {
-					return;
-				}
-				startedAtInput.value = formatTimestampForDateTimeLocalInput(previousEndedAt);
-				await timeApiJson<TimeEntry>(`/api/time-entries/${entryId}`, {
-					method: "PATCH",
-					body: JSON.stringify({ started_at: previousEndedAt }),
-				});
-				setStatus("time-status", "Timer start set to previous end.");
-				await loadTimeTrackingPage();
-				return;
-			}
-
-			if (stopButton instanceof HTMLButtonElement) {
-				await timeApiJson<TimeEntry>(
-					`/api/time-entries/${stopButton.dataset.timeEntryId}/stop`,
-					{ method: "POST", body: JSON.stringify({}) },
-				);
-				setStatus("time-status", "Timer stopped.");
-				await loadTimeTrackingPage();
-				return;
-			}
-
-			if (saveEntryButton instanceof HTMLButtonElement) {
-				const id = Number(saveEntryButton.dataset.saveTimeEntryId);
-				const projectInput = document.querySelector<HTMLSelectElement>(
-					`[data-time-entry-project="${id}"]`,
-				);
-				const descriptionInput = document.querySelector<HTMLInputElement>(
-					`[data-time-entry-description="${id}"]`,
-				);
-				const startedAtInput = document.querySelector<HTMLInputElement>(
-					`[data-time-entry-started-at="${id}"]`,
-				);
-				const endedAtInput = document.querySelector<HTMLInputElement>(
-					`[data-time-entry-ended-at="${id}"]`,
-				);
-				const startedAt = startedAtInput
-					? parseDateTimeLocalInput(startedAtInput.value)
-					: null;
-				const endedAt = endedAtInput?.value.trim()
-					? parseDateTimeLocalInput(endedAtInput.value)
-					: null;
-				if (!projectInput || !startedAt || (endedAtInput?.value.trim() && !endedAt)) {
-					setStatus("time-status", "Entry times are invalid.", true);
-					return;
-				}
-				await timeApiJson<TimeEntry>(`/api/time-entries/${id}`, {
-					method: "PATCH",
-					body: JSON.stringify({
-						project_id: Number(projectInput.value),
-						description: descriptionInput?.value.trim() || null,
-						started_at: startedAt,
-						ended_at: endedAt,
-					}),
-				});
-				setStatus("time-status", "Entry saved.");
-				await loadTimeTrackingPage();
-				return;
-			}
-
-			if (deleteEntryButton instanceof HTMLButtonElement) {
-				const id = Number(deleteEntryButton.dataset.deleteTimeEntryId);
-				const response = await fetch(`/api/time-entries/${id}`, { method: "DELETE" });
-				if (!response.ok) {
-					throw new Error("Failed to delete entry.");
-				}
-				setStatus("time-status", "Entry deleted.");
-				await loadTimeTrackingPage();
-				return;
-			}
-
-			if (startButton instanceof HTMLButtonElement) {
-				await timeApiJson<TimeEntry>("/api/time-entries/start", {
-					method: "POST",
-					body: JSON.stringify({
-						project_id: Number(startButton.dataset.startTimeProjectId),
-						description: startButton.dataset.startTimeDescription?.trim() || null,
-					}),
-				});
-				setStatus("time-status", "Timer started.");
-				await loadTimeTrackingPage();
-			}
-		} catch (error) {
-			setStatus(
-				"time-status",
-				error instanceof Error ? error.message : "Time tracking action failed.",
-				true,
-			);
-		}
-	});
-};
-
 export const attachRecipeCreatePageEvents = () => {
 	const draftIngredients: DraftRecipeIngredient[] = [];
 
 	const updateIngredientPreview = () => {
-		const preview = document.getElementById("recipe-ingredient-preview");
+		const preview = getElementById("recipe-ingredient-preview");
 		if (!preview) {
 			return;
 		}
@@ -4872,33 +3167,39 @@ export const attachRecipeCreatePageEvents = () => {
 		}
 
 		preview.className = "recipe-create-ingredient-preview";
-		preview.innerHTML = draftIngredients
-			.map(
-				(ingredient, index) => `
-					<div class="recipe-create-ingredient-preview__item">
-						<span>${escapeHtml(ingredient.name)}</span>
-						<div class="recipe-create-ingredient-preview__meta">
-							<strong>${escapeHtml(`${ingredient.quantity} ${ingredient.unit}`)}</strong>
-							<button
-								class="secondary"
-								type="button"
-								data-remove-recipe-ingredient-draft="${index}"
-							>Remove</button>
-						</div>
-					</div>
-				`,
-			)
-			.join("");
+		preview.replaceChildren(
+			...draftIngredients.map((ingredient, index) => {
+				const remove = createElement("button", {
+					className: "secondary",
+					text: "Remove",
+				});
+				remove.type = "button";
+				remove.dataset.removeRecipeIngredientDraft = String(index);
+				return createElement(
+					"div",
+					{ className: "recipe-create-ingredient-preview__item" },
+					createElement("span", { text: ingredient.name }),
+					createElement(
+						"div",
+						{ className: "recipe-create-ingredient-preview__meta" },
+						createElement("strong", {
+							text: `${ingredient.quantity} ${ingredient.unit}`,
+						}),
+						remove,
+					),
+				);
+			}),
+		);
 	};
 
 	document
 		.getElementById("add-recipe-ingredient-draft-button")
 		?.addEventListener("click", () => {
-			const nameInput = document.getElementById("recipe-ingredient-draft-name");
-			const quantityInput = document.getElementById(
+			const nameInput = getElementById("recipe-ingredient-draft-name");
+			const quantityInput = getElementById(
 				"recipe-ingredient-draft-quantity",
 			);
-			const unitInput = document.getElementById("recipe-ingredient-draft-unit");
+			const unitInput = getElementById("recipe-ingredient-draft-unit");
 
 			if (
 				!(nameInput instanceof HTMLInputElement) ||
@@ -4976,11 +3277,11 @@ export const attachRecipeCreatePageEvents = () => {
 		?.addEventListener("submit", async (event) => {
 			event.preventDefault();
 
-			const nameInput = document.getElementById("recipe-name");
-			const servingsInput = document.getElementById("recipe-servings");
-			const descriptionInput = document.getElementById("recipe-description");
-			const instructionsInput = document.getElementById("recipe-instructions");
-			const isActiveInput = document.getElementById("recipe-is-active");
+			const nameInput = getElementById("recipe-name");
+			const servingsInput = getElementById("recipe-servings");
+			const descriptionInput = getElementById("recipe-description");
+			const instructionsInput = getElementById("recipe-instructions");
+			const isActiveInput = getElementById("recipe-is-active");
 
 			if (
 				!(nameInput instanceof HTMLInputElement) ||
@@ -5059,22 +3360,22 @@ const attachRecipeDetailEvents = (recipeId: number) => {
 		renderRecipeDetail(updated);
 		return updated;
 	};
-	const modal = document.getElementById("recipe-ingredient-modal");
-	const ingredientForm = document.getElementById("recipe-ingredient-modal-form");
-	const ingredientIdInput = document.getElementById("recipe-ingredient-id");
-	const ingredientNameInput = document.getElementById("recipe-ingredient-name");
-	const ingredientQuantityInput = document.getElementById(
+	const modal = getElementById("recipe-ingredient-modal");
+	const ingredientForm = getElementById("recipe-ingredient-modal-form");
+	const ingredientIdInput = getElementById("recipe-ingredient-id");
+	const ingredientNameInput = getElementById("recipe-ingredient-name");
+	const ingredientQuantityInput = getElementById(
 		"recipe-ingredient-quantity",
 	);
-	const ingredientUnitInput = document.getElementById("recipe-ingredient-unit");
-	const ingredientNotesInput = document.getElementById("recipe-ingredient-notes");
-	const ingredientOptionalInput = document.getElementById(
+	const ingredientUnitInput = getElementById("recipe-ingredient-unit");
+	const ingredientNotesInput = getElementById("recipe-ingredient-notes");
+	const ingredientOptionalInput = getElementById(
 		"recipe-ingredient-optional",
 	);
-	const ingredientModalTitle = document.getElementById(
+	const ingredientModalTitle = getElementById(
 		"recipe-ingredient-modal-title",
 	);
-	const ingredientModalSubmitButton = document.getElementById(
+	const ingredientModalSubmitButton = getElementById(
 		"recipe-ingredient-modal-submit",
 	);
 	const resetIngredientModal = () => {
@@ -5159,7 +3460,7 @@ const attachRecipeDetailEvents = (recipeId: number) => {
 		.getElementById("open-recipe-ingredient-modal-button")
 		?.addEventListener("click", openIngredientCreateModal);
 
-	for (const button of document.querySelectorAll(
+	for (const button of querySelectorAll(
 		"[data-recipe-ingredient-modal-close]",
 	)) {
 		button.addEventListener("click", closeIngredientModal);
@@ -5170,13 +3471,13 @@ const attachRecipeDetailEvents = (recipeId: number) => {
 		?.addEventListener("submit", async (event) => {
 			event.preventDefault();
 
-			const nameInput = document.getElementById("recipe-ingredient-name");
-			const quantityInput = document.getElementById(
+			const nameInput = getElementById("recipe-ingredient-name");
+			const quantityInput = getElementById(
 				"recipe-ingredient-quantity",
 			);
-			const unitInput = document.getElementById("recipe-ingredient-unit");
-			const notesInput = document.getElementById("recipe-ingredient-notes");
-			const optionalInput = document.getElementById(
+			const unitInput = getElementById("recipe-ingredient-unit");
+			const notesInput = getElementById("recipe-ingredient-notes");
+			const optionalInput = getElementById(
 				"recipe-ingredient-optional",
 			);
 
@@ -5271,7 +3572,7 @@ const attachRecipeDetailEvents = (recipeId: number) => {
 		?.addEventListener("submit", async (event) => {
 			event.preventDefault();
 
-			const pictureInput = document.getElementById("recipe-picture-input");
+			const pictureInput = getElementById("recipe-picture-input");
 			if (!(pictureInput instanceof HTMLInputElement)) {
 				return;
 			}
@@ -5390,15 +3691,15 @@ const attachRecipeDetailEvents = (recipeId: number) => {
 		?.addEventListener("submit", async (event) => {
 			event.preventDefault();
 
-			const nameInput = document.getElementById("recipe-detail-name");
-			const servingsInput = document.getElementById("recipe-detail-servings");
-			const descriptionInput = document.getElementById(
+			const nameInput = getElementById("recipe-detail-name");
+			const servingsInput = getElementById("recipe-detail-servings");
+			const descriptionInput = getElementById(
 				"recipe-detail-description",
 			);
-			const instructionsInput = document.getElementById(
+			const instructionsInput = getElementById(
 				"recipe-detail-instructions",
 			);
-			const isActiveInput = document.getElementById("recipe-detail-is-active");
+			const isActiveInput = getElementById("recipe-detail-is-active");
 
 			if (
 				!(nameInput instanceof HTMLInputElement) ||
@@ -5484,18 +3785,18 @@ export const loadReceipts = async (statusMessage?: string) => {
 };
 
 export const attachReceiptsPageEvents = () => {
-	const form = document.getElementById("receipt-form");
-	const modal = document.getElementById("receipt-create-modal");
-	const openModalButton = document.getElementById("open-receipt-modal-button");
-	const groupModal = document.getElementById("group-create-modal");
-	const groupForm = document.getElementById("group-create-form");
-	const openGroupModalButton = document.getElementById(
+	const form = getElementById("receipt-form");
+	const modal = getElementById("receipt-create-modal");
+	const openModalButton = getElementById("open-receipt-modal-button");
+	const groupModal = getElementById("group-create-modal");
+	const groupForm = getElementById("group-create-form");
+	const openGroupModalButton = getElementById(
 		"open-group-modal-button",
 	);
-	const refreshButton = document.getElementById("receipt-refresh-button");
-	const groupFilter = document.getElementById("receipt-group-filter");
-	const viewToggle = document.getElementById("receipt-chronological-view");
-	const results = document.getElementById("receipt-results");
+	const refreshButton = getElementById("receipt-refresh-button");
+	const groupFilter = getElementById("receipt-group-filter");
+	const viewToggle = getElementById("receipt-chronological-view");
+	const results = getElementById("receipt-results");
 
 	let activeDropTarget: HTMLElement | null = null;
 
@@ -5544,7 +3845,7 @@ export const attachReceiptsPageEvents = () => {
 		groupModal.hidden = false;
 		document.body.classList.add("modal-open");
 		setStatus("group-create-status", "");
-		const groupNameInput = document.getElementById("group-create-name");
+		const groupNameInput = getElementById("group-create-name");
 		if (groupNameInput instanceof HTMLInputElement) {
 			groupNameInput.focus();
 		}
@@ -5558,7 +3859,7 @@ export const attachReceiptsPageEvents = () => {
 		modal.hidden = false;
 		document.body.classList.add("modal-open");
 		setStatus("receipt-create-status", "");
-		const storeNameInput = document.getElementById("receipt-store-name");
+		const storeNameInput = getElementById("receipt-store-name");
 		if (storeNameInput instanceof HTMLInputElement) {
 			storeNameInput.focus();
 		}
@@ -5567,16 +3868,16 @@ export const attachReceiptsPageEvents = () => {
 	form?.addEventListener("submit", async (event) => {
 		event.preventDefault();
 
-		const storeNameInput = document.getElementById("receipt-store-name");
-		const purchasedAtInput = document.getElementById(
+		const storeNameInput = getElementById("receipt-store-name");
+		const purchasedAtInput = getElementById(
 			"receipt-purchased-at",
 		);
-		const currencyInput = document.getElementById("receipt-currency");
-		const totalAmountInput = document.getElementById(
+		const currencyInput = getElementById("receipt-currency");
+		const totalAmountInput = getElementById(
 			"receipt-total-amount",
 		);
-		const groupNameInput = document.getElementById("receipt-group-name");
-		const pictureInput = document.getElementById("receipt-picture");
+		const groupNameInput = getElementById("receipt-group-name");
+		const pictureInput = getElementById("receipt-picture");
 
 		if (
 			!(storeNameInput instanceof HTMLInputElement) ||
@@ -5656,7 +3957,7 @@ export const attachReceiptsPageEvents = () => {
 		groupForm.addEventListener("submit", async (event) => {
 			event.preventDefault();
 
-			const groupNameInput = document.getElementById("group-create-name");
+			const groupNameInput = getElementById("group-create-name");
 			if (!(groupNameInput instanceof HTMLInputElement)) {
 				return;
 			}
@@ -5883,13 +4184,13 @@ export const attachReceiptsPageEvents = () => {
 };
 
 export const attachInventoryPageEvents = () => {
-	const treeRoot = document.getElementById("inventory-tree-root");
-	const modal = document.getElementById("inventory-container-modal");
-	const modalForm = document.getElementById("inventory-container-modal-form");
-	const consumeModal = document.getElementById("inventory-consume-modal");
-	const consumeForm = document.getElementById("inventory-consume-form");
-	const consumeItemName = document.getElementById("inventory-consume-item-name");
-	const consumeDateInput = document.getElementById("inventory-consume-date");
+	const treeRoot = getElementById("inventory-tree-root");
+	const modal = getElementById("inventory-container-modal");
+	const modalForm = getElementById("inventory-container-modal-form");
+	const consumeModal = getElementById("inventory-consume-modal");
+	const consumeForm = getElementById("inventory-consume-form");
+	const consumeItemName = getElementById("inventory-consume-item-name");
+	const consumeDateInput = getElementById("inventory-consume-date");
 	if (
 		!treeRoot ||
 		!modal ||
@@ -5919,7 +4220,7 @@ export const attachInventoryPageEvents = () => {
 	const openModal = () => {
 		modal.hidden = false;
 		document.body.classList.add("modal-open");
-		const nameInput = document.getElementById("inventory-container-name");
+		const nameInput = getElementById("inventory-container-name");
 		if (nameInput instanceof HTMLInputElement) {
 			nameInput.focus();
 		}
@@ -6371,30 +4672,6 @@ export const attachInventoryPageEvents = () => {
 	});
 };
 
-const renderInventoryDetailRow = (label: string, value: string) => `
-	<div>
-		<dt>${escapeHtml(label)}</dt>
-		<dd>${value}</dd>
-	</div>
-`;
-
-const renderNullableInventoryDate = (value: string | null) =>
-	value ? escapeHtml(formatReceiptDateTime(value)) : "-";
-
-const renderInventoryLinkValue = (href: string, label: string) => `
-	<a class="metadata-link" href="${href}" data-link>${escapeHtml(label)}</a>
-`;
-
-const renderSelectOption = (
-	value: string,
-	label: string,
-	selectedValue: string,
-) => `
-	<option value="${escapeHtml(value)}" ${selectedValue === value ? "selected" : ""}>
-		${escapeHtml(label)}
-	</option>
-`;
-
 const getReceiptRowLabel = (
 	receiptItem: PurchaseReceiptItem,
 	receiptsById: Map<number, PurchaseReceipt>,
@@ -6414,86 +4691,6 @@ const getReceiptRowLabel = (
 	return `#${receiptItem.id} - ${receiptLabel} - ${productLabel} - ${receiptItem.quantity} ${receiptItem.unit}${totalLabel}`;
 };
 
-const renderInventoryProductOptions = (
-	item: InventoryItem,
-	products: Product[],
-) => {
-	const selectedValue = item.product_id === null ? "" : String(item.product_id);
-	if (!products.length && item.product_id === null) {
-		return renderSelectOption("", "No products in Pupler yet", selectedValue);
-	}
-
-	const hasSelectedProduct =
-		item.product_id === null ||
-		products.some((product) => product.id === item.product_id);
-	const fallbackSelectedProduct =
-		!hasSelectedProduct && item.product_id !== null
-			? renderSelectOption(
-					String(item.product_id),
-					item.product?.name ?? `Product #${item.product_id}`,
-					selectedValue,
-				)
-			: "";
-
-	return `
-		${renderSelectOption("", "No product link", selectedValue)}
-		${fallbackSelectedProduct}
-		${products
-			.map((product) => {
-				const label = product.barcode
-					? `${product.name} (${product.barcode})`
-					: product.name;
-				return renderSelectOption(String(product.id), label, selectedValue);
-			})
-			.join("")}
-	`;
-};
-
-const renderInventoryReceiptRowOptions = (
-	item: InventoryItem,
-	receiptItems: PurchaseReceiptItem[],
-	receipts: PurchaseReceipt[],
-	products: Product[],
-) => {
-	const selectedValue =
-		item.receipt_item_id === null ? "" : String(item.receipt_item_id);
-	if (!receiptItems.length && item.receipt_item_id === null) {
-		return renderSelectOption(
-			"",
-			"No receipt rows in Pupler yet",
-			selectedValue,
-		);
-	}
-
-	const receiptsById = new Map(receipts.map((receipt) => [receipt.id, receipt]));
-	const productsById = new Map(products.map((product) => [product.id, product]));
-	const hasSelectedReceiptRow =
-		item.receipt_item_id === null ||
-		receiptItems.some((receiptItem) => receiptItem.id === item.receipt_item_id);
-	const fallbackSelectedReceiptRow =
-		!hasSelectedReceiptRow && item.receipt_item_id !== null
-			? renderSelectOption(
-					String(item.receipt_item_id),
-					`Receipt row #${item.receipt_item_id}`,
-					selectedValue,
-				)
-			: "";
-
-	return `
-		${renderSelectOption("", "No receipt row link", selectedValue)}
-		${fallbackSelectedReceiptRow}
-		${receiptItems
-			.map((receiptItem) =>
-				renderSelectOption(
-					String(receiptItem.id),
-					getReceiptRowLabel(receiptItem, receiptsById, productsById),
-					selectedValue,
-				),
-			)
-			.join("")}
-	`;
-};
-
 export const renderInventoryItemDetail = (
 	item: InventoryItem,
 	container: InventoryContainer | null,
@@ -6501,156 +4698,53 @@ export const renderInventoryItemDetail = (
 	receiptItems: PurchaseReceiptItem[],
 	receipts: PurchaseReceipt[],
 ) => {
-	const page = document.getElementById("inventory-item-detail-page");
-	if (!page) {
-		return;
+	const page = getElementById("inventory-item-detail-page");
+	if (!page) return;
+	const expiration = getExpirationTag(item);
+	const row = (label: string, value: Node | string) => createElement("div", {}, createElement("dt", {}, label), createElement("dd", {}, value));
+	const link = (href: string, label: string) => createElement("a", { className: "metadata-link", properties: { href }, attributes: { "data-link": "" } }, label);
+	const date = (value: string | null) => value ? formatReceiptDateTime(value) : "-";
+	const properties = createElement("dl", { className: "receipt-metadata" }, row("Name", item.name), row("Quantity", String(item.quantity)), row("Unit", item.unit), row("Purchased", date(item.purchased_at)), row("Expires", date(item.expires_at)), row("Consumed", date(item.consumed_at)), row("Notes", item.notes ?? "-"), row("Created", formatReceiptDateTime(item.created_at)), row("Updated", formatReceiptDateTime(item.updated_at)));
+	const productSelect = createElement("select", { id: "inventory-item-product-id", properties: { name: "product_id" } });
+	const productSelected = item.product_id === null ? "" : String(item.product_id);
+	const productOption = (value: string, label: string) => createElement("option", { properties: { value, selected: value === productSelected } }, label);
+	if (!products.length && item.product_id === null) productSelect.append(productOption("", "No products in Pupler yet"));
+	else {
+		productSelect.append(productOption("", "No product link"));
+		if (item.product_id !== null && !products.some((product) => product.id === item.product_id)) productSelect.append(productOption(String(item.product_id), item.product?.name ?? `Product #${item.product_id}`));
+		productSelect.append(...products.map((product) => productOption(String(product.id), product.barcode ? `${product.name} (${product.barcode})` : product.name)));
 	}
-
-	const expirationTag = getExpirationTag(item);
-	const statusTag = item.consumed_at
-		? '<span class="tag tag--neutral">Consumed</span>'
-		: '<span class="tag">Active</span>';
-	const containerValue =
-		item.container_id === null
-			? "Top level"
-			: container
-				? renderInventoryLinkValue(
-						`/inventory/containers/${container.id}`,
-						container.name,
-					)
-				: `Container #${item.container_id}`;
-	const productValue =
-		item.product_id === null
-			? "-"
-			: item.product
-				? renderInventoryLinkValue(
-						`/products/${item.product.id}`,
-						item.product.name,
-					)
-				: `Product #${item.product_id}`;
-	const ingredientValue =
-		item.ingredient_id === null
-			? "-"
-			: item.ingredient
-				? escapeHtml(item.ingredient.name)
-				: `Ingredient #${item.ingredient_id}`;
-	const itemImages = item.inventory_item_images ?? [];
-
-	page.innerHTML = `
-		<section class="page-heading page-heading--compact">
-			<div>
-				<span class="eyebrow">Inventory Item</span>
-			</div>
-			<a class="secondary action-link" href="/inventory" data-link>Back To Inventory</a>
-		</section>
-
-		<section class="workspace inventory-item-detail-grid">
-			<div class="card panel">
-				<div class="section-header">
-					<h2>Properties</h2>
-					${statusTag}
-				</div>
-				<dl class="receipt-metadata">
-					${renderInventoryDetailRow("Name", escapeHtml(item.name))}
-					${renderInventoryDetailRow("Quantity", `${item.quantity}`)}
-					${renderInventoryDetailRow("Unit", escapeHtml(item.unit))}
-					${renderInventoryDetailRow("Purchased", renderNullableInventoryDate(item.purchased_at))}
-					${renderInventoryDetailRow("Expires", renderNullableInventoryDate(item.expires_at))}
-					${renderInventoryDetailRow("Consumed", renderNullableInventoryDate(item.consumed_at))}
-					${renderInventoryDetailRow("Notes", item.notes ? escapeHtml(item.notes) : "-")}
-					${renderInventoryDetailRow("Created", escapeHtml(formatReceiptDateTime(item.created_at)))}
-					${renderInventoryDetailRow("Updated", escapeHtml(formatReceiptDateTime(item.updated_at)))}
-				</dl>
-			</div>
-
-			<div class="card panel">
-				<div class="section-header">
-					<h2>Links & IDs</h2>
-					<span class="${expirationTag.className}">${escapeHtml(expirationTag.label)}</span>
-				</div>
-				<form id="inventory-item-links-form" class="inventory-link-form">
-					<label>
-						Product
-						<select id="inventory-item-product-id" name="product_id">
-							${renderInventoryProductOptions(item, products)}
-						</select>
-					</label>
-					<label>
-						Receipt Row
-						<select id="inventory-item-receipt-item-id" name="receipt_item_id">
-							${renderInventoryReceiptRowOptions(item, receiptItems, receipts, products)}
-						</select>
-					</label>
-					<div class="actions">
-						<button class="primary" type="submit">Save Links</button>
-					</div>
-				</form>
-				<div id="inventory-item-links-status" class="status"></div>
-				<dl class="receipt-metadata">
-					${renderInventoryDetailRow("Inventory Item ID", `${item.id}`)}
-					${renderInventoryDetailRow("Location", containerValue)}
-					${renderInventoryDetailRow("Container ID", item.container_id === null ? "-" : `${item.container_id}`)}
-					${renderInventoryDetailRow("Product", productValue)}
-					${renderInventoryDetailRow("Product ID", item.product_id === null ? "-" : `${item.product_id}`)}
-					${renderInventoryDetailRow("Ingredient", ingredientValue)}
-					${renderInventoryDetailRow("Ingredient ID", item.ingredient_id === null ? "-" : `${item.ingredient_id}`)}
-					${renderInventoryDetailRow("Receipt Row ID", item.receipt_item_id === null ? "-" : `${item.receipt_item_id}`)}
-				</dl>
-			</div>
-
-			<div class="card panel inventory-item-images-panel">
-				<h2>Images</h2>
-				${
-					itemImages.length
-						? `
-							<div class="recipe-image-gallery inventory-item-image-gallery">
-								${itemImages
-									.map(
-										(image) => `
-											<article class="recipe-image-card">
-												<img
-													class="recipe-image-card__image"
-													src="/api/inventory-items/${item.id}/pictures/${image.id}?updated=${encodeURIComponent(image.created_at)}"
-													alt="${escapeHtml(image.file.filename ?? item.name)}"
-												/>
-												<div class="recipe-image-card__meta">
-													<div>
-														<strong>${escapeHtml(image.file.filename ?? `Image #${image.id}`)}</strong>
-														<div class="section-copy">${formatReceiptDateTime(image.created_at)}</div>
-													</div>
-													<button
-														class="secondary"
-														type="button"
-														data-delete-inventory-item-image-id="${image.id}"
-													>
-														Remove
-													</button>
-												</div>
-											</article>
-										`,
-									)
-									.join("")}
-							</div>
-						`
-						: '<div class="empty">No inventory item images uploaded yet.</div>'
-				}
-				<form id="inventory-item-picture-form" class="recipe-picture__form inventory-item-picture__form">
-					${renderUploadDropzone({
-						inputId: "inventory-item-picture-input",
-						label: "Images",
-						name: "picture",
-						multiple: true,
-						submitOnDrop: true,
-						emptyText: "Choose one or more images or drop them here.",
-					})}
-					<div class="actions">
-						<button class="secondary" type="submit">Upload Images</button>
-					</div>
-				</form>
-				<div id="inventory-item-picture-status" class="status"></div>
-			</div>
-		</section>
-	`;
+	const receiptSelect = createElement("select", { id: "inventory-item-receipt-item-id", properties: { name: "receipt_item_id" } });
+	const receiptSelected = item.receipt_item_id === null ? "" : String(item.receipt_item_id);
+	const receiptOption = (value: string, label: string) => createElement("option", { properties: { value, selected: value === receiptSelected } }, label);
+	if (!receiptItems.length && item.receipt_item_id === null) receiptSelect.append(receiptOption("", "No receipt rows in Pupler yet"));
+	else {
+		const receiptsById = new Map(receipts.map((receipt) => [receipt.id, receipt]));
+		const productsById = new Map(products.map((product) => [product.id, product]));
+		receiptSelect.append(receiptOption("", "No receipt row link"));
+		if (item.receipt_item_id !== null && !receiptItems.some((receiptItem) => receiptItem.id === item.receipt_item_id)) receiptSelect.append(receiptOption(String(item.receipt_item_id), `Receipt row #${item.receipt_item_id}`));
+		receiptSelect.append(...receiptItems.map((receiptItem) => receiptOption(String(receiptItem.id), getReceiptRowLabel(receiptItem, receiptsById, productsById))));
+	}
+	const linksForm = createElement("form", { id: "inventory-item-links-form", className: "inventory-link-form" }, createElement("label", {}, "Product", productSelect), createElement("label", {}, "Receipt Row", receiptSelect), createElement("div", { className: "actions" }, createElement("button", { className: "primary", properties: { type: "submit" } }, "Save Links")));
+	const locationValue = item.container_id === null ? "Top level" : container ? link(`/inventory/containers/${container.id}`, container.name) : `Container #${item.container_id}`;
+	const productValue = item.product_id === null ? "-" : item.product ? link(`/products/${item.product.id}`, item.product.name) : `Product #${item.product_id}`;
+	const ids = createElement("dl", { className: "receipt-metadata" }, row("Inventory Item ID", String(item.id)), row("Location", locationValue), row("Container ID", item.container_id === null ? "-" : String(item.container_id)), row("Product", productValue), row("Product ID", item.product_id === null ? "-" : String(item.product_id)), row("Ingredient", item.ingredient?.name ?? (item.ingredient_id === null ? "-" : `Ingredient #${item.ingredient_id}`)), row("Ingredient ID", item.ingredient_id === null ? "-" : String(item.ingredient_id)), row("Receipt Row ID", item.receipt_item_id === null ? "-" : String(item.receipt_item_id)));
+	const images = item.inventory_item_images ?? [];
+	const gallery = images.length ? createElement("div", { className: "recipe-image-gallery inventory-item-image-gallery" }, ...images.map((image) => {
+		const remove = createElement("button", { className: "secondary", properties: { type: "button" } }, "Remove");
+		remove.dataset.deleteInventoryItemImageId = String(image.id);
+		return createElement("article", { className: "recipe-image-card" }, createElement("img", { className: "recipe-image-card__image", properties: { src: `/api/inventory-items/${item.id}/pictures/${image.id}?updated=${encodeURIComponent(image.created_at)}`, alt: image.file.filename ?? item.name } }), createElement("div", { className: "recipe-image-card__meta" }, createElement("div", {}, createElement("strong", {}, image.file.filename ?? `Image #${image.id}`), createElement("div", { className: "section-copy" }, formatReceiptDateTime(image.created_at))), remove));
+	})) : createEmptyState("No inventory item images uploaded yet.");
+	const pictureForm = createElement("form", { id: "inventory-item-picture-form", className: "recipe-picture__form inventory-item-picture__form" }, createUploadDropzone({ inputId: "inventory-item-picture-input", label: "Images", name: "picture", multiple: true, submitOnDrop: true, emptyText: "Choose one or more images or drop them here." }), createElement("div", { className: "actions" }, createElement("button", { className: "secondary", properties: { type: "submit" } }, "Upload Images")));
+	const back = createElement("a", { className: "secondary action-link", properties: { href: "/inventory" }, attributes: { "data-link": "" } }, "Back To Inventory");
+	page.replaceChildren(
+		createElement("section", { className: "page-heading page-heading--compact" }, createElement("div", {}, createElement("span", { className: "eyebrow" }, "Inventory Item")), back),
+		createElement("section", { className: "workspace inventory-item-detail-grid" },
+			createElement("div", { className: "card panel" }, createElement("div", { className: "section-header" }, createElement("h2", {}, "Properties"), createElement("span", { className: item.consumed_at ? "tag tag--neutral" : "tag" }, item.consumed_at ? "Consumed" : "Active")), properties),
+			createElement("div", { className: "card panel" }, createElement("div", { className: "section-header" }, createElement("h2", {}, "Links & IDs"), createElement("span", { className: expiration.className }, expiration.label)), linksForm, createElement("div", { id: "inventory-item-links-status", className: "status" }), ids),
+			createElement("div", { className: "card panel inventory-item-images-panel" }, createElement("h2", {}, "Images"), gallery, pictureForm, createElement("div", { id: "inventory-item-picture-status", className: "status" })),
+		),
+	);
 	attachUploadDropzones(page);
 };
 
@@ -6683,13 +4777,13 @@ export const attachInventoryItemDetailEvents = (
 		setStatus(statusId, statusMessage);
 	};
 
-	const form = document.getElementById("inventory-item-links-form");
+	const form = getElementById("inventory-item-links-form");
 	if (form instanceof HTMLFormElement) {
 		form.addEventListener("submit", async (event) => {
 			event.preventDefault();
 
-			const productInput = document.getElementById("inventory-item-product-id");
-			const receiptItemInput = document.getElementById(
+			const productInput = getElementById("inventory-item-product-id");
+			const receiptItemInput = getElementById(
 				"inventory-item-receipt-item-id",
 			);
 			if (
@@ -6754,12 +4848,12 @@ export const attachInventoryItemDetailEvents = (
 		});
 	}
 
-	const pictureForm = document.getElementById("inventory-item-picture-form");
+	const pictureForm = getElementById("inventory-item-picture-form");
 	if (pictureForm instanceof HTMLFormElement) {
 		pictureForm.addEventListener("submit", async (event) => {
 			event.preventDefault();
 
-			const pictureInput = document.getElementById(
+			const pictureInput = getElementById(
 				"inventory-item-picture-input",
 			);
 			if (!(pictureInput instanceof HTMLInputElement)) {

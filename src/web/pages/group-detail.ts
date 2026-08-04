@@ -1,76 +1,52 @@
 import {
-	escapeHtml,
+	createReceiptCard,
 	fetchReceipts,
 	formatReceiptDateTime,
 	renderPage,
-	renderReceiptCard,
 	setStatus,
 } from "../app";
 import type { Group, PurchaseReceipt } from "../app";
+import {
+	createElement,
+	createEmptyState,
+	createPageMessage,
+	getElementById,
+	withQueryRoot,
+} from "../lib/dom";
 
 const renderGroupDetail = (group: Group, receipts: PurchaseReceipt[]) => {
-	const page = document.getElementById("group-detail-page");
+	const page = getElementById("group-detail-page");
 	if (!page) {
 		return;
 	}
 
-	page.innerHTML = `
-		<section class="page-heading page-heading--compact">
-			<div>
-				<span class="eyebrow">Group</span>
-			</div>
-			<a class="secondary action-link" href="/receipts" data-link>Back To Receipts</a>
-		</section>
-
-		<section class="workspace">
-			<div class="card panel">
-				<h2>Group Details</h2>
-				<form id="group-detail-form">
-					<label>
-						Name
-						<input
-							id="group-detail-name"
-							name="name"
-							value="${escapeHtml(group.name)}"
-							required
-						/>
-					</label>
-					<div class="actions">
-						<button class="primary" type="submit">Save Group</button>
-					</div>
-				</form>
-				<div id="group-detail-status" class="status"></div>
-				<dl class="receipt-metadata">
-					<div>
-						<dt>Created</dt>
-						<dd>${formatReceiptDateTime(group.created_at)}</dd>
-					</div>
-					<div>
-						<dt>Updated</dt>
-						<dd>${formatReceiptDateTime(group.updated_at)}</dd>
-					</div>
-				</dl>
-			</div>
-
-			<div class="card panel">
-				<div class="section-header">
-					<h2>Receipts</h2>
-					<span class="tag tag--neutral">${receipts.length}</span>
-				</div>
-				<div class="results">
-					${
-						receipts.length
-							? receipts
-									.map((receipt) =>
-										renderReceiptCard(receipt, { draggable: false }),
-									)
-									.join("")
-							: '<div class="empty">No receipts in this group.</div>'
-					}
-				</div>
-			</div>
-		</section>
-	`;
+	const back = createElement("a", { className: "secondary action-link", properties: { href: "/receipts" }, attributes: { "data-link": "" } }, "Back To Receipts");
+	const form = createElement("form", { id: "group-detail-form" }, createElement("label", {}, "Name", createElement("input", { id: "group-detail-name", properties: { name: "name", required: true } })), createElement("div", { className: "actions" }, createElement("button", { className: "primary", properties: { type: "submit" } }, "Save Group")));
+	const metadata = createElement("dl", { className: "receipt-metadata" }, createElement("div", {}, createElement("dt", {}, "Created"), createElement("dd", { id: "group-detail-created" })), createElement("div", {}, createElement("dt", {}, "Updated"), createElement("dd", { id: "group-detail-updated" })));
+	page.replaceChildren(
+		createElement("section", { className: "page-heading page-heading--compact" }, createElement("div", {}, createElement("span", { className: "eyebrow" }, "Group")), back),
+		createElement("section", { className: "workspace" },
+			createElement("div", { className: "card panel" }, createElement("h2", {}, "Group Details"), form, createElement("div", { id: "group-detail-status", className: "status" }), metadata),
+			createElement("div", { className: "card panel" }, createElement("div", { className: "section-header" }, createElement("h2", {}, "Receipts"), createElement("span", { id: "group-detail-receipt-count", className: "tag tag--neutral" })), createElement("div", { id: "group-detail-receipts", className: "results" })),
+		),
+	);
+	const nameInput = getElementById("group-detail-name");
+	if (nameInput instanceof HTMLInputElement) nameInput.value = group.name;
+	const setText = (id: string, value: string) => {
+		const element = getElementById(id);
+		if (element) element.textContent = value;
+	};
+	setText("group-detail-created", formatReceiptDateTime(group.created_at));
+	setText("group-detail-updated", formatReceiptDateTime(group.updated_at));
+	setText("group-detail-receipt-count", String(receipts.length));
+	const results = getElementById("group-detail-receipts");
+	if (results) {
+		results.replaceChildren(
+			...(receipts.length
+				? receipts.map((receipt) => createReceiptCard(receipt, { draggable: false }))
+				: [createEmptyState("No receipts in this group.")]),
+		);
+	}
 };
 
 const fetchGroup = async (groupId: number) => {
@@ -108,8 +84,8 @@ const updateGroup = async (groupId: number, payload: { name: string }) => {
 };
 
 const attachGroupDetailEvents = (group: Group) => {
-	const form = document.getElementById("group-detail-form");
-	const nameInput = document.getElementById("group-detail-name");
+	const form = getElementById("group-detail-form");
+	const nameInput = getElementById("group-detail-name");
 	if (
 		!(form instanceof HTMLFormElement) ||
 		!(nameInput instanceof HTMLInputElement)
@@ -142,36 +118,30 @@ const attachGroupDetailEvents = (group: Group) => {
 	});
 };
 
-export const renderGroupDetailPage = (params: Record<string, string>) => {
-	renderPage('<div id="group-detail-page"></div>');
+export const renderGroupDetailPage = async (params: Record<string, string>) => {
+	const groupId = Number.parseInt(params.id ?? "", 10);
+	const page = createElement("div", { id: "group-detail-page" });
+	if (!Number.isInteger(groupId)) {
+		page.append(createPageMessage("Group id is invalid."));
+		renderPage(page);
+		return;
+	}
 
-	void (async () => {
-		const rawId = params.id ?? "";
-		const groupId = Number.parseInt(rawId, 10);
-		const page = document.getElementById("group-detail-page");
-		if (!page) {
-			return;
-		}
-
-		if (!Number.isInteger(groupId)) {
-			page.innerHTML =
-				'<div class="card panel page-panel"><p class="page-copy">Group id is invalid.</p></div>';
-			return;
-		}
-
-		try {
-			const [group, receipts] = await Promise.all([
-				fetchGroup(groupId),
-				fetchReceipts(String(groupId)),
-			]);
+	try {
+		const [group, receipts] = await Promise.all([
+			fetchGroup(groupId),
+			fetchReceipts(String(groupId)),
+		]);
+		withQueryRoot(page, () => {
 			renderGroupDetail(group, receipts);
 			attachGroupDetailEvents(group);
-		} catch (error) {
-			page.innerHTML = `
-				<div class="card panel page-panel">
-					<p class="page-copy">${error instanceof Error ? error.message : "Failed to load group."}</p>
-				</div>
-			`;
-		}
-	})();
+		});
+	} catch (error) {
+		page.append(
+			createPageMessage(
+				error instanceof Error ? error.message : "Failed to load group.",
+			),
+		);
+	}
+	renderPage(page);
 };

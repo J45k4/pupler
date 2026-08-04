@@ -1,4 +1,4 @@
-import { escapeHtml } from "../lib/html";
+import { createElement } from "../lib/dom";
 import { UiComponent } from "./component";
 
 export type SearchSelectOption = {
@@ -19,46 +19,6 @@ type SearchSelectItem =
 const searchSelectState = new WeakMap<HTMLElement, SearchSelectState>();
 const searchSelectRegistry = new Map<string, SearchSelect>();
 let searchSelectId = 0;
-
-export const renderSearchSelect = (options: {
-	id: string;
-	placeholder?: string;
-	allowCreate?: boolean;
-	createLabelPrefix?: string;
-	required?: boolean;
-}) => {
-	const menuId = `${options.id}-menu`;
-	const valueId = `${options.id}-value`;
-
-	return `
-		<div
-			class="search-select"
-			data-search-select="${escapeHtml(options.id)}"
-			data-search-select-allow-create="${options.allowCreate ? "true" : "false"}"
-			data-search-select-create-label-prefix="${escapeHtml(options.createLabelPrefix ?? "Create")}"
-		>
-			<input
-				id="${escapeHtml(options.id)}"
-				class="search-select__input"
-				data-search-select-input
-				role="combobox"
-				aria-autocomplete="list"
-				aria-expanded="false"
-				aria-controls="${escapeHtml(menuId)}"
-				placeholder="${escapeHtml(options.placeholder ?? "")}"
-				autocomplete="off"
-				${options.required ? "required" : ""}
-			/>
-			<input id="${escapeHtml(valueId)}" type="hidden" data-search-select-value />
-			<div
-				id="${escapeHtml(menuId)}"
-				class="search-select__menu"
-				role="listbox"
-				hidden
-			></div>
-		</div>
-	`;
-};
 
 export class SearchSelect extends UiComponent<HTMLDivElement> {
 	private readonly input: HTMLInputElement;
@@ -252,44 +212,42 @@ const renderSearchSelectMenu = (root: HTMLElement) => {
 			: Math.min(Math.max(state.activeIndex, 0), selectableCount - 1);
 
 	let selectableIndex = 0;
-	menu.innerHTML = items
-		.map((item) => {
-			if (item.kind === "empty") {
-				return `<div class="search-select__empty">${escapeHtml(item.label)}</div>`;
-			}
+	const children: HTMLElement[] = [];
+	for (const item of items) {
+		if (item.kind === "empty") {
+			children.push(
+				createElement("div", {
+					className: "search-select__empty",
+					text: item.label,
+				}),
+			);
+			continue;
+		}
 
-			const currentIndex = selectableIndex;
-			selectableIndex += 1;
-			const isActive = currentIndex === state.activeIndex;
-			if (item.kind === "create") {
-				const prefix = root.dataset.searchSelectCreateLabelPrefix ?? "Create";
-				return `
-					<button
-						class="search-select__option ${isActive ? "search-select__option--active" : ""}"
-						type="button"
-						role="option"
-						aria-selected="${isActive ? "true" : "false"}"
-						data-search-select-create
-					>
-						<span>${escapeHtml(prefix)}</span>
-						<strong>${escapeHtml(item.label)}</strong>
-					</button>
-				`;
-			}
-
-			return `
-				<button
-					class="search-select__option ${isActive ? "search-select__option--active" : ""}"
-					type="button"
-					role="option"
-					aria-selected="${isActive ? "true" : "false"}"
-					data-search-select-option-index="${item.optionIndex}"
-				>
-					${escapeHtml(item.option.label)}
-				</button>
-			`;
-		})
-		.join("");
+		const currentIndex = selectableIndex;
+		selectableIndex += 1;
+		const isActive = currentIndex === state.activeIndex;
+		const button = createElement("button", {
+			className: `search-select__option${isActive ? " search-select__option--active" : ""}`,
+		});
+		button.type = "button";
+		button.role = "option";
+		button.setAttribute("aria-selected", String(isActive));
+		if (item.kind === "create") {
+			button.dataset.searchSelectCreate = "";
+			button.append(
+				createElement("span", {
+					text: root.dataset.searchSelectCreateLabelPrefix ?? "Create",
+				}),
+				createElement("strong", { text: item.label }),
+			);
+		} else {
+			button.dataset.searchSelectOptionIndex = String(item.optionIndex);
+			button.textContent = item.option.label;
+		}
+		children.push(button);
+	}
+	menu.replaceChildren(...children);
 	menu.hidden = false;
 	input.setAttribute("aria-expanded", "true");
 };

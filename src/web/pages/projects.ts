@@ -1,5 +1,10 @@
 import { renderPage, setStatus } from "../app";
-import { attachModalControls, renderModal } from "../ui/modal";
+import {
+	createElement,
+	getElementById,
+	withQueryRoot,
+} from "../lib/dom";
+import { attachModalControls, createModal } from "../ui/modal";
 import { SearchSelect, type SearchSelectOption } from "../ui/search-select";
 
 type Client = {
@@ -136,9 +141,9 @@ const selectedClientId = async (clientSelect: SearchSelect) => {
 
 const renderProjectRows = () => {
 	closeProjectActionsMenu();
-	const results = document.getElementById("project-results");
+	const results = getElementById("project-results");
 	if (!results) return;
-	const showArchived = document.getElementById("projects-show-archived");
+	const showArchived = getElementById("projects-show-archived");
 	const includeArchived = showArchived instanceof HTMLInputElement && showArchived.checked;
 	const projects = projectsPageState.projects.filter(
 		(project) => includeArchived || project.archived_at === null,
@@ -155,17 +160,15 @@ const renderProjectRows = () => {
 
 	const table = document.createElement("table");
 	table.className = "project-table";
-	table.innerHTML = `
-		<thead>
-			<tr>
-				<th scope="col">Project</th>
-				<th scope="col">Color</th>
-				<th scope="col">Client</th>
-				<th scope="col">Status</th>
-				<th scope="col">Actions</th>
-			</tr>
-		</thead>
-	`;
+	const headerRow = document.createElement("tr");
+	for (const label of ["Project", "Color", "Client", "Status", "Actions"]) {
+		const header = createElement("th", { text: label });
+		header.scope = "col";
+		headerRow.append(header);
+	}
+	const head = document.createElement("thead");
+	head.append(headerRow);
+	table.append(head);
 	const body = document.createElement("tbody");
 
 	for (const project of projects) {
@@ -203,7 +206,10 @@ const renderProjectRows = () => {
 		clientCell.append(clientSelect.root);
 
 		const statusCell = document.createElement("td");
-		statusCell.innerHTML = `<span class="${isArchived ? "tag tag--neutral" : "tag"}">${isArchived ? "Archived" : "Active"}</span>`;
+		statusCell.append(createElement("span", {
+			className: isArchived ? "tag tag--neutral" : "tag",
+			text: isArchived ? "Archived" : "Active",
+		}));
 
 		const actionsCell = document.createElement("td");
 		const actionsTrigger = document.createElement("button");
@@ -354,7 +360,7 @@ const attachProjectEvents = () => {
 		createLabelPrefix: "Create client",
 	});
 	projectCreateClientSelect = createClientSelect;
-	document.getElementById("project-create-client")?.replaceWith(createClientSelect.root);
+	getElementById("project-create-client")?.replaceWith(createClientSelect.root);
 	document
 		.getElementById("project-create-form")
 		?.addEventListener("submit", async (event) => {
@@ -404,51 +410,31 @@ const attachProjectEvents = () => {
 };
 
 export const renderProjectsPage = () => {
-	renderPage(`
-		<section class="workspace workspace--single projects-workspace">
-			<div class="card panel">
-				<div class="section-header">
-					<h2>Projects</h2>
-					<div class="project-header-actions">
-						<label class="inline-toggle">
-							<input id="projects-show-archived" type="checkbox" />
-							Show archived
-						</label>
-						<button class="primary" id="open-project-create-modal" type="button">New project</button>
-					</div>
-				</div>
-				<div id="projects-status" class="status" role="status"></div>
-				<div id="project-results" class="project-list"></div>
-			</div>
-		</section>
-
-		${renderModal({
+	const page = document.createDocumentFragment();
+	const archived = createElement("input", { id: "projects-show-archived", properties: { type: "checkbox" } });
+	const form = createElement("form", { id: "project-create-form" },
+		createElement("label", {}, "Name", createElement("input", { properties: { name: "name", placeholder: "Project name", autocomplete: "off", required: true } })),
+		createElement("label", {}, "Color", createElement("input", { properties: { name: "color", type: "color", value: "#2d7c6f", required: true } })),
+		createElement("label", {}, "Client", createElement("span", { id: "project-create-client" })),
+		createElement("div", { className: "actions" }, createElement("button", { className: "primary", properties: { type: "submit" } }, "Create Project")),
+	);
+	page.append(
+		createElement("section", { className: "workspace workspace--single projects-workspace" }, createElement("div", { className: "card panel" },
+			createElement("div", { className: "section-header" }, createElement("h2", {}, "Projects"), createElement("div", { className: "project-header-actions" },
+				createElement("label", { className: "inline-toggle" }, archived, "Show archived"),
+				createElement("button", { id: "open-project-create-modal", className: "primary", properties: { type: "button" } }, "New project"),
+			)),
+			createElement("div", { id: "projects-status", className: "status", attributes: { role: "status" } }),
+			createElement("div", { id: "project-results", className: "project-list" }),
+		)),
+		createModal({
 			id: "project-create-modal",
 			title: "New Project",
 			closeDataAttribute: "data-project-create-modal-close",
 			className: "project-create-modal",
-			children: `
-				<form id="project-create-form">
-					<label>
-						Name
-						<input name="name" placeholder="Project name" autocomplete="off" required />
-					</label>
-					<label>
-						Color
-						<input name="color" type="color" value="#2d7c6f" required />
-					</label>
-					<label>
-						Client
-						<span id="project-create-client"></span>
-					</label>
-					<div class="actions">
-						<button class="primary" type="submit">Create Project</button>
-					</div>
-				</form>
-				<div id="project-create-status" class="status" role="status"></div>
-			`,
-		})}
-	`);
-
-	attachProjectEvents();
+			children: [form, createElement("div", { id: "project-create-status", className: "status", attributes: { role: "status" } })],
+		}),
+	);
+	withQueryRoot(page, attachProjectEvents);
+	renderPage(page);
 };

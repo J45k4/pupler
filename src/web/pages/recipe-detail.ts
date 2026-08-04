@@ -3,34 +3,26 @@ import {
 	renderPage,
 	renderRecipeDetail,
 } from "../app";
+import { createElement, createPageMessage, withQueryRoot } from "../lib/dom";
 
-export const renderRecipeDetailPage = (params: Record<string, string>) => {
-	renderPage('<div id="recipe-detail-page"></div>');
+export const renderRecipeDetailPage = async (params: Record<string, string>) => {
+	const recipeId = Number.parseInt(params.id ?? "", 10);
+	const page = createElement("div", { id: "recipe-detail-page" });
+	if (!Number.isInteger(recipeId)) {
+		page.append(createPageMessage("Recipe id is invalid."));
+		renderPage(page);
+		return;
+	}
 
-	void (async () => {
-		const rawId = params.id ?? "";
-		const recipeId = Number.parseInt(rawId, 10);
-		if (!Number.isInteger(recipeId)) {
-			const page = document.getElementById("recipe-detail-page");
-			if (page) {
-				page.innerHTML =
-					'<div class="card panel page-panel"><p class="page-copy">Recipe id is invalid.</p></div>';
-			}
-			return;
-		}
-
-		try {
-			const recipe = await fetchRecipe(recipeId);
-			renderRecipeDetail(recipe);
-		} catch (error) {
-			const page = document.getElementById("recipe-detail-page");
-			if (page) {
-				page.innerHTML = `
-					<div class="card panel page-panel">
-						<p class="page-copy">${error instanceof Error ? error.message : "Failed to load recipe."}</p>
-					</div>
-				`;
-			}
-		}
-	})();
+	try {
+		const recipe = await fetchRecipe(recipeId);
+		withQueryRoot(page, () => renderRecipeDetail(recipe));
+	} catch (error) {
+		page.append(
+			createPageMessage(
+				error instanceof Error ? error.message : "Failed to load recipe.",
+			),
+		);
+	}
+	renderPage(page);
 };

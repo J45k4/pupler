@@ -1,9 +1,9 @@
 import {
-	escapeHtml,
 	formatMoney,
 	renderPage,
 	setStatus,
 } from "../app";
+import { createElement, createEmptyState } from "../lib/dom";
 
 type UnitQuantity = {
 	unit: string;
@@ -62,7 +62,7 @@ const formatUnitQuantities = (quantities: UnitQuantity[]) => {
 		return "-";
 	}
 	return quantities
-		.map((item) => `${formatQuantity(item.quantity)} ${escapeHtml(item.unit)}`)
+		.map((item) => `${formatQuantity(item.quantity)} ${item.unit}`)
 		.join(", ");
 };
 
@@ -106,17 +106,30 @@ const renderProductStatsSortButton = (
 			? "^"
 			: "v"
 		: "";
-	return `
-		<button
-			class="product-stats-sort${isActive ? " product-stats-sort--active" : ""}"
-			type="button"
-			data-product-stats-sort="${key}"
-			aria-label="Sort by ${escapeHtml(label)}"
-		>
-			<span>${escapeHtml(label)}</span>
-			<span class="product-stats-sort__marker" aria-hidden="true">${marker}</span>
-		</button>
-	`;
+	const button = createElement(
+		"button",
+		{
+			className: `product-stats-sort${isActive ? " product-stats-sort--active" : ""}`,
+		},
+		createElement("span", { text: label }),
+		createElement("span", {
+			className: "product-stats-sort__marker",
+			text: marker,
+		}),
+	);
+	button.type = "button";
+	button.setAttribute("aria-label", `Sort by ${label}`);
+	button.addEventListener("click", () => {
+		if (productStatsSortKey === key) {
+			productStatsSortDirection = productStatsSortDirection === "asc" ? "desc" : "asc";
+		} else {
+			productStatsSortKey = key;
+			productStatsSortDirection =
+				key === "product_name" || key === "category" ? "asc" : "desc";
+		}
+		renderProductStatsRows();
+	});
+	return button;
 };
 
 const renderProductStatsRows = () => {
@@ -126,75 +139,44 @@ const renderProductStatsRows = () => {
 	}
 
 	if (!productStatsRows.length) {
-		results.innerHTML = '<div class="empty">No products yet.</div>';
+		results.replaceChildren(createEmptyState("No products yet."));
 		return;
 	}
 
 	const rows = [...productStatsRows].sort(compareProductStatsRows);
-	results.innerHTML = `
-		<table class="shoppinglist-table product-stats-table">
-			<thead>
-				<tr>
-					${productStatsColumns
-						.map(
-							(column) => `
-								<th scope="col">
-									${renderProductStatsSortButton(column.key, column.label)}
-								</th>
-							`,
-						)
-						.join("")}
-				</tr>
-			</thead>
-			<tbody>
-				${rows
-					.map(
-						(row) => `
-							<tr>
-								<td>
-									<a href="/products/${row.product_id}" data-link>${escapeHtml(row.product_name)}</a>
-									</td>
-									<td>${escapeHtml(row.category)}</td>
-									<td>${row.bought_count}</td>
-									<td>${escapeHtml(formatMoneyTotals(row.total_costs))}</td>
-									<td>${row.used_count}</td>
-									<td>${formatUnitQuantities(row.used_quantities)}</td>
-							</tr>
-						`,
-					)
-					.join("")}
-			</tbody>
-		</table>
-	`;
-};
-
-const attachProductStatsEvents = () => {
-	document
-		.getElementById("product-stats-results")
-		?.addEventListener("click", (event) => {
-			const target = event.target;
-			if (!(target instanceof HTMLElement)) {
-				return;
-			}
-			const button = target.closest<HTMLButtonElement>("[data-product-stats-sort]");
-			if (!button) {
-				return;
-			}
-
-			const nextKey = button.dataset.productStatsSort as ProductStatsSortKey;
-			if (productStatsSortKey === nextKey) {
-				productStatsSortDirection =
-					productStatsSortDirection === "asc" ? "desc" : "asc";
-			} else {
-				productStatsSortKey = nextKey;
-				productStatsSortDirection =
-					nextKey === "product_name" || nextKey === "category"
-						? "asc"
-						: "desc";
-			}
-
-			renderProductStatsRows();
-		});
+	const table = createElement("table", {
+		className: "shoppinglist-table product-stats-table",
+	});
+	const headerRow = document.createElement("tr");
+	for (const column of productStatsColumns) {
+		const cell = createElement(
+			"th",
+			{},
+			renderProductStatsSortButton(column.key, column.label),
+		);
+		cell.scope = "col";
+		headerRow.append(cell);
+	}
+	const head = document.createElement("thead");
+	head.append(headerRow);
+	const body = document.createElement("tbody");
+	for (const row of rows) {
+		const link = createElement("a", { text: row.product_name });
+		link.href = `/products/${row.product_id}`;
+		link.dataset.link = "";
+		const tableRow = document.createElement("tr");
+		tableRow.append(
+			createElement("td", {}, link),
+			createElement("td", { text: row.category }),
+			createElement("td", { text: String(row.bought_count) }),
+			createElement("td", { text: formatMoneyTotals(row.total_costs) }),
+			createElement("td", { text: String(row.used_count) }),
+			createElement("td", { text: formatUnitQuantities(row.used_quantities) }),
+		);
+		body.append(tableRow);
+	}
+	table.append(head, body);
+	results.replaceChildren(table);
 };
 
 const loadProductStats = async () => {
@@ -222,21 +204,14 @@ const loadProductStats = async () => {
 };
 
 export const renderProductStatsPage = () => {
-	renderPage(`
-		<section class="workspace workspace--single">
-			<div class="card panel">
-				<div class="section-header">
-					<div>
-						<h2>Product Stats</h2>
-					</div>
-					<a class="secondary action-link" href="/products" data-link>Products</a>
-				</div>
-				<div id="product-stats-status" class="status"></div>
-				<div id="product-stats-results" class="results"></div>
-			</div>
-		</section>
-	`);
+	const productsLink = createElement("a", { className: "secondary action-link", properties: { href: "/products" }, attributes: { "data-link": "" } }, "Products");
+	renderPage(createElement("section", { className: "workspace workspace--single" },
+		createElement("div", { className: "card panel" },
+			createElement("div", { className: "section-header" }, createElement("div", {}, createElement("h2", {}, "Product Stats")), productsLink),
+			createElement("div", { id: "product-stats-status", className: "status" }),
+			createElement("div", { id: "product-stats-results", className: "results" }),
+		),
+	));
 
-	attachProductStatsEvents();
 	void loadProductStats();
 };

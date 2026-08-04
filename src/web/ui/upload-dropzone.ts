@@ -1,4 +1,4 @@
-import { escapeHtml } from "../lib/html";
+import { createElement } from "../lib/dom";
 
 const formatFileSize = (bytes: number) => {
 	if (bytes >= 1024 * 1024) {
@@ -10,38 +10,48 @@ const formatFileSize = (bytes: number) => {
 	return `${bytes} B`;
 };
 
-export const renderUploadDropzone = (options: {
+export const createUploadDropzone = (options: {
 	inputId: string;
 	label: string;
 	emptyText: string;
 	name?: string;
 	multiple?: boolean;
 	submitOnDrop?: boolean;
-}) => `
-	<label
-		class="upload-dropzone"
-		for="${options.inputId}"
-		data-upload-dropzone
-		data-upload-dropzone-empty="${escapeHtml(options.emptyText)}"
-		${options.submitOnDrop ? 'data-upload-dropzone-submit-on-drop="true"' : ""}
-	>
-		<span class="upload-dropzone__label">${options.label}</span>
-		<span class="upload-dropzone__surface">
-			<span class="upload-dropzone__title">${
-				options.multiple ? "Drop image files here" : "Drop an image here"
-			}</span>
-			<span class="upload-dropzone__meta" data-upload-dropzone-meta>${options.emptyText}</span>
-		</span>
-		<input
-			id="${options.inputId}"
-			name="${options.name ?? options.inputId}"
-			class="upload-dropzone__input"
-			type="file"
-			accept="image/*"
-			${options.multiple ? "multiple" : ""}
-		/>
-	</label>
-`;
+}) => {
+	const input = createElement("input", {
+		id: options.inputId,
+		className: "upload-dropzone__input",
+		properties: {
+			name: options.name ?? options.inputId,
+			type: "file",
+			accept: "image/*",
+			multiple: options.multiple ?? false,
+		},
+	});
+	const root = createElement(
+		"label",
+		{ className: "upload-dropzone", attributes: { for: options.inputId } },
+		createElement("span", { className: "upload-dropzone__label", text: options.label }),
+		createElement(
+			"span",
+			{ className: "upload-dropzone__surface" },
+			createElement("span", {
+				className: "upload-dropzone__title",
+				text: options.multiple ? "Drop image files here" : "Drop an image here",
+			}),
+			createElement("span", {
+				className: "upload-dropzone__meta",
+				text: options.emptyText,
+				attributes: { "data-upload-dropzone-meta": "" },
+			}),
+		),
+		input,
+	);
+	root.dataset.uploadDropzone = "";
+	root.dataset.uploadDropzoneEmpty = options.emptyText;
+	if (options.submitOnDrop) root.dataset.uploadDropzoneSubmitOnDrop = "true";
+	return root;
+};
 
 export const attachUploadDropzones = (root: ParentNode = document) => {
 	for (const dropzone of root.querySelectorAll<HTMLElement>(

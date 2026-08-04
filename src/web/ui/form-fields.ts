@@ -1,4 +1,4 @@
-import { escapeHtml } from "../lib/html";
+import { createElement } from "../lib/dom";
 
 const UNIT_GROUPS = [
 	{
@@ -78,7 +78,7 @@ const PRODUCT_CATEGORY_OPTIONS = [
 	["other", "Other"],
 ] as const;
 
-export const renderProductCategoryInput = (options: {
+export const createProductCategoryInput = (options: {
 	id: string;
 	name?: string;
 	label: string;
@@ -87,90 +87,62 @@ export const renderProductCategoryInput = (options: {
 	required?: boolean;
 }) => {
 	const listId = `${options.id}-options`;
-
-	return `
-		<label for="${options.id}">
-			${options.label}
-			<input
-				id="${options.id}"
-				${options.name ? `name="${options.name}"` : ""}
-				list="${listId}"
-				value="${escapeHtml(options.value ?? "")}"
-				placeholder="${escapeHtml(options.placeholder ?? "food")}"
-				${options.required ? "required" : ""}
-			/>
-			<datalist id="${listId}">
-				${PRODUCT_CATEGORY_OPTIONS.map(
-					([value, label]) => `
-						<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>
-					`,
-				).join("")}
-			</datalist>
-		</label>
-	`;
+	const input = createElement("input", {
+		id: options.id,
+		properties: {
+			name: options.name ?? "",
+			value: options.value ?? "",
+			placeholder: options.placeholder ?? "food",
+			required: options.required ?? false,
+		},
+		attributes: { list: listId },
+	});
+	const list = createElement("datalist", { id: listId });
+	for (const [value, label] of PRODUCT_CATEGORY_OPTIONS) {
+		list.append(createElement("option", { text: label, properties: { value } }));
+	}
+	return createElement("label", { attributes: { for: options.id } }, options.label, input, list);
 };
 
-const renderUnitSelectOptions = (
-	selectedValue: string | null,
-	placeholderLabel?: string,
-) => {
-	const trimmedSelected = selectedValue?.trim() ?? "";
-	const hasSelectedValue = trimmedSelected.length > 0;
-	const hasKnownSelectedValue = KNOWN_UNIT_VALUES.has(trimmedSelected);
-
-	return `
-		${
-			placeholderLabel
-				? `<option value="" ${hasSelectedValue ? "" : "selected"}>${escapeHtml(placeholderLabel)}</option>`
-				: ""
-		}
-		${
-			hasSelectedValue && !hasKnownSelectedValue
-				? `<option value="${escapeHtml(trimmedSelected)}" selected data-unit-custom="true">${escapeHtml(trimmedSelected)} (Custom)</option>`
-				: ""
-		}
-		${UNIT_GROUPS.map(
-			(group) => `
-				<optgroup label="${escapeHtml(group.label)}">
-					${group.options
-						.map(
-							([value, label]) => `
-								<option value="${escapeHtml(value)}" ${
-									value === trimmedSelected ? "selected" : ""
-								}>
-									${escapeHtml(label)}
-								</option>
-							`,
-						)
-						.join("")}
-				</optgroup>
-			`,
-		).join("")}
-	`;
-};
-
-export const renderUnitSelect = (options: {
+export const createUnitSelect = (options: {
 	id: string;
 	name: string;
 	label: string;
 	selectedValue: string | null;
 	placeholderLabel?: string;
 	required?: boolean;
-}) => `
-	<label for="${options.id}">
-		${options.label}
-		<select
-			id="${options.id}"
-			name="${options.name}"
-			${options.required ? "required" : ""}
-		>
-			${renderUnitSelectOptions(
-				options.selectedValue,
-				options.placeholderLabel,
-			)}
-		</select>
-	</label>
-`;
+}) => {
+	const select = createElement("select", {
+		id: options.id,
+		properties: { name: options.name, required: options.required ?? false },
+	});
+	const selected = options.selectedValue?.trim() ?? "";
+	if (options.placeholderLabel) {
+		select.append(createElement("option", {
+			text: options.placeholderLabel,
+			properties: { value: "", selected: !selected },
+		}));
+	}
+	if (selected && !KNOWN_UNIT_VALUES.has(selected)) {
+		const custom = createElement("option", {
+			text: `${selected} (Custom)`,
+			properties: { value: selected, selected: true },
+		});
+		custom.dataset.unitCustom = "true";
+		select.append(custom);
+	}
+	for (const group of UNIT_GROUPS) {
+		const optionGroup = createElement("optgroup", { properties: { label: group.label } });
+		for (const [value, label] of group.options) {
+			optionGroup.append(createElement("option", {
+				text: label,
+				properties: { value, selected: value === selected },
+			}));
+		}
+		select.append(optionGroup);
+	}
+	return createElement("label", { attributes: { for: options.id } }, options.label, select);
+};
 
 export const setUnitSelectValue = (
 	select: HTMLSelectElement,
