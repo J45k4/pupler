@@ -22,6 +22,8 @@ const JOB_STATUS = {
 	Failed: 4,
 }
 
+let currentJobs: Job[] = []
+
 const apiJson = async <T>(path: string, options: RequestInit = {}) => {
 	const response = await fetch(path, {
 		...options,
@@ -111,10 +113,39 @@ const renderJobRows = (jobs: Job[]) => {
 		.join("")
 }
 
+const upsertJob = (job: Job) => {
+	const existingIndex = currentJobs.findIndex((existing) => existing.id === job.id)
+	if (existingIndex === -1) currentJobs.push(job)
+	else currentJobs[existingIndex] = job
+	currentJobs.sort((left, right) => right.id - left.id)
+	renderJobRows(currentJobs)
+}
+
+const connectJobEvents = () => {
+	const events = new EventSource("/api/jobs/events")
+	events.addEventListener("ready", () => {
+		setStatus("jobs-status", "Live updates connected.")
+	})
+	events.addEventListener("job", (event) => {
+		if (!(event instanceof MessageEvent)) return
+		try {
+			upsertJob(JSON.parse(event.data) as Job)
+			setStatus("jobs-status", "Job progress updated.")
+		} catch {
+			setStatus("jobs-status", "Received an invalid job update.", true)
+		}
+	})
+	events.onerror = () => {
+		setStatus("jobs-status", "Live updates disconnected. Reconnecting...", true)
+	}
+	return events
+}
+
 const loadJobsPage = async () => {
 	setStatus("jobs-status", "Loading jobs...")
 	try {
-		renderJobRows(await apiJson<Job[]>("/api/jobs"))
+		currentJobs = await apiJson<Job[]>("/api/jobs")
+		renderJobRows(currentJobs)
 		setStatus("jobs-status", "Jobs loaded.")
 	} catch (error) {
 		setStatus(
@@ -126,6 +157,7 @@ const loadJobsPage = async () => {
 }
 
 export const renderJobsPage = () => {
+	currentJobs = []
 	renderPage(`
 		<section class="page-heading page-heading--compact">
 			<div>
@@ -148,5 +180,13 @@ export const renderJobsPage = () => {
 	document
 		.getElementById("jobs-refresh-button")
 		?.addEventListener("click", () => void loadJobsPage())
-	void loadJobsPage()
+	let disposed = false
+	let events: EventSource | null = null
+	void loadJobsPage().then(() => {
+		if (!disposed) events = connectJobEvents()
+	})
+	return () => {
+		disposed = true
+		events?.close()
+	}
 }

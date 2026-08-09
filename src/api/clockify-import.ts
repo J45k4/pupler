@@ -1,5 +1,6 @@
 import { HttpError, utcNow, type Database, type JsonObject } from "./core"
 import { decryptJson } from "./encryption"
+import { publishJobUpdate } from "./job-events"
 import { ExternalIntegrationStatus } from "./job-types"
 
 type ClockifyConfig = {
@@ -16,6 +17,7 @@ type ImportParams = {
 	lookback_days?: number | null
 	dry_run?: boolean
 	target_client_id?: number | null
+	user_ids?: string[]
 	client_ids?: string[]
 	project_ids?: string[]
 	from?: string
@@ -303,15 +305,17 @@ const findByName = <T extends { name: string }>(rows: T[], name: string) => {
 }
 
 const matchesImportFilters = (entry: ClockifyEntry, params: ImportParams) => {
+	const userIds = params.user_ids ?? []
 	const clientIds = params.client_ids ?? []
 	const projectIds = params.project_ids ?? []
+	const matchesUser = !userIds.length || (entry.userId !== null && userIds.includes(entry.userId))
 	const matchesClient =
 		!clientIds.length ||
 		(entry.clientId !== null && clientIds.includes(entry.clientId))
 	const matchesProject =
 		!projectIds.length ||
 		(entry.projectId !== null && projectIds.includes(entry.projectId))
-	return matchesClient && matchesProject
+	return matchesUser && matchesClient && matchesProject
 }
 
 const resolveClient = async (
@@ -547,13 +551,14 @@ export const importClockifyJob = async (db: Database, jobId: number) => {
 		projectsByExternalId: new Map(),
 	}
 
-	await db.client.job.update({
+	const initializedJob = await db.client.job.update({
 		where: { id: jobId },
 		data: {
 			total_rows: entries.length,
 			updated_at: utcNow(),
 		},
 	})
+	publishJobUpdate(db, initializedJob)
 
 	let processed = 0
 	for (const entry of entries) {
@@ -676,13 +681,14 @@ export const importClockifyJob = async (db: Database, jobId: number) => {
 			})
 		} finally {
 			if (processed % 10 === 0 || processed === entries.length) {
-				await db.client.job.update({
+				const progressJob = await db.client.job.update({
 					where: { id: jobId },
 					data: {
 						processed_rows: processed,
 						updated_at: utcNow(),
 					},
 				})
+				publishJobUpdate(db, progressJob)
 			}
 		}
 	}

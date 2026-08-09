@@ -1,4 +1,5 @@
 import type { BunRequest } from "bun"
+import { Database as SQLiteDatabase } from "bun:sqlite"
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
@@ -294,9 +295,22 @@ const prepareDatabasePath = (dbPath: string) => {
 export const deriveFilesPath = (dbPath: string) =>
 	join(dirname(resolve(normalizeDatabasePath(dbPath))), "files")
 
+const enableWriteAheadLogging = (dbPath: string) => {
+	const sqlite = new SQLiteDatabase(dbPath, { create: true, strict: true })
+	try {
+		const result = sqlite.query("PRAGMA journal_mode = WAL").get() as { journal_mode: string } | null
+		if (result?.journal_mode.toLowerCase() !== "wal") {
+			throw new Error(`Failed to enable WAL for ${dbPath}`)
+		}
+	} finally {
+		sqlite.close()
+	}
+}
+
 export const openDatabase = (dbPath = "pupler.db", filesPath?: string) => {
 	const prepared = prepareDatabasePath(dbPath)
 	mkdirSync(dirname(prepared.dbPath), { recursive: true })
+	enableWriteAheadLogging(prepared.dbPath)
 	const databaseUrl = toDatabaseUrl(prepared.dbPath)
 	const resolvedFilesPath = resolve(
 		filesPath ?? deriveFilesPath(prepared.dbPath),

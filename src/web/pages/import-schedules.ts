@@ -28,6 +28,7 @@ type ImportSchedule = {
 }
 
 type ClockifyImportOptions = {
+	users?: Array<{ id: string; name: string; email: string | null }>
 	clients: Array<{ id: string; name: string }>
 	projects: Array<{
 		id: string
@@ -45,6 +46,7 @@ type ScheduleParams = {
 	lookback_days?: number | null
 	dry_run?: boolean
 	target_client_id?: number | null
+	user_ids?: string[]
 	client_ids?: string[]
 	project_ids?: string[]
 }
@@ -144,6 +146,7 @@ const schedulePayloadFromForm = (data: FormData) => ({
 	lookback_days: readLookbackDays(data),
 	dry_run: data.get("dry_run") === "on",
 	target_client_id: readNullableId(data, "target_client_id"),
+	user_ids: readStringList(data, "user_ids"),
 	client_ids: readStringList(data, "client_ids"),
 	project_ids: readStringList(data, "project_ids"),
 	next_run_at: readNextRunAt(data),
@@ -189,7 +192,7 @@ const renderScheduleRows = (schedules: ImportSchedule[], clients: Client[]) => {
 							${cadenceLabel(schedule.cadence)} · ${escapeHtml(schedule.timezone)} · ${lookbackLabel(params)}${params.dry_run ? " · dry run" : ""}
 						</div>
 						<div class="section-copy">Pupler client: ${escapeHtml(targetClientLabel)}</div>
-						<div class="section-copy">${(params.client_ids?.length ?? 0) || (params.project_ids?.length ?? 0) ? `${params.client_ids?.length ?? 0} clients · ${params.project_ids?.length ?? 0} projects` : "All clients and projects"}</div>
+						<div class="section-copy">${(params.user_ids?.length ?? 0) || (params.client_ids?.length ?? 0) || (params.project_ids?.length ?? 0) ? `${params.user_ids?.length ?? 0} users · ${params.client_ids?.length ?? 0} clients · ${params.project_ids?.length ?? 0} projects` : "All users, clients and projects"}</div>
 						<div class="section-copy">Last run: ${formatDateTime(schedule.last_run_at)} · Last success: ${formatDateTime(cursor.last_successful_to)}</div>
 					</div>
 					<div class="integration-row__meta">
@@ -239,6 +242,7 @@ const fillClockifyFilterSelects = (
 	options: ClockifyImportOptions,
 	params: ScheduleParams,
 ) => {
+	let userSelect: SearchSelect | null = null
 	let clientSelect: SearchSelect | null = null
 	let projectSelect: SearchSelect | null = null
 	const projectOptions = () => {
@@ -265,6 +269,21 @@ const fillClockifyFilterSelects = (
 	}
 
 	const clientRoot = document.getElementById("import-schedule-edit-clients")
+	const userRoot = document.getElementById("import-schedule-edit-users")
+	if (userRoot) {
+		userSelect = new SearchSelect({
+			multiple: true,
+			name: "user_ids",
+			placeholder: "Search users",
+		})
+		const userOptions: SearchSelectOption[] = (options.users ?? []).map((user) => ({
+			value: user.id,
+			label: user.email ? `${user.name} - ${user.email}` : user.name,
+		}))
+		userSelect.setOptions(userOptions).setValues(params.user_ids ?? [])
+		userRoot.replaceChildren(userSelect.root)
+	}
+
 	if (clientRoot) {
 		clientSelect = new SearchSelect({
 			multiple: true,
@@ -517,19 +536,13 @@ const attachImportScheduleDetailEvents = (scheduleId: number) => {
 
 export const renderImportSchedulesPage = () => {
 	renderPage(`
-		<section class="page-heading page-heading--compact">
-			<div>
-				<h1 class="page-title">Import Schedules</h1>
-			</div>
-			<button id="schedule-create-button" class="primary" type="button">Create Schedule</button>
-		</section>
-
 		<section class="workspace workspace--single">
 			<div class="card panel">
 				<div class="section-header">
 					<h2>Schedules</h2>
-					<div id="import-schedules-status" class="status" role="status"></div>
+					<button id="schedule-create-button" class="primary" type="button">Create Schedule</button>
 				</div>
+				<div id="import-schedules-status" class="status" role="status"></div>
 				<div id="import-schedules-list" class="integration-list"></div>
 			</div>
 		</section>
@@ -673,9 +686,15 @@ export const renderImportScheduleDetailPage = (
 					</div>
 					<div class="row">
 						<label>
+							Users (all when empty)
+							<div id="import-schedule-edit-users"></div>
+						</label>
+						<label>
 							Clients
 							<div id="import-schedule-edit-clients"></div>
 						</label>
+					</div>
+					<div class="row">
 						<label>
 							Projects
 							<div id="import-schedule-edit-projects"></div>

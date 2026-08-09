@@ -1,6 +1,7 @@
 import { Button, Label, UiComponent } from "../ui/component"
 import { SearchSelect, type SearchSelectOption } from "../ui/search-select"
 import { getCurrentUser } from "../auth"
+import { navigate } from "../router"
 
 type Client = {
 	id: number
@@ -2582,8 +2583,8 @@ const createTimeWeeklySummary = (days: TimeWeeklyDayReport[]) => {
 	return summary
 }
 
-const createTimeMonthlySummary = (days: TimeWeeklyDayReport[]) => {
-	const summary = div("time-report-summary time-overview-summary")
+const createTimeMonthlySummary = (days: TimeWeeklyDayReport[], status: HTMLElement, controls: HTMLElement) => {
+	const summary = div("time-report-summary time-overview-summary time-monthly-summary")
 	const reports = days
 		.map((day) => day.report)
 		.filter((report): report is TimeReport => report !== null)
@@ -2626,7 +2627,7 @@ const createTimeMonthlySummary = (days: TimeWeeklyDayReport[]) => {
 		text("span", "Month"),
 		text("strong", monthStart ? formatMonth(monthStart) : "Selected month"),
 	)
-	summary.append(total, average, clientCount, span)
+	summary.append(status, total, average, clientCount, span, controls)
 	return summary
 }
 
@@ -3277,18 +3278,22 @@ const renderTimeWeeklyReport = (
 const renderTimeMonthlyReport = (
 	days: TimeWeeklyDayReport[] | null,
 	resultsRoot: HTMLElement,
+	status: HTMLElement,
+	controls: HTMLElement,
 	selectedDate = "",
 	onSelectDate: (date: string) => void = () => {},
 ) => {
 	resultsRoot.replaceChildren()
 	if (!days) {
+		const summary = div("time-report-summary time-overview-summary time-monthly-summary")
+		summary.append(status, controls)
 		const empty = div("empty")
 		empty.textContent = "Choose a month to load time usage."
-		resultsRoot.append(empty)
+		resultsRoot.append(summary, empty)
 		return
 	}
 	resultsRoot.append(
-		createTimeMonthlySummary(days),
+		createTimeMonthlySummary(days, status, controls),
 		createTimeMonthlyCalendar(days, selectedDate, onSelectDate),
 	)
 }
@@ -3667,7 +3672,7 @@ export const renderTimeMonthlyPage = (page: HTMLElement) => {
 	const results = div("time-overview-results")
 	const pageBlock = document.createElement("section")
 	pageBlock.className = "time-block"
-	pageBlock.append(controls, status, results)
+	pageBlock.append(results)
 	page.append(pageBlock)
 
 	const setSelectedMonth = (month: string) => {
@@ -3690,16 +3695,15 @@ export const renderTimeMonthlyPage = (page: HTMLElement) => {
 	}
 
 	const renderLoadedDays = () => {
-		renderTimeMonthlyReport(loadedDays, results, selectedDate, (date) => {
-			selectedDate = date
-			renderLoadedDays()
+		renderTimeMonthlyReport(loadedDays, results, status, controls, selectedDate, (date) => {
+			navigate(`/time/weekly?week=${encodeURIComponent(date)}`)
 		})
 	}
 
 	const load = async (monthDate: string) => {
 		setSelectedMonth(monthDate)
 		setStatus(status, "Loading monthly time...")
-		renderTimeMonthlyReport(null, results)
+		renderTimeMonthlyReport(null, results, status, controls)
 		try {
 			const days = getTimeMonthlyDays(monthDate)
 			const reports = await Promise.all(
@@ -3721,7 +3725,7 @@ export const renderTimeMonthlyPage = (page: HTMLElement) => {
 				selectedDate = defaultSelectedDate(loadedDays)
 			}
 			renderLoadedDays()
-			setStatus(status, "Loaded monthly client time.")
+			setStatus(status, "")
 		} catch (error) {
 			setStatus(
 				status,

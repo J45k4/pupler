@@ -81,6 +81,7 @@ export {
 	importSchedulesCollectionRoute,
 } from "./import-schedules"
 export { jobDetailRoute, jobsCollectionRoute } from "./jobs"
+export { jobEventsRoute, publishJobUpdate } from "./job-events"
 export { startJobWorker, wakeJobWorker } from "./job-worker"
 export { isValidTimezone, nextScheduleRunAt } from "./import-schedule-time"
 export {

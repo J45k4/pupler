@@ -15,7 +15,7 @@ import {
 	type Database,
 	type JsonObject,
 } from "./core"
-import { encryptJson } from "./encryption"
+import { decryptJson, encryptJson } from "./encryption"
 import {
 	ExternalIntegrationProvider,
 	ExternalIntegrationStatus,
@@ -28,6 +28,52 @@ const CLOCKIFY_FIELDS = [
 	"api_base_url",
 	"reports_base_url",
 ]
+
+type ClockifyOptionUser = {
+	id: string
+	name: string
+	email: string | null
+}
+
+const optionalString = (value: unknown) =>
+	typeof value === "string" && value.trim() ? value.trim() : null
+
+const fetchClockifyWorkspaceUsers = async (
+	configJson: string,
+	credentialsEncryptedJson: string,
+) => {
+	const config = JSON.parse(configJson) as JsonObject
+	const credentials = decryptJson(credentialsEncryptedJson)
+	const workspaceId = optionalString(config.workspace_id)
+	const apiKey = optionalString(credentials.api_key)
+	const apiBaseUrl = optionalString(config.api_base_url) ?? "https://api.clockify.me/api/v1"
+	if (!workspaceId || !apiKey) throw new HttpError(500, "Clockify integration configuration is invalid")
+
+	const users: ClockifyOptionUser[] = []
+	const pageSize = 200
+	for (let page = 1; page < 1000; page += 1) {
+		const url = new URL(`${apiBaseUrl.replace(/\/$/, "")}/workspaces/${encodeURIComponent(workspaceId)}/users`)
+		url.searchParams.set("page", String(page))
+		url.searchParams.set("page-size", String(pageSize))
+		const response = await fetch(url, { headers: { "X-Api-Key": apiKey } })
+		if (!response.ok) {
+			const body = await response.text()
+			throw new HttpError(502, `Clockify users request failed with status ${response.status}: ${body.slice(0, 500)}`)
+		}
+		const body = await response.json()
+		if (!Array.isArray(body)) throw new HttpError(502, "Clockify users response is invalid")
+		for (const rawUser of body) {
+			if (!rawUser || typeof rawUser !== "object" || Array.isArray(rawUser)) continue
+			const user = rawUser as Record<string, unknown>
+			const id = optionalString(user.id)
+			const email = optionalString(user.email)
+			if (!id) continue
+			users.push({ id, name: optionalString(user.name) ?? email ?? `Clockify user ${id}`, email })
+		}
+		if (body.length < pageSize) break
+	}
+	return users
+}
 
 const publicIntegration = <
 	T extends {
@@ -199,7 +245,15 @@ export const clockifyIntegrationOptionsRoute = (db: Database) =>
 				{ clockify_project_id: "asc" },
 			],
 		})
+		const timeEntryLinks = await db.client.clockifyTimeEntryLink.findMany({
+			where: { integration_id: integrationId, clockify_user_id: { not: null } },
+			select: {
+				clockify_user_id: true,
+				time_entry: { select: { user: { select: { name: true, email: true } } } },
+			},
+		})
 		const clients = new Map<string, { id: string; name: string }>()
+		const users = new Map<string, ClockifyOptionUser>()
 		for (const link of links) {
 			if (!link.clockify_client_id) continue
 			clients.set(link.clockify_client_id, {
@@ -207,8 +261,21 @@ export const clockifyIntegrationOptionsRoute = (db: Database) =>
 				name: link.clockify_client_name ?? "No client",
 			})
 		}
+		for (const link of timeEntryLinks) {
+			if (!link.clockify_user_id) continue
+			const user = link.time_entry.user
+			users.set(link.clockify_user_id, {
+				id: link.clockify_user_id,
+				name: user?.name ?? user?.email ?? `Clockify user ${link.clockify_user_id}`,
+				email: user?.email ?? null,
+			})
+		}
+		for (const user of await fetchClockifyWorkspaceUsers(integration.config_json, integration.credentials_encrypted_json)) {
+			users.set(user.id, user)
+		}
 
 		return json(200, {
+			users: [...users.values()].sort((left, right) => left.name.localeCompare(right.name)),
 			clients: [...clients.values()],
 			projects: links.map((link) => ({
 				id: link.clockify_project_id,

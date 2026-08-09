@@ -1,6 +1,7 @@
 import { importClockifyJob } from "./clockify-import"
 import { utcNow, type Database } from "./core"
 import { nextScheduleRunAt } from "./import-schedule-time"
+import { publishJobUpdate } from "./job-events"
 import {
 	ExternalIntegrationStatus,
 	ImportScheduleCadence,
@@ -65,6 +66,7 @@ const enqueueDueSchedules = async (db: Database) => {
 				updated_at: now,
 			},
 		})
+		publishJobUpdate(db, job)
 	}
 }
 
@@ -76,7 +78,7 @@ const runOneJob = async (db: Database) => {
 	if (!job) return false
 
 	const now = utcNow()
-	await db.client.job.update({
+	const runningJob = await db.client.job.update({
 		where: { id: job.id },
 		data: {
 			status: JobStatus.Running,
@@ -84,13 +86,14 @@ const runOneJob = async (db: Database) => {
 			updated_at: now,
 		},
 	})
+	publishJobUpdate(db, runningJob)
 
 	try {
 		if (job.type !== JobType.ClockifyImport) {
 			throw new Error(`Unsupported job type ${job.type}`)
 		}
 		const { result, cursor } = await importClockifyJob(db, job.id)
-		await db.client.job.update({
+		const completedJob = await db.client.job.update({
 			where: { id: job.id },
 			data: {
 				status: JobStatus.Completed,
@@ -109,8 +112,9 @@ const runOneJob = async (db: Database) => {
 				updated_at: utcNow(),
 			},
 		})
+		publishJobUpdate(db, completedJob)
 	} catch (error) {
-		await db.client.job.update({
+		const failedJob = await db.client.job.update({
 			where: { id: job.id },
 			data: {
 				status: JobStatus.Failed,
@@ -120,6 +124,7 @@ const runOneJob = async (db: Database) => {
 				updated_at: utcNow(),
 			},
 		})
+		publishJobUpdate(db, failedJob)
 	}
 	return true
 }
@@ -157,6 +162,8 @@ export const startJobWorker = async (db: Database) => {
 			updated_at: utcNow(),
 		},
 	})
+	const resetJobs = await db.client.job.findMany({ where: { status: JobStatus.Pending } })
+	for (const job of resetJobs) publishJobUpdate(db, job)
 	wakeJobWorker(db)
 	if (interval === null) {
 		interval = setInterval(() => wakeJobWorker(db), 60 * 1000)

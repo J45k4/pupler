@@ -35,6 +35,7 @@ const apiRoutes = createApiRoutes({
 		"/api/import-schedules/:id/run": routes.importScheduleRunRoute(database),
 		"/api/import-schedules/:id": routes.importScheduleDetailRoute(database),
 		"/api/jobs": routes.jobsCollectionRoute(database),
+		"/api/jobs/events": routes.jobEventsRoute(database),
 		"/api/jobs/:id": routes.jobDetailRoute(database),
 		"/api/groups": routes.groupsCollectionRoute,
 		"/api/groups/:id": routes.groupDetailRoute,

@@ -172,19 +172,13 @@ const attachIntegrationEvents = () => {
 
 export const renderIntegrationsPage = () => {
 	renderPage(`
-		<section class="page-heading page-heading--compact">
-			<div>
-				<h1 class="page-title">Integrations</h1>
-			</div>
-			<button id="integration-create-button" class="primary" type="button">Create</button>
-		</section>
-
 		<section class="workspace workspace--single">
 			<div class="card panel">
 				<div class="section-header">
 					<h2>External Integrations</h2>
-					<div id="integrations-status" class="status" role="status"></div>
+					<button id="integration-create-button" class="primary" type="button">Create</button>
 				</div>
+				<div id="integrations-status" class="status" role="status"></div>
 				<div id="integrations-list" class="integration-list"></div>
 			</div>
 

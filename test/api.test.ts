@@ -1,4 +1,5 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs"
+import { Database as SQLiteDatabase } from "bun:sqlite"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, test } from "bun:test"
@@ -48,6 +49,7 @@ import {
 	shoppingListItemsCollectionRoute,
 	spendingRoute,
 	jobDetailRoute,
+	jobEventsRoute,
 	jobsCollectionRoute,
 	nextScheduleRunAt,
 	timeEntriesCollectionRoute,
@@ -65,6 +67,7 @@ import {
 	todosCollectionRoute,
 	userDetailRoute,
 	usersCollectionRoute,
+	publishJobUpdate,
 	wakeJobWorker,
 } from "../src/api"
 import {
@@ -118,6 +121,7 @@ const createRoutes = () => {
 				"/api/import-schedules/:id/run": importScheduleRunRoute(db),
 				"/api/import-schedules/:id": importScheduleDetailRoute(db),
 				"/api/jobs": jobsCollectionRoute(db),
+				"/api/jobs/events": jobEventsRoute(db),
 				"/api/jobs/:id": jobDetailRoute(db),
 				"/api/groups": groupsCollectionRoute,
 				"/api/groups/:id": groupDetailRoute,
@@ -268,6 +272,37 @@ describe("Pupler API", () => {
 		expect(await response.json()).toEqual({
 			version: "dev",
 		})
+	})
+
+	test("streams realtime job updates", async () => {
+		const routes = createRoutes()
+		const handler = routes.handlers["/api/jobs/events"]
+		const response = await handler(new Request("http://localhost/api/jobs/events"))
+		expect(response.status).toBe(200)
+		expect(response.headers.get("Content-Type")).toBe("text/event-stream; charset=utf-8")
+		const reader = response.body?.getReader()
+		if (!reader) throw new Error("Job event stream was not created")
+		const decoder = new TextDecoder()
+		const ready = await reader.read()
+		expect(decoder.decode(ready.value)).toContain("event: ready")
+
+		const now = new Date().toISOString()
+		const job = await routes.db.client.job.create({
+			data: {
+				type: 1,
+				status: 2,
+				params_json: "{}",
+				created_at: now,
+				updated_at: now,
+			},
+		})
+		publishJobUpdate(routes.db, job)
+		const update = await reader.read()
+		const updateText = decoder.decode(update.value)
+		expect(updateText).toContain("event: job")
+		expect(updateText).toContain(`\"id\":${job.id}`)
+		expect(updateText).toContain("\"status\":2")
+		await reader.cancel()
 	})
 
 	test("creates, updates, lists, and deletes groups", async () => {
@@ -1180,7 +1215,16 @@ describe("Pupler API", () => {
 			dateRangeStart?: string
 			dateRangeEnd?: string
 		}> = []
-		globalThis.fetch = (async (_input, init) => {
+		globalThis.fetch = (async (input, init) => {
+			if (String(input).includes("/users")) {
+				return Response.json([
+					{
+						id: "user-1",
+						name: "Alice",
+						email: "alice@example.com",
+					},
+				])
+			}
 			clockifyReportRequests.push(JSON.parse(String(init?.body ?? "{}")))
 			return Response.json({
 				timeentries: [
@@ -1222,6 +1266,20 @@ describe("Pupler API", () => {
 			const integration = await integrationResponse.json()
 			expect(integration.provider).toBe(1)
 			expect(integration.credentials_encrypted_json).toBeUndefined()
+			const initialOptionsResponse = await request(
+				routes,
+				`/api/external-integrations/${integration.id}/clockify-options`,
+				{},
+				{ id: String(integration.id) },
+			)
+			expect(initialOptionsResponse.status).toBe(200)
+			expect((await initialOptionsResponse.json()).users).toEqual([
+				{
+					id: "user-1",
+					name: "Alice",
+					email: "alice@example.com",
+				},
+			])
 
 			const targetClientResponse = await request(routes, "/api/clients", {
 				method: "POST",
@@ -1309,6 +1367,13 @@ describe("Pupler API", () => {
 			expect(optionsResponse.status).toBe(200)
 			const options = await optionsResponse.json()
 			expect(options.projects[0].id).toBe("project-1")
+			expect(options.users).toEqual([
+				{
+					id: "user-1",
+					name: "Alice",
+					email: "alice@example.com",
+				},
+			])
 
 			const updateScheduleResponse = await request(
 				routes,
@@ -1361,15 +1426,46 @@ describe("Pupler API", () => {
 				),
 			).toBeTrue()
 
+			const userFilteredScheduleResponse = await request(
+				routes,
+				`/api/import-schedules/${schedule.id}`,
+				{
+					method: "PATCH",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ user_ids: ["other-user"] }),
+				},
+				{ id: String(schedule.id) },
+			)
+			expect(userFilteredScheduleResponse.status).toBe(200)
+			const userFilteredSchedule = await userFilteredScheduleResponse.json()
+			expect(JSON.parse(userFilteredSchedule.params_json).user_ids).toEqual([
+				"other-user",
+			])
+			const userFilteredRunResponse = await request(
+				routes,
+				`/api/import-schedules/${schedule.id}/run`,
+				{ method: "POST", body: JSON.stringify({}) },
+				{ id: String(schedule.id) },
+			)
+			const userFilteredJob = await userFilteredRunResponse.json()
+			const completedUserFilteredJob = await waitForJobRecord(
+				routes,
+				userFilteredJob.id,
+			)
+			expect(completedUserFilteredJob.status).toBe(3)
+			const userFilteredResult = JSON.parse(
+				completedUserFilteredJob.result_json ?? "{}",
+			)
+			expect(userFilteredResult.skipped.filtered_entries).toBeGreaterThanOrEqual(1)
+			expect(await routes.db.client.timeEntry.count()).toBe(1)
+
 			const filteredScheduleResponse = await request(
 				routes,
 				`/api/import-schedules/${schedule.id}`,
 				{
 					method: "PATCH",
 					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						project_ids: ["other-project"],
-					}),
+					body: JSON.stringify({ user_ids: [], project_ids: ["other-project"] }),
 				},
 				{ id: String(schedule.id) },
 			)
@@ -2470,6 +2566,16 @@ describe("Pupler API", () => {
 		expect(resolveFilesPath("/var/lib/pupler/custom.db", {})).toBe(
 			"/var/lib/pupler/files",
 		)
+	})
+
+	test("enables write-ahead logging for SQLite databases", () => {
+		const routes = createRoutes()
+		const sqlite = new SQLiteDatabase(routes.db.dbPath, { readonly: true, strict: true })
+		try {
+			expect(sqlite.query("PRAGMA journal_mode").get()).toEqual({ journal_mode: "wal" })
+		} finally {
+			sqlite.close()
+		}
 	})
 
 	test("returns standalone and linked recipe ingredients in recipe detail responses", async () => {

@@ -1,8 +1,15 @@
 __pycache__/
 *.pyc
 pupler.db
+*.db-journal
+*.db-shm
+*.db-wal
 *.sqlite
+*.sqlite-journal
+*.sqlite-shm
+*.sqlite-wal
 node_modules
+.env
 src/generated
 .DS_Store
 dist/

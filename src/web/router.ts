@@ -1,4 +1,5 @@
-type HandlerResult = void | Promise<void>
+type RouteCleanup = () => void
+type HandlerResult = void | RouteCleanup | Promise<void | RouteCleanup>
 type Handler = (
 	main: HTMLElement,
 	params: Record<string, string>,
@@ -11,6 +12,7 @@ type MatchResult = {
 } | null
 
 let matcher: ReturnType<typeof patternMatcher> | null = null
+let activeRouteCleanup: RouteCleanup | null = null
 let renderShell = () => {
 	document.body.replaceChildren()
 	const main = document.createElement("main")
@@ -121,8 +123,11 @@ const handleRoute = async (path: string) => {
 		console.error("No route found for", path)
 		return
 	}
+	activeRouteCleanup?.()
+	activeRouteCleanup = null
 	const main = renderShell()
-	await Promise.resolve(match.handler(main, match.params) as HandlerResult)
+	const cleanup = await Promise.resolve(match.handler(main, match.params) as HandlerResult)
+	if (typeof cleanup === "function") activeRouteCleanup = cleanup
 }
 
 window.addEventListener("popstate", () => {
@@ -154,9 +159,12 @@ export const installLinkInterceptor = (root: ParentNode = document) => {
 }
 
 export const navigate = (path: string) => {
-	if (window.location.pathname !== path) {
-		window.history.pushState({}, "", path)
+	const url = new URL(path, window.location.href)
+	const destination = `${url.pathname}${url.search}${url.hash}`
+	const current = `${window.location.pathname}${window.location.search}${window.location.hash}`
+	if (current !== destination) {
+		window.history.pushState({}, "", destination)
 	}
-	void handleRoute(path)
+	void handleRoute(url.pathname)
 }
 import { getCurrentUser } from "./auth"

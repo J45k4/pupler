@@ -29,6 +29,7 @@ import {
 	JobType,
 } from "./job-types"
 import { isValidTimezone, nextScheduleRunAt } from "./import-schedule-time"
+import { publishJobUpdate } from "./job-events"
 import { wakeJobWorker } from "./job-worker"
 
 const SCHEDULE_FIELDS = [
@@ -39,6 +40,7 @@ const SCHEDULE_FIELDS = [
 	"lookback_days",
 	"dry_run",
 	"target_client_id",
+	"user_ids",
 	"client_ids",
 	"project_ids",
 	"next_run_at",
@@ -129,6 +131,8 @@ const parseScheduleBody = (body: JsonObject) => {
 					"target_client_id",
 					expectNullableInteger,
 				) ?? null,
+			user_ids:
+				readOptionalBodyField(body, "user_ids", expectStringArray) ?? [],
 			client_ids:
 				readOptionalBodyField(body, "client_ids", expectStringArray) ??
 				[],
@@ -187,6 +191,7 @@ export const createJobFromSchedule = async (
 			updated_at: now,
 		},
 	})
+	publishJobUpdate(db, job)
 	return job
 }
 
@@ -336,6 +341,7 @@ export const importScheduleDetailRoute = (db: Database) =>
 				lookback_days?: number | null
 				dry_run?: boolean
 				target_client_id?: number | null
+				user_ids?: string[]
 				client_ids?: string[]
 				project_ids?: string[]
 			}
@@ -354,6 +360,8 @@ export const importScheduleDetailRoute = (db: Database) =>
 				await assertTargetClientExists(db, targetClientId)
 				nextParams.target_client_id = targetClientId
 			}
+			const userIds = readOptionalBodyField(body, "user_ids", expectStringArray)
+			if (userIds !== undefined) nextParams.user_ids = userIds
 			const clientIds = readOptionalBodyField(
 				body,
 				"client_ids",
@@ -370,6 +378,7 @@ export const importScheduleDetailRoute = (db: Database) =>
 				Object.prototype.hasOwnProperty.call(body, "lookback_days") ||
 				dryRun !== undefined ||
 				targetClientId !== undefined ||
+				userIds !== undefined ||
 				clientIds !== undefined ||
 				projectIds !== undefined
 			) {
