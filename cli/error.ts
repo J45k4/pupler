@@ -1,8 +1,8 @@
 export class CliError extends Error {
-	readonly exitCode: number;
+	readonly exitCode: number
 
 	constructor(message: string, exitCode = 1) {
-		super(message);
-		this.exitCode = exitCode;
+		super(message)
+		this.exitCode = exitCode
 	}
 }

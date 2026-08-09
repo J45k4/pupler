@@ -1,90 +1,135 @@
-import { changePassword } from "../auth";
-import { renderPage, setStatus } from "../app";
+import { changePassword } from "../auth"
+import { renderPage, setStatus } from "../app"
+import { createElement, getElementById, withQueryRoot } from "../lib/dom"
 
 const attachSettingsEvents = () => {
-	const form = document.getElementById("password-settings-form");
+	const form = getElementById("password-settings-form")
 	if (!(form instanceof HTMLFormElement)) {
-		return;
+		return
 	}
 
 	form.addEventListener("submit", async (event) => {
-		event.preventDefault();
-		const currentPasswordInput = document.getElementById(
-			"settings-current-password",
-		);
-		const newPasswordInput = document.getElementById("settings-new-password");
-		const confirmPasswordInput = document.getElementById(
-			"settings-confirm-password",
-		);
-		const submitButton = form.querySelector("button[type='submit']");
+		event.preventDefault()
+		const currentPasswordInput = getElementById("settings-current-password")
+		const newPasswordInput = getElementById("settings-new-password")
+		const confirmPasswordInput = getElementById("settings-confirm-password")
+		const submitButton = form.querySelector("button[type='submit']")
 		if (
 			!(currentPasswordInput instanceof HTMLInputElement) ||
 			!(newPasswordInput instanceof HTMLInputElement) ||
 			!(confirmPasswordInput instanceof HTMLInputElement) ||
 			!(submitButton instanceof HTMLButtonElement)
 		) {
-			return;
+			return
 		}
 
 		if (newPasswordInput.value !== confirmPasswordInput.value) {
-			setStatus("settings-password-status", "New passwords do not match.", true);
-			return;
+			setStatus(
+				"settings-password-status",
+				"New passwords do not match.",
+				true,
+			)
+			return
 		}
 
-		setStatus("settings-password-status", "Changing password...");
-		submitButton.disabled = true;
+		setStatus("settings-password-status", "Changing password...")
+		submitButton.disabled = true
 		try {
-			await changePassword(currentPasswordInput.value, newPasswordInput.value);
-			form.reset();
-			setStatus("settings-password-status", "Password changed.");
+			await changePassword(
+				currentPasswordInput.value,
+				newPasswordInput.value,
+			)
+			form.reset()
+			setStatus("settings-password-status", "Password changed.")
 		} catch (error) {
 			setStatus(
 				"settings-password-status",
-				error instanceof Error ? error.message : "Failed to change password.",
+				error instanceof Error
+					? error.message
+					: "Failed to change password.",
 				true,
-			);
+			)
 		} finally {
-			submitButton.disabled = false;
+			submitButton.disabled = false
 		}
-	});
-};
+	})
+}
 
 export const renderSettingsPage = () => {
-	renderPage(
-		`
-			<section class="page-heading page-heading--compact">
-				<div>
-					<h1 class="page-title">Settings</h1>
-				</div>
-			</section>
-
-			<section class="workspace workspace--single">
-				<div class="card panel settings-panel">
-					<div class="section-header">
-						<h2>Password</h2>
-					</div>
-					<form id="password-settings-form" autocomplete="on">
-						<label>
-							Current Password
-							<input id="settings-current-password" name="current-password" type="password" autocomplete="current-password" required />
-						</label>
-						<label>
-							New Password
-							<input id="settings-new-password" name="new-password" type="password" autocomplete="new-password" minlength="8" required />
-						</label>
-						<label>
-							Confirm New Password
-							<input id="settings-confirm-password" name="confirm-password" type="password" autocomplete="new-password" minlength="8" required />
-						</label>
-						<div class="actions">
-							<button class="primary" type="submit">Change Password</button>
-						</div>
-						<div id="settings-password-status" class="status" role="status"></div>
-					</form>
-				</div>
-			</section>
-		`,
-	);
-
-	attachSettingsEvents();
-};
+	const passwordField = (
+		label: string,
+		id: string,
+		name: string,
+		autocomplete: string,
+		minLength = 0,
+	) =>
+		createElement(
+			"label",
+			{},
+			label,
+			createElement("input", {
+				id,
+				attributes: { autocomplete },
+				properties: {
+					name,
+					type: "password",
+					minLength,
+					required: true,
+				},
+			}),
+		)
+	const form = createElement(
+		"form",
+		{ id: "password-settings-form", properties: { autocomplete: "on" } },
+		passwordField(
+			"Current Password",
+			"settings-current-password",
+			"current-password",
+			"current-password",
+		),
+		passwordField(
+			"New Password",
+			"settings-new-password",
+			"new-password",
+			"new-password",
+			8,
+		),
+		passwordField(
+			"Confirm New Password",
+			"settings-confirm-password",
+			"confirm-password",
+			"new-password",
+			8,
+		),
+		createElement(
+			"div",
+			{ className: "actions" },
+			createElement("button", {
+				className: "primary",
+				text: "Change Password",
+				properties: { type: "submit" },
+			}),
+		),
+		createElement("div", {
+			id: "settings-password-status",
+			className: "status",
+			attributes: { role: "status" },
+		}),
+	)
+	const page = createElement(
+		"section",
+		{ className: "workspace workspace--single" },
+		createElement(
+			"div",
+			{ className: "card panel settings-panel" },
+			createElement(
+				"div",
+				{ className: "section-header" },
+				createElement("h2", { text: "Password" }),
+			),
+			form,
+		),
+	)
+	withQueryRoot(page, attachSettingsEvents)
+	renderPage(page)
+}

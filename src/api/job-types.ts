@@ -35,5 +35,4 @@ export enum JobStatus {
 }
 
 export const isImportScheduleCadence = (value: number) =>
-	Object.values(ImportScheduleCadence).includes(value);
-
+	Object.values(ImportScheduleCadence).includes(value)

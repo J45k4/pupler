@@ -1,94 +1,96 @@
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { createServer } from "node:net";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
+import { createServer } from "node:net"
+import { tmpdir } from "node:os"
+import { join, resolve } from "node:path"
 
-import { applyTestSchema } from "./test-db";
+import { applyTestSchema } from "./test-db"
 
 export type ApiResponse<TBody = unknown> = {
-	body: TBody;
-	response: Response;
-};
+	body: TBody
+	response: Response
+}
 
 type RunningServer = {
-	baseUrl: string;
-	dbPath: string;
-	filesPath: string;
-	process: Bun.Subprocess<"ignore", "pipe", "pipe">;
-	tempDir: string;
-};
+	baseUrl: string
+	dbPath: string
+	filesPath: string
+	process: Bun.Subprocess<"ignore", "pipe", "pipe">
+	tempDir: string
+	sessionCookie: string
+}
 
 export type CallOptions = Omit<RequestInit, "body" | "headers"> & {
-	body?: BodyInit | Record<string, unknown>;
-	headers?: HeadersInit;
-};
+	body?: BodyInit | Record<string, unknown>
+	headers?: HeadersInit
+}
 
-export const projectRoot = resolve(import.meta.dir, "..", "..");
+export const projectRoot = resolve(import.meta.dir, "..", "..")
 
 export const getFreePort = () =>
 	new Promise<number>((resolvePort, reject) => {
-		const probe = createServer();
+		const probe = createServer()
 
-		probe.once("error", reject);
+		probe.once("error", reject)
 		probe.listen(0, "127.0.0.1", () => {
-			const address = probe.address();
+			const address = probe.address()
 			if (!address || typeof address === "string") {
-				probe.close();
-				reject(new Error("Failed to allocate a port for e2e tests"));
-				return;
+				probe.close()
+				reject(new Error("Failed to allocate a port for e2e tests"))
+				return
 			}
 
-			const { port } = address;
+			const { port } = address
 			probe.close((error) => {
 				if (error) {
-					reject(error);
-					return;
+					reject(error)
+					return
 				}
-				resolvePort(port);
-			});
-		});
-	});
+				resolvePort(port)
+			})
+		})
+	})
 
 export const waitForHealth = async (baseUrl: string, timeoutMs = 5000) => {
-	const startedAt = Date.now();
+	const startedAt = Date.now()
 
 	while (Date.now() - startedAt < timeoutMs) {
 		try {
-			const response = await fetch(`${baseUrl}/health`);
+			const response = await fetch(`${baseUrl}/health`)
 			if (response.ok) {
-				return;
+				return
 			}
 		} catch {
 			// Server is still starting.
 		}
 
-		await Bun.sleep(100);
+		await Bun.sleep(100)
 	}
 
-	throw new Error(`Server did not become healthy within ${timeoutMs}ms`);
-};
+	throw new Error(`Server did not become healthy within ${timeoutMs}ms`)
+}
 
 export class TestServer {
-	readonly baseUrl: string;
-	readonly dbPath: string;
-	readonly filesPath: string;
-	readonly process: Bun.Subprocess<"ignore", "pipe", "pipe">;
-	readonly tempDir: string;
+	readonly baseUrl: string
+	readonly dbPath: string
+	readonly filesPath: string
+	readonly process: Bun.Subprocess<"ignore", "pipe", "pipe">
+	readonly tempDir: string
+	sessionCookie: string
 
 	constructor(server: RunningServer) {
-		this.baseUrl = server.baseUrl;
-		this.dbPath = server.dbPath;
-		this.filesPath = server.filesPath;
-		this.process = server.process;
-		this.tempDir = server.tempDir;
+		this.baseUrl = server.baseUrl
+		this.dbPath = server.dbPath
+		this.filesPath = server.filesPath
+		this.process = server.process
+		this.tempDir = server.tempDir
 	}
 
 	static async start() {
-		const port = await getFreePort();
-		const tempDir = mkdtempSync(join(tmpdir(), "pupler-e2e-"));
-		const dbPath = join(tempDir, "pupler.sqlite");
-		mkdirSync(tempDir, { recursive: true });
-		applyTestSchema(dbPath);
+		const port = await getFreePort()
+		const tempDir = mkdtempSync(join(tmpdir(), "pupler-e2e-"))
+		const dbPath = join(tempDir, "pupler.sqlite")
+		mkdirSync(tempDir, { recursive: true })
+		applyTestSchema(dbPath)
 
 		const child = Bun.spawn(["bun", "src/main.ts"], {
 			cwd: projectRoot,
@@ -100,7 +102,7 @@ export class TestServer {
 			},
 			stdout: "pipe",
 			stderr: "pipe",
-		});
+		})
 
 		const server = new TestServer({
 			baseUrl: `http://127.0.0.1:${port}`,
@@ -108,29 +110,65 @@ export class TestServer {
 			filesPath: join(tempDir, "files"),
 			process: child,
 			tempDir,
-		});
+			sessionCookie: "",
+		})
 
 		try {
-			await waitForHealth(server.baseUrl);
-			return server;
+			await waitForHealth(server.baseUrl)
+			const bootstrapResponse = await fetch(
+				`${server.baseUrl}/api/auth/bootstrap`,
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						name: "Test Admin",
+						username: "test",
+						password: "test-password",
+					}),
+				},
+			)
+			if (!bootstrapResponse.ok)
+				throw new Error(await bootstrapResponse.text())
+			const loginResponse = await fetch(
+				`${server.baseUrl}/api/auth/login`,
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						username: "test",
+						password: "test-password",
+					}),
+				},
+			)
+			if (!loginResponse.ok) throw new Error(await loginResponse.text())
+			const cookie = loginResponse.headers
+				.get("set-cookie")
+				?.match(/pupler_session=[^;]+/)?.[0]
+			if (!cookie)
+				throw new Error(
+					"Test bootstrap did not return a session cookie",
+				)
+			server.sessionCookie = cookie
+			return server
 		} catch (error) {
-			const stderr = await new Response(child.stderr).text();
-			throw new Error(`${String(error)}\n${stderr}`.trim());
+			const stderr = await new Response(child.stderr).text()
+			throw new Error(`${String(error)}\n${stderr}`.trim())
 		}
 	}
 
 	async close() {
-		this.process.kill();
-		await this.process.exited;
-		rmSync(this.tempDir, { force: true, recursive: true });
+		this.process.kill()
+		await this.process.exited
+		rmSync(this.tempDir, { force: true, recursive: true })
 	}
 
 	async call<TBody = unknown>(
 		path: string,
 		options: CallOptions = {},
 	): Promise<ApiResponse<TBody>> {
-		const headers = new Headers(options.headers);
-		let body: BodyInit | undefined;
+		const headers = new Headers(options.headers)
+		if (!headers.has("cookie")) headers.set("Cookie", this.sessionCookie)
+		let body: BodyInit | undefined
 
 		if (options.body !== undefined) {
 			if (
@@ -142,12 +180,12 @@ export class TestServer {
 				options.body instanceof URLSearchParams ||
 				options.body instanceof ReadableStream
 			) {
-				body = options.body;
+				body = options.body
 			} else {
 				if (!headers.has("Content-Type")) {
-					headers.set("Content-Type", "application/json");
+					headers.set("Content-Type", "application/json")
 				}
-				body = JSON.stringify(options.body);
+				body = JSON.stringify(options.body)
 			}
 		}
 
@@ -155,12 +193,12 @@ export class TestServer {
 			...options,
 			headers,
 			body,
-		});
-		const contentType = response.headers.get("content-type") ?? "";
+		})
+		const contentType = response.headers.get("content-type") ?? ""
 		const parsedBody = contentType.includes("application/json")
 			? ((await response.json()) as TBody)
-			: ((await response.text()) as TBody);
+			: ((await response.text()) as TBody)
 
-		return { body: parsedBody, response };
+		return { body: parsedBody, response }
 	}
 }

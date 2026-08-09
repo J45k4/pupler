@@ -1,15 +1,15 @@
-import { HttpError, type Database } from "./core";
+import { HttpError, type Database } from "./core"
 
 export const ingredientSummarySelect = {
 	id: true,
 	name: true,
 	default_unit: true,
-} as const;
+} as const
 
 export const groupSummarySelect = {
 	id: true,
 	name: true,
-} as const;
+} as const
 
 export const fileDetailSelect = {
 	id: true,
@@ -17,7 +17,7 @@ export const fileDetailSelect = {
 	filename: true,
 	size_bytes: true,
 	created_at: true,
-} as const;
+} as const
 
 export const productSummarySelect = {
 	id: true,
@@ -28,7 +28,7 @@ export const productSummarySelect = {
 	picture_file: {
 		select: fileDetailSelect,
 	},
-} as const;
+} as const
 
 export const receiptDetailSelect = {
 	id: true,
@@ -46,7 +46,7 @@ export const receiptDetailSelect = {
 	picture_file: {
 		select: fileDetailSelect,
 	},
-} as const;
+} as const
 
 export const productDetailSelect = {
 	id: true,
@@ -65,7 +65,7 @@ export const productDetailSelect = {
 	picture_file: {
 		select: fileDetailSelect,
 	},
-} as const;
+} as const
 
 export const inventoryItemDetailSelect = {
 	id: true,
@@ -100,7 +100,7 @@ export const inventoryItemDetailSelect = {
 		},
 		orderBy: [{ created_at: "desc" }, { id: "desc" }],
 	},
-} as const;
+} as const
 
 export const recipeIngredientDetailSelect = {
 	id: true,
@@ -119,7 +119,7 @@ export const recipeIngredientDetailSelect = {
 	product: {
 		select: productSummarySelect,
 	},
-} as const;
+} as const
 
 export const shoppingListItemDetailSelect = {
 	id: true,
@@ -139,10 +139,10 @@ export const shoppingListItemDetailSelect = {
 	product: {
 		select: productSummarySelect,
 	},
-} as const;
+} as const
 
 const fetchIngredient = (db: Database, id: number) =>
-	db.client.ingredient.findUnique({ where: { id } });
+	db.client.ingredient.findUnique({ where: { id } })
 
 const fetchProduct = (db: Database, id: number) =>
 	db.client.product.findUnique({
@@ -151,7 +151,7 @@ const fetchProduct = (db: Database, id: number) =>
 			id: true,
 			ingredient_id: true,
 		},
-	});
+	})
 
 const fetchGroup = (db: Database, id: number) =>
 	db.client.group.findUnique({
@@ -159,7 +159,7 @@ const fetchGroup = (db: Database, id: number) =>
 		select: {
 			id: true,
 		},
-	});
+	})
 
 const fetchReceipt = (db: Database, id: number) =>
 	db.client.receipt.findUnique({
@@ -167,7 +167,7 @@ const fetchReceipt = (db: Database, id: number) =>
 		select: {
 			id: true,
 		},
-	});
+	})
 
 export const ensureIngredientExists = async (
 	db: Database,
@@ -175,19 +175,19 @@ export const ensureIngredientExists = async (
 	field = "ingredient_id",
 ) => {
 	if (ingredientId === undefined || ingredientId === null) {
-		return null;
+		return null
 	}
 
-	const ingredient = await fetchIngredient(db, ingredientId);
+	const ingredient = await fetchIngredient(db, ingredientId)
 	if (!ingredient) {
 		throw new HttpError(
 			400,
 			`Field \`${field}\` references a missing ingredient`,
-		);
+		)
 	}
 
-	return ingredient;
-};
+	return ingredient
+}
 
 export const ensureProductExists = async (
 	db: Database,
@@ -195,19 +195,19 @@ export const ensureProductExists = async (
 	field = "product_id",
 ) => {
 	if (productId === undefined || productId === null) {
-		return null;
+		return null
 	}
 
-	const product = await fetchProduct(db, productId);
+	const product = await fetchProduct(db, productId)
 	if (!product) {
 		throw new HttpError(
 			400,
 			`Field \`${field}\` references a missing product`,
-		);
+		)
 	}
 
-	return product;
-};
+	return product
+}
 
 export const ensureGroupExists = async (
 	db: Database,
@@ -215,19 +215,19 @@ export const ensureGroupExists = async (
 	field = "group_id",
 ) => {
 	if (groupId === undefined || groupId === null) {
-		return null;
+		return null
 	}
 
-	const group = await fetchGroup(db, groupId);
+	const group = await fetchGroup(db, groupId)
 	if (!group) {
 		throw new HttpError(
 			400,
 			`Field \`${field}\` references a missing group`,
-		);
+		)
 	}
 
-	return group;
-};
+	return group
+}
 
 export const ensureReceiptExists = async (
 	db: Database,
@@ -235,29 +235,29 @@ export const ensureReceiptExists = async (
 	field = "receipt_id",
 ) => {
 	if (receiptId === undefined || receiptId === null) {
-		return null;
+		return null
 	}
 
-	const receipt = await fetchReceipt(db, receiptId);
+	const receipt = await fetchReceipt(db, receiptId)
 	if (!receipt) {
 		throw new HttpError(
 			400,
 			`Field \`${field}\` references a missing receipt`,
-		);
+		)
 	}
 
-	return receipt;
-};
+	return receipt
+}
 
 export const validateIngredientProductRefs = async (
 	db: Database,
 	values: {
-		ingredient_id?: number | null;
-		product_id?: number | null;
+		ingredient_id?: number | null
+		product_id?: number | null
 	},
 ) => {
-	await ensureIngredientExists(db, values.ingredient_id);
-	const product = await ensureProductExists(db, values.product_id);
+	await ensureIngredientExists(db, values.ingredient_id)
+	const product = await ensureProductExists(db, values.product_id)
 
 	if (
 		values.ingredient_id !== undefined &&
@@ -269,6 +269,6 @@ export const validateIngredientProductRefs = async (
 		throw new HttpError(
 			400,
 			"Linked product belongs to a different ingredient",
-		);
+		)
 	}
-};
+}

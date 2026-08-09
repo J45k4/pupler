@@ -6,41 +6,39 @@ import {
 	fetchReceiptItems,
 	renderPage,
 	renderReceiptDetail,
-} from "../app";
+} from "../app"
+import { createElement, createPageMessage, withQueryRoot } from "../lib/dom"
 
-export const renderReceiptDetailPage = (params: Record<string, string>) => {
-	renderPage('<div id="receipt-detail-page"></div>');
+export const renderReceiptDetailPage = async (
+	params: Record<string, string>,
+) => {
+	const receiptId = Number.parseInt(params.id ?? "", 10)
+	const page = createElement("div", { id: "receipt-detail-page" })
+	if (!Number.isInteger(receiptId)) {
+		page.append(createPageMessage("Receipt id is invalid."))
+		renderPage(page)
+		return
+	}
 
-	void (async () => {
-		const rawId = params.id ?? "";
-		const receiptId = Number.parseInt(rawId, 10);
-		if (!Number.isInteger(receiptId)) {
-			const page = document.getElementById("receipt-detail-page");
-			if (page) {
-				page.innerHTML =
-					'<div class="card panel page-panel"><p class="page-copy">Receipt id is invalid.</p></div>';
-			}
-			return;
-		}
-
-		try {
-			const [receipt, items, products, groups] = await Promise.all([
-				fetchReceipt(receiptId),
-				fetchReceiptItems(receiptId),
-				fetchAllProducts(),
-				fetchGroups(),
-			]);
-			renderReceiptDetail(receipt, items, products, groups);
-			attachReceiptDetailEvents(receipt, items, products, groups);
-		} catch (error) {
-			const page = document.getElementById("receipt-detail-page");
-			if (page) {
-				page.innerHTML = `
-					<div class="card panel page-panel">
-						<p class="page-copy">${error instanceof Error ? error.message : "Failed to load receipt."}</p>
-					</div>
-				`;
-			}
-		}
-	})();
-};
+	try {
+		const [receipt, items, products, groups] = await Promise.all([
+			fetchReceipt(receiptId),
+			fetchReceiptItems(receiptId),
+			fetchAllProducts(),
+			fetchGroups(),
+		])
+		withQueryRoot(page, () => {
+			renderReceiptDetail(receipt, items, products, groups)
+			attachReceiptDetailEvents(receipt, items, products, groups)
+		})
+	} catch (error) {
+		page.append(
+			createPageMessage(
+				error instanceof Error
+					? error.message
+					: "Failed to load receipt.",
+			),
+		)
+	}
+	renderPage(page)
+}

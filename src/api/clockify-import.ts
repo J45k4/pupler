@@ -1,93 +1,97 @@
-import { HttpError, utcNow, type Database, type JsonObject } from "./core";
-import { decryptJson } from "./encryption";
-import { ExternalIntegrationStatus } from "./job-types";
+import { HttpError, utcNow, type Database, type JsonObject } from "./core"
+import { decryptJson } from "./encryption"
+import { ExternalIntegrationStatus } from "./job-types"
 
 type ClockifyConfig = {
-	workspace_id: string;
-	api_base_url?: string;
-	reports_base_url?: string;
-};
+	workspace_id: string
+	api_base_url?: string
+	reports_base_url?: string
+}
 
 type ClockifyCredentials = {
-	api_key: string;
-};
+	api_key: string
+}
 
 type ImportParams = {
-	lookback_days?: number | null;
-	dry_run?: boolean;
-	target_client_id?: number | null;
-	client_ids?: string[];
-	project_ids?: string[];
-	from?: string;
-	to?: string;
-};
+	lookback_days?: number | null
+	dry_run?: boolean
+	target_client_id?: number | null
+	client_ids?: string[]
+	project_ids?: string[]
+	from?: string
+	to?: string
+}
 
 type ImportCursor = {
-	last_successful_to?: string;
-};
+	last_successful_to?: string
+}
 
 type ImportResolutionCache = {
-	clientsByName: Map<string, number | null>;
-	usersByIdentity: Map<string, number | null>;
-	projectsByExternalId: Map<string, number | null>;
-};
+	clientsByName: Map<string, number | null>
+	usersByIdentity: Map<string, number | null>
+	projectsByExternalId: Map<string, number | null>
+}
 
 type ClockifyEntry = {
-	id: string;
-	projectId: string | null;
-	projectName: string | null;
-	clientId: string | null;
-	clientName: string | null;
-	userId: string | null;
-	userName: string | null;
-	userEmail: string | null;
-	description: string | null;
-	startedAt: string;
-	endedAt: string | null;
-};
+	id: string
+	projectId: string | null
+	projectName: string | null
+	clientId: string | null
+	clientName: string | null
+	userId: string | null
+	userName: string | null
+	userEmail: string | null
+	description: string | null
+	startedAt: string
+	endedAt: string | null
+}
 
 type ImportResult = {
 	created: {
-		clients: number;
-		projects: number;
-		users: number;
-		time_entries: number;
-		project_links: number;
-		time_entry_links: number;
-	};
+		clients: number
+		projects: number
+		users: number
+		time_entries: number
+		project_links: number
+		time_entry_links: number
+	}
 	updated: {
-		projects: number;
-		time_entries: number;
-		project_links: number;
-		time_entry_links: number;
-	};
+		projects: number
+		time_entries: number
+		project_links: number
+		time_entry_links: number
+	}
 	skipped: {
-		running_entries: number;
-		invalid_entries: number;
-		filtered_entries: number;
-	};
-	errors: Array<{ clockify_time_entry_id?: string; message: string }>;
-	from: string;
-	to: string;
-	dry_run: boolean;
-};
+		running_entries: number
+		invalid_entries: number
+		filtered_entries: number
+	}
+	errors: Array<{ clockify_time_entry_id?: string; message: string }>
+	from: string
+	to: string
+	dry_run: boolean
+}
 
-const FULL_HISTORY_START = "1970-01-01T00:00:00.000Z";
-const MAX_REPORT_RANGE_MS = 30 * 24 * 60 * 60 * 1000;
+const FULL_HISTORY_START = "1970-01-01T00:00:00.000Z"
+const MAX_REPORT_RANGE_MS = 30 * 24 * 60 * 60 * 1000
 
 const objectIdTimestamp = (value: string) => {
-	if (!/^[0-9a-f]{24}$/i.test(value)) return null;
-	const seconds = Number.parseInt(value.slice(0, 8), 16);
-	if (!Number.isFinite(seconds)) return null;
-	return new Date(seconds * 1000).toISOString();
-};
+	if (!/^[0-9a-f]{24}$/i.test(value)) return null
+	const seconds = Number.parseInt(value.slice(0, 8), 16)
+	if (!Number.isFinite(seconds)) return null
+	return new Date(seconds * 1000).toISOString()
+}
 
 const fullHistoryStart = (config: ClockifyConfig) =>
 	process.env.PUPLER_CLOCKIFY_FULL_HISTORY_START ??
 	objectIdTimestamp(config.workspace_id) ??
-	FULL_HISTORY_START;
+	FULL_HISTORY_START
 
-const emptyResult = (from: string, to: string, dryRun: boolean): ImportResult => ({
+const emptyResult = (
+	from: string,
+	to: string,
+	dryRun: boolean,
+): ImportResult => ({
 	created: {
 		clients: 0,
 		projects: 0,
@@ -111,45 +115,46 @@ const emptyResult = (from: string, to: string, dryRun: boolean): ImportResult =>
 	from,
 	to,
 	dry_run: dryRun,
-});
+})
 
 const asObject = (value: unknown) =>
 	value && typeof value === "object" && !Array.isArray(value)
 		? (value as Record<string, unknown>)
-		: {};
+		: {}
 
 const asString = (value: unknown) =>
-	typeof value === "string" && value.trim() ? value.trim() : null;
+	typeof value === "string" && value.trim() ? value.trim() : null
 
 const nestedString = (
 	source: Record<string, unknown>,
 	key: string,
 	nestedKey = "id",
 ) => {
-	const nested = asObject(source[key]);
-	return asString(nested[nestedKey]);
-};
+	const nested = asObject(source[key])
+	return asString(nested[nestedKey])
+}
 
 const normalizeDescription = (value: string | null) => {
-	if (value === null) return null;
-	const trimmed = value.trim();
-	return trimmed ? trimmed : null;
-};
+	if (value === null) return null
+	const trimmed = value.trim()
+	return trimmed ? trimmed : null
+}
 
 const parseClockifyEntry = (raw: unknown): ClockifyEntry | null => {
-	const row = asObject(raw);
-	const interval = asObject(row.timeInterval);
-	const project = asObject(row.project);
-	const client = asObject(row.client);
-	const user = asObject(row.user);
+	const row = asObject(raw)
+	const interval = asObject(row.timeInterval)
+	const project = asObject(row.project)
+	const client = asObject(row.client)
+	const user = asObject(row.user)
 
-	const id = asString(row.id) ?? asString(row._id) ?? asString(row.timeEntryId);
+	const id =
+		asString(row.id) ?? asString(row._id) ?? asString(row.timeEntryId)
 	const startedAt =
 		asString(interval.start) ??
 		asString(row.timeIntervalStart) ??
 		asString(row.start) ??
-		asString(row.startedAt);
-	if (!id || !startedAt) return null;
+		asString(row.startedAt)
+	if (!id || !startedAt) return null
 
 	return {
 		id,
@@ -194,20 +199,22 @@ const parseClockifyEntry = (raw: unknown): ClockifyEntry | null => {
 			asString(row.timeIntervalEnd) ??
 			asString(row.end) ??
 			asString(row.endedAt),
-	};
-};
+	}
+}
 
 const parseEntries = (body: unknown) => {
-	const root = asObject(body);
+	const root = asObject(body)
 	const entries =
 		root.timeentries ??
 		root.timeEntries ??
 		root.data ??
 		root.items ??
-		(Array.isArray(body) ? body : undefined);
-	if (!Array.isArray(entries)) return [];
-	return entries.map(parseClockifyEntry).filter((entry): entry is ClockifyEntry => entry !== null);
-};
+		(Array.isArray(body) ? body : undefined)
+	if (!Array.isArray(entries)) return []
+	return entries
+		.map(parseClockifyEntry)
+		.filter((entry): entry is ClockifyEntry => entry !== null)
+}
 
 const fetchClockifyEntriesForRange = async (
 	config: ClockifyConfig,
@@ -215,9 +222,10 @@ const fetchClockifyEntriesForRange = async (
 	from: string,
 	to: string,
 ) => {
-	const baseUrl = config.reports_base_url ?? "https://reports.api.clockify.me/v1";
-	const entries: ClockifyEntry[] = [];
-	const pageSize = 1000;
+	const baseUrl =
+		config.reports_base_url ?? "https://reports.api.clockify.me/v1"
+	const entries: ClockifyEntry[] = []
+	const pageSize = 1000
 
 	for (let page = 1; page < 1000; page += 1) {
 		const response = await fetch(
@@ -237,22 +245,22 @@ const fetchClockifyEntriesForRange = async (
 					},
 				}),
 			},
-		);
+		)
 		if (!response.ok) {
-			const body = await response.text();
+			const body = await response.text()
 			throw new HttpError(
 				502,
 				`Clockify request failed with status ${response.status}: ${body.slice(0, 500)}`,
-			);
+			)
 		}
 
-		const pageEntries = parseEntries(await response.json());
-		entries.push(...pageEntries);
-		if (pageEntries.length < pageSize) break;
+		const pageEntries = parseEntries(await response.json())
+		entries.push(...pageEntries)
+		if (pageEntries.length < pageSize) break
 	}
 
-	return entries;
-};
+	return entries
+}
 
 const fetchClockifyEntries = async (
 	config: ClockifyConfig,
@@ -260,15 +268,15 @@ const fetchClockifyEntries = async (
 	from: string,
 	to: string,
 ) => {
-	const fromMs = Date.parse(from);
-	const toMs = Date.parse(to);
+	const fromMs = Date.parse(from)
+	const toMs = Date.parse(to)
 	if (Number.isNaN(fromMs) || Number.isNaN(toMs) || toMs <= fromMs) {
-		return [];
+		return []
 	}
 
-	const entries: ClockifyEntry[] = [];
+	const entries: ClockifyEntry[] = []
 	for (let startMs = fromMs; startMs < toMs; startMs += MAX_REPORT_RANGE_MS) {
-		const endMs = Math.min(startMs + MAX_REPORT_RANGE_MS, toMs);
+		const endMs = Math.min(startMs + MAX_REPORT_RANGE_MS, toMs)
 		entries.push(
 			...(await fetchClockifyEntriesForRange(
 				config,
@@ -276,31 +284,35 @@ const fetchClockifyEntries = async (
 				new Date(startMs).toISOString(),
 				new Date(endMs).toISOString(),
 			)),
-		);
+		)
 	}
-	return entries;
-};
+	return entries
+}
 
 const defaultColor = (name: string) => {
-	const colors = ["#ba5a31", "#2d7c6f", "#6f5aa8", "#b7791f", "#3f6f9f"];
-	const total = [...name].reduce((sum, char) => sum + char.charCodeAt(0), 0);
-	return colors[total % colors.length]!;
-};
+	const colors = ["#ba5a31", "#2d7c6f", "#6f5aa8", "#b7791f", "#3f6f9f"]
+	const total = [...name].reduce((sum, char) => sum + char.charCodeAt(0), 0)
+	return colors[total % colors.length]!
+}
 
 const findByName = <T extends { name: string }>(rows: T[], name: string) => {
-	const normalized = name.trim().toLowerCase();
-	return rows.find((row) => row.name.trim().toLowerCase() === normalized) ?? null;
-};
+	const normalized = name.trim().toLowerCase()
+	return (
+		rows.find((row) => row.name.trim().toLowerCase() === normalized) ?? null
+	)
+}
 
 const matchesImportFilters = (entry: ClockifyEntry, params: ImportParams) => {
-	const clientIds = params.client_ids ?? [];
-	const projectIds = params.project_ids ?? [];
+	const clientIds = params.client_ids ?? []
+	const projectIds = params.project_ids ?? []
 	const matchesClient =
-		!clientIds.length || (entry.clientId !== null && clientIds.includes(entry.clientId));
+		!clientIds.length ||
+		(entry.clientId !== null && clientIds.includes(entry.clientId))
 	const matchesProject =
-		!projectIds.length || (entry.projectId !== null && projectIds.includes(entry.projectId));
-	return matchesClient && matchesProject;
-};
+		!projectIds.length ||
+		(entry.projectId !== null && projectIds.includes(entry.projectId))
+	return matchesClient && matchesProject
+}
 
 const resolveClient = async (
 	db: Database,
@@ -309,22 +321,22 @@ const resolveClient = async (
 	result: ImportResult,
 	cache: ImportResolutionCache,
 ) => {
-	if (!name) return null;
-	const cacheKey = name.trim().toLowerCase();
+	if (!name) return null
+	const cacheKey = name.trim().toLowerCase()
 	if (cache.clientsByName.has(cacheKey)) {
-		return cache.clientsByName.get(cacheKey) ?? null;
+		return cache.clientsByName.get(cacheKey) ?? null
 	}
-	const existing = findByName(await db.client.client.findMany(), name);
+	const existing = findByName(await db.client.client.findMany(), name)
 	if (existing) {
-		cache.clientsByName.set(cacheKey, existing.id);
-		return existing.id;
+		cache.clientsByName.set(cacheKey, existing.id)
+		return existing.id
 	}
 	if (dryRun) {
-		result.created.clients += 1;
-		cache.clientsByName.set(cacheKey, null);
-		return null;
+		result.created.clients += 1
+		cache.clientsByName.set(cacheKey, null)
+		return null
 	}
-	const now = utcNow();
+	const now = utcNow()
 	const created = await db.client.client.create({
 		data: {
 			name,
@@ -333,21 +345,23 @@ const resolveClient = async (
 			created_at: now,
 			updated_at: now,
 		},
-	});
-	result.created.clients += 1;
-	cache.clientsByName.set(cacheKey, created.id);
-	return created.id;
-};
+	})
+	result.created.clients += 1
+	cache.clientsByName.set(cacheKey, created.id)
+	return created.id
+}
 
 const resolveTargetClientId = async (
 	db: Database,
 	targetClientId: number | null | undefined,
 ) => {
-	if (targetClientId === null || targetClientId === undefined) return null;
-	const client = await db.client.client.findUnique({ where: { id: targetClientId } });
-	if (!client) throw new HttpError(400, "Target client does not exist");
-	return client.id;
-};
+	if (targetClientId === null || targetClientId === undefined) return null
+	const client = await db.client.client.findUnique({
+		where: { id: targetClientId },
+	})
+	if (!client) throw new HttpError(400, "Target client does not exist")
+	return client.id
+}
 
 const resolveUser = async (
 	db: Database,
@@ -356,27 +370,31 @@ const resolveUser = async (
 	result: ImportResult,
 	cache: ImportResolutionCache,
 ) => {
-	if (!entry.userEmail && !entry.userName) return null;
+	if (!entry.userEmail && !entry.userName) return null
 	const cacheKey = entry.userEmail
 		? `email:${entry.userEmail.trim().toLowerCase()}`
-		: `name:${entry.userName?.trim().toLowerCase() ?? ""}`;
+		: `name:${entry.userName?.trim().toLowerCase() ?? ""}`
 	if (cache.usersByIdentity.has(cacheKey)) {
-		return cache.usersByIdentity.get(cacheKey) ?? null;
+		return cache.usersByIdentity.get(cacheKey) ?? null
 	}
-	const users = await db.client.user.findMany();
+	const users = await db.client.user.findMany()
 	const existing = entry.userEmail
-		? users.find((user) => user.email?.trim().toLowerCase() === entry.userEmail?.toLowerCase())
-		: findByName(users, entry.userName ?? "");
+		? users.find(
+				(user) =>
+					user.email?.trim().toLowerCase() ===
+					entry.userEmail?.toLowerCase(),
+			)
+		: findByName(users, entry.userName ?? "")
 	if (existing) {
-		cache.usersByIdentity.set(cacheKey, existing.id);
-		return existing.id;
+		cache.usersByIdentity.set(cacheKey, existing.id)
+		return existing.id
 	}
 	if (dryRun) {
-		result.created.users += 1;
-		cache.usersByIdentity.set(cacheKey, null);
-		return null;
+		result.created.users += 1
+		cache.usersByIdentity.set(cacheKey, null)
+		return null
 	}
-	const now = utcNow();
+	const now = utcNow()
 	const created = await db.client.user.create({
 		data: {
 			name: entry.userName ?? entry.userEmail ?? "Clockify User",
@@ -386,11 +404,11 @@ const resolveUser = async (
 			created_at: now,
 			updated_at: now,
 		},
-	});
-	result.created.users += 1;
-	cache.usersByIdentity.set(cacheKey, created.id);
-	return created.id;
-};
+	})
+	result.created.users += 1
+	cache.usersByIdentity.set(cacheKey, created.id)
+	return created.id
+}
 
 const resolveProject = async (
 	db: Database,
@@ -402,10 +420,10 @@ const resolveProject = async (
 	result: ImportResult,
 	cache: ImportResolutionCache,
 ) => {
-	if (!entry.projectId || !entry.projectName) return null;
-	const cacheKey = `${workspaceId}:${entry.projectId}`;
+	if (!entry.projectId || !entry.projectName) return null
+	const cacheKey = `${workspaceId}:${entry.projectId}`
 	if (cache.projectsByExternalId.has(cacheKey)) {
-		return cache.projectsByExternalId.get(cacheKey) ?? null;
+		return cache.projectsByExternalId.get(cacheKey) ?? null
 	}
 
 	const existingLink = await db.client.clockifyProjectLink.findUnique({
@@ -417,11 +435,11 @@ const resolveProject = async (
 			},
 		},
 		include: { project: true },
-	});
+	})
 	const clientId =
 		targetClientId ??
-		(await resolveClient(db, entry.clientName, dryRun, result, cache));
-	const now = utcNow();
+		(await resolveClient(db, entry.clientName, dryRun, result, cache))
+	const now = utcNow()
 
 	if (existingLink) {
 		if (!dryRun) {
@@ -432,7 +450,7 @@ const resolveProject = async (
 					client_id: clientId,
 					updated_at: now,
 				},
-			});
+			})
 			await db.client.clockifyProjectLink.update({
 				where: { id: existingLink.id },
 				data: {
@@ -442,19 +460,19 @@ const resolveProject = async (
 					last_seen_at: now,
 					updated_at: now,
 				},
-			});
+			})
 		}
-		result.updated.projects += 1;
-		result.updated.project_links += 1;
-		cache.projectsByExternalId.set(cacheKey, existingLink.project_id);
-		return existingLink.project_id;
+		result.updated.projects += 1
+		result.updated.project_links += 1
+		cache.projectsByExternalId.set(cacheKey, existingLink.project_id)
+		return existingLink.project_id
 	}
 
 	if (dryRun) {
-		result.created.projects += 1;
-		result.created.project_links += 1;
-		cache.projectsByExternalId.set(cacheKey, null);
-		return null;
+		result.created.projects += 1
+		result.created.project_links += 1
+		cache.projectsByExternalId.set(cacheKey, null)
+		return null
 	}
 
 	const project = await db.client.project.create({
@@ -466,7 +484,7 @@ const resolveProject = async (
 			created_at: now,
 			updated_at: now,
 		},
-	});
+	})
 	await db.client.clockifyProjectLink.create({
 		data: {
 			integration_id: integrationId,
@@ -480,50 +498,54 @@ const resolveProject = async (
 			created_at: now,
 			updated_at: now,
 		},
-	});
-	result.created.projects += 1;
-	result.created.project_links += 1;
-	cache.projectsByExternalId.set(cacheKey, project.id);
-	return project.id;
-};
+	})
+	result.created.projects += 1
+	result.created.project_links += 1
+	cache.projectsByExternalId.set(cacheKey, project.id)
+	return project.id
+}
 
 export const importClockifyJob = async (db: Database, jobId: number) => {
 	const job = await db.client.job.findUnique({
 		where: { id: jobId },
 		include: { integration: true, schedule: true },
-	});
+	})
 	if (!job || !job.integration || !job.schedule) {
-		throw new HttpError(404, "Clockify import job was not found");
+		throw new HttpError(404, "Clockify import job was not found")
 	}
 	if (job.integration.status !== ExternalIntegrationStatus.Active) {
-		throw new HttpError(400, "External integration is not active");
+		throw new HttpError(400, "External integration is not active")
 	}
 
-	const config = JSON.parse(job.integration.config_json) as ClockifyConfig;
+	const config = JSON.parse(job.integration.config_json) as ClockifyConfig
 	const credentials = decryptJson(
 		job.integration.credentials_encrypted_json,
-	) as ClockifyCredentials & JsonObject;
-	const params = JSON.parse(job.params_json) as ImportParams;
+	) as ClockifyCredentials & JsonObject
+	const params = JSON.parse(job.params_json) as ImportParams
 	const cursor = job.cursor_json
 		? (JSON.parse(job.cursor_json) as ImportCursor)
-		: {};
-	const to = params.to ?? utcNow();
+		: {}
+	const to = params.to ?? utcNow()
 	const from =
 		params.from ??
 		(params.lookback_days === null
 			? fullHistoryStart(config)
 			: new Date(
-					Date.parse(to) - (params.lookback_days ?? 14) * 24 * 60 * 60 * 1000,
-				).toISOString());
-	const dryRun = params.dry_run ?? false;
-	const targetClientId = await resolveTargetClientId(db, params.target_client_id);
-	const result = emptyResult(from, to, dryRun);
-	const entries = await fetchClockifyEntries(config, credentials, from, to);
+					Date.parse(to) -
+						(params.lookback_days ?? 14) * 24 * 60 * 60 * 1000,
+				).toISOString())
+	const dryRun = params.dry_run ?? false
+	const targetClientId = await resolveTargetClientId(
+		db,
+		params.target_client_id,
+	)
+	const result = emptyResult(from, to, dryRun)
+	const entries = await fetchClockifyEntries(config, credentials, from, to)
 	const resolutionCache: ImportResolutionCache = {
 		clientsByName: new Map(),
 		usersByIdentity: new Map(),
 		projectsByExternalId: new Map(),
-	};
+	}
 
 	await db.client.job.update({
 		where: { id: jobId },
@@ -531,31 +553,31 @@ export const importClockifyJob = async (db: Database, jobId: number) => {
 			total_rows: entries.length,
 			updated_at: utcNow(),
 		},
-	});
+	})
 
-	let processed = 0;
+	let processed = 0
 	for (const entry of entries) {
-		processed += 1;
+		processed += 1
 		try {
 			if (!matchesImportFilters(entry, params)) {
-				result.skipped.filtered_entries += 1;
-				continue;
+				result.skipped.filtered_entries += 1
+				continue
 			}
 			if (!entry.endedAt) {
-				result.skipped.running_entries += 1;
-				continue;
+				result.skipped.running_entries += 1
+				continue
 			}
 			if (
 				Number.isNaN(Date.parse(entry.startedAt)) ||
 				Number.isNaN(Date.parse(entry.endedAt)) ||
 				Date.parse(entry.endedAt) <= Date.parse(entry.startedAt)
 			) {
-				result.skipped.invalid_entries += 1;
+				result.skipped.invalid_entries += 1
 				result.errors.push({
 					clockify_time_entry_id: entry.id,
 					message: "Invalid time entry range",
-				});
-				continue;
+				})
+				continue
 			}
 
 			const projectId = await resolveProject(
@@ -563,28 +585,30 @@ export const importClockifyJob = async (db: Database, jobId: number) => {
 				job.integration.id,
 				config.workspace_id,
 				entry,
-					targetClientId,
-					dryRun,
-					result,
-					resolutionCache,
-				);
-				const userId = await resolveUser(
-					db,
-					entry,
-					dryRun,
-					result,
-					resolutionCache,
-				);
-			const existingLink = await db.client.clockifyTimeEntryLink.findUnique({
-				where: {
-					integration_id_clockify_workspace_id_clockify_time_entry_id: {
-						integration_id: job.integration.id,
-						clockify_workspace_id: config.workspace_id,
-						clockify_time_entry_id: entry.id,
+				targetClientId,
+				dryRun,
+				result,
+				resolutionCache,
+			)
+			const userId = await resolveUser(
+				db,
+				entry,
+				dryRun,
+				result,
+				resolutionCache,
+			)
+			const existingLink =
+				await db.client.clockifyTimeEntryLink.findUnique({
+					where: {
+						integration_id_clockify_workspace_id_clockify_time_entry_id:
+							{
+								integration_id: job.integration.id,
+								clockify_workspace_id: config.workspace_id,
+								clockify_time_entry_id: entry.id,
+							},
 					},
-				},
-			});
-			const now = utcNow();
+				})
+			const now = utcNow()
 			if (existingLink) {
 				if (!dryRun) {
 					await db.client.timeEntry.update({
@@ -597,7 +621,7 @@ export const importClockifyJob = async (db: Database, jobId: number) => {
 							ended_at: entry.endedAt,
 							updated_at: now,
 						},
-					});
+					})
 					await db.client.clockifyTimeEntryLink.update({
 						where: { id: existingLink.id },
 						data: {
@@ -606,17 +630,17 @@ export const importClockifyJob = async (db: Database, jobId: number) => {
 							last_seen_at: now,
 							updated_at: now,
 						},
-					});
+					})
 				}
-				result.updated.time_entries += 1;
-				result.updated.time_entry_links += 1;
-				continue;
+				result.updated.time_entries += 1
+				result.updated.time_entry_links += 1
+				continue
 			}
 
 			if (dryRun) {
-				result.created.time_entries += 1;
-				result.created.time_entry_links += 1;
-				continue;
+				result.created.time_entries += 1
+				result.created.time_entry_links += 1
+				continue
 			}
 			const timeEntry = await db.client.timeEntry.create({
 				data: {
@@ -628,7 +652,7 @@ export const importClockifyJob = async (db: Database, jobId: number) => {
 					created_at: now,
 					updated_at: now,
 				},
-			});
+			})
 			await db.client.clockifyTimeEntryLink.create({
 				data: {
 					integration_id: job.integration.id,
@@ -641,14 +665,15 @@ export const importClockifyJob = async (db: Database, jobId: number) => {
 					created_at: now,
 					updated_at: now,
 				},
-			});
-			result.created.time_entries += 1;
-			result.created.time_entry_links += 1;
+			})
+			result.created.time_entries += 1
+			result.created.time_entry_links += 1
 		} catch (error) {
 			result.errors.push({
 				clockify_time_entry_id: entry.id,
-				message: error instanceof Error ? error.message : "Import failed",
-			});
+				message:
+					error instanceof Error ? error.message : "Import failed",
+			})
 		} finally {
 			if (processed % 10 === 0 || processed === entries.length) {
 				await db.client.job.update({
@@ -657,24 +682,24 @@ export const importClockifyJob = async (db: Database, jobId: number) => {
 						processed_rows: processed,
 						updated_at: utcNow(),
 					},
-				});
+				})
 			}
 		}
 	}
 
 	if (!dryRun) {
-		cursor.last_successful_to = to;
+		cursor.last_successful_to = to
 		await db.client.importSchedule.update({
 			where: { id: job.schedule.id },
 			data: {
 				cursor_json: JSON.stringify(cursor),
 				updated_at: utcNow(),
 			},
-		});
+		})
 	}
 
 	return {
 		result,
 		cursor,
-	};
-};
+	}
+}

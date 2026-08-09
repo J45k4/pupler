@@ -1,224 +1,108 @@
-import {
-	authLoginRoute,
-	authLogoutRoute,
-	authPasswordRoute,
-	authSessionRoute,
-	clockifyIntegrationRoute,
-	clockifyIntegrationOptionsRoute,
-	ingredientDetailRoute,
-	ingredientsCollectionRoute,
-	externalIntegrationDetailRoute,
-	externalIntegrationsCollectionRoute,
-	groupDetailRoute,
-	groupsCollectionRoute,
-	importScheduleDetailRoute,
-	importScheduleRunRoute,
-	importSchedulesCollectionRoute,
-	inventoryContainerDetailRoute,
-	inventoryContainersCollectionRoute,
-	inventoryItemDetailRoute,
-	inventoryItemImageDetailRoute,
-	inventoryItemImagesCollectionRoute,
-	inventoryItemsCollectionRoute,
-	mealPlanItemDetailRoute,
-	mealPlanItemsCollectionRoute,
-	openDatabase,
-	productDetailRoute,
-	productLinkDetailRoute,
-	productLinksCollectionRoute,
-	productPictureRoute,
-	productsCollectionRoute,
-	receiptItemDetailRoute,
-	receiptItemsCollectionRoute,
-	receiptDetailRoute,
-	receiptPictureRoute,
-	receiptsCollectionRoute,
-	recipeDetailRoute,
-	recipeImageDetailRoute,
-	recipeIngredientDetailRoute,
-	recipeImagesCollectionRoute,
-	recipeIngredientsCollectionRoute,
-	recipesCollectionRoute,
-	shoppingListItemDetailRoute,
-	shoppingListItemsCollectionRoute,
-	spendingRoute,
-	jobDetailRoute,
-	jobsCollectionRoute,
-	startJobWorker,
-	timeEntriesCollectionRoute,
-	timeEntryDetailRoute,
-	timeEntryStartRoute,
-	timeEntryStopRoute,
-	clientDetailRoute,
-	clientsCollectionRoute,
-	projectDetailRoute,
-	projectsCollectionRoute,
-	timeReportRoute,
-	todoDetailRoute,
-	todosCollectionRoute,
-	userDetailRoute,
-	usersCollectionRoute,
-} from "./api";
-import { deriveFilesPath } from "./api/core";
+import * as routes from "./api"
+import { createApiRoutes } from "./api/route-map"
+import { resolvePuplerVersion, versionPayload } from "./config"
+import { dbPath, filesPath, initializeDatabase } from "./db"
 
-import index from "./web/index.html";
+import index from "./web/index.html"
 
-const notFoundPage = Bun.file(new URL("./web/404.html", import.meta.url));
-const favicon = Bun.file(new URL("./web/favicon.png", import.meta.url));
+const favicon = Bun.file(new URL("./web/favicon.png", import.meta.url))
 
-type ServerOptions = {
-	dbPath?: string;
-	filesPath?: string;
-	port?: number;
-};
+const version = resolvePuplerVersion()
+const envPort = process.env.PORT
+	? Number.parseInt(process.env.PORT, 10)
+	: undefined
+const port = Number.isFinite(envPort) ? envPort : 5995
+const database = initializeDatabase()
 
-type Environment = Record<string, string | undefined>;
-
-export const resolvePuplerVersion = (env: Environment = process.env) =>
-	env.PUPLER_VERSION ?? "dev";
-
-export const versionPayload = (env: Environment = process.env) => ({
-	version: resolvePuplerVersion(env),
-});
-
-export const resolveDatabasePath = (
-	override?: string,
-	env: Environment = process.env,
-) =>
-	override ?? env.DB_PATH ?? (env.DATA_PATH ? `${env.DATA_PATH}/pupler.db` : "pupler.db");
-
-export const resolveFilesPath = (
-	dbPath: string,
-	env: Environment = process.env,
-) => (env.DATA_PATH ? `${env.DATA_PATH}/files` : deriveFilesPath(dbPath));
-
-export const server = (options: ServerOptions = {}) => {
-	const dbPath = resolveDatabasePath(options.dbPath);
-	const filesPath = options.filesPath ?? resolveFilesPath(dbPath);
-	const envPort = process.env.PORT
-		? Number.parseInt(process.env.PORT, 10)
-		: undefined;
-	const port = options.port ?? (Number.isFinite(envPort) ? envPort : 5995);
-	const db = openDatabase(dbPath, filesPath);
-	if (process.env.PUPLER_DISABLE_JOB_WORKER !== "true") {
-		void startJobWorker(db);
-	}
-
-	return Bun.serve({
-		port,
-		routes: {
-			"/api/auth/login": authLoginRoute(db),
-			"/api/auth/logout": authLogoutRoute(db),
-			"/api/auth/password": authPasswordRoute(db),
-			"/api/auth/session": authSessionRoute(db),
-			"/api/external-integrations": externalIntegrationsCollectionRoute(db),
-			"/api/external-integrations/clockify": clockifyIntegrationRoute(db),
-			"/api/external-integrations/:id/clockify-options": clockifyIntegrationOptionsRoute(db),
-			"/api/external-integrations/:id": externalIntegrationDetailRoute(db),
-			"/api/import-schedules": importSchedulesCollectionRoute(db),
-			"/api/import-schedules/:id/run": importScheduleRunRoute(db),
-			"/api/import-schedules/:id": importScheduleDetailRoute(db),
-			"/api/jobs": jobsCollectionRoute(db),
-			"/api/jobs/:id": jobDetailRoute(db),
-			"/api/groups": groupsCollectionRoute(db),
-			"/api/groups/:id": groupDetailRoute(db),
-			"/api/ingredients": ingredientsCollectionRoute(db),
-			"/api/ingredients/:id": ingredientDetailRoute(db),
-			"/api/products": productsCollectionRoute(db),
-			"/api/products/:id": productDetailRoute(db),
-			"/api/products/:id/picture": productPictureRoute(db),
-			"/api/product-links": productLinksCollectionRoute(db),
-			"/api/product-links/:id": productLinkDetailRoute(db),
-			"/api/receipts": receiptsCollectionRoute(db),
-			"/api/receipts/:id": receiptDetailRoute(db),
-			"/api/receipts/:id/picture": receiptPictureRoute(db),
-			"/api/receipt-items": receiptItemsCollectionRoute(db),
-			"/api/receipt-items/:id": receiptItemDetailRoute(db),
-			"/api/inventory-containers": inventoryContainersCollectionRoute(db),
-			"/api/inventory-containers/:id": inventoryContainerDetailRoute(db),
-			"/api/inventory-items": inventoryItemsCollectionRoute(db),
-			"/api/inventory-items/:id/pictures": inventoryItemImagesCollectionRoute(db),
-			"/api/inventory-items/:id/pictures/:pictureId": inventoryItemImageDetailRoute(db),
-			"/api/inventory-items/:id": inventoryItemDetailRoute(db),
-			"/api/recipes": recipesCollectionRoute(db),
-			"/api/recipes/:id": recipeDetailRoute(db),
-			"/api/recipes/:id/pictures": recipeImagesCollectionRoute(db),
-			"/api/recipes/:id/pictures/:pictureId": recipeImageDetailRoute(db),
-			"/api/recipe-ingredients": recipeIngredientsCollectionRoute(db),
-			"/api/recipe-ingredients/:id": recipeIngredientDetailRoute(db),
-			"/api/meal-plan-items": mealPlanItemsCollectionRoute(db),
-			"/api/meal-plan-items/:id": mealPlanItemDetailRoute(db),
-			"/api/shopping-list-items": shoppingListItemsCollectionRoute(db),
-			"/api/shopping-list-items/:id": shoppingListItemDetailRoute(db),
-			"/api/todos": todosCollectionRoute(db),
-			"/api/todos/:id": todoDetailRoute(db),
-			"/api/users": usersCollectionRoute(db),
-			"/api/users/:id": userDetailRoute(db),
-			"/api/clients": clientsCollectionRoute(db),
-			"/api/clients/:id": clientDetailRoute(db),
-			"/api/projects": projectsCollectionRoute(db),
-			"/api/projects/:id": projectDetailRoute(db),
-			"/api/time-entries": timeEntriesCollectionRoute(db),
-			"/api/time-entries/start": timeEntryStartRoute(db),
-			"/api/time-entries/:id/stop": timeEntryStopRoute(db),
-			"/api/time-entries/:id": timeEntryDetailRoute(db),
-			"/api/time-report": timeReportRoute(db),
-			"/api/spending": spendingRoute(db),
-			"/health": new Response("ok"),
-			"/version": Response.json(versionPayload()),
-			"/favicon.png": new Response(favicon, {
-				headers: { "Content-Type": "image/png" },
-			}),
-			"/api/*": Response.json(
-				{ error: "Route not found" },
-				{ status: 404 },
-			),
-			"/": index,
-			"/login": index,
-			"/settings": index,
-			"/integrations": index,
-			"/import-schedules/:id": index,
-			"/import-schedules": index,
-			"/jobs": index,
-			"/expirations": index,
-			"/inventory": index,
-			"/inventory/expirations": index,
-			"/inventory/containers/:id": index,
-			"/inventory/items/:id": index,
-			"/groups/:id": index,
-			"/clients": index,
-			"/projects": index,
-			"/products": index,
-			"/products/:id": index,
-			"/receipts": index,
-			"/receipts/:id": index,
-			"/spending/overview": index,
-			"/spending": index,
-			"/spending/monthly": index,
-			"/spending/items": index,
-			"/shoppinglist": index,
-			"/todos": index,
-			"/time": index,
-			"/time/overview": index,
-			"/time/monthly": index,
-			"/time/weekly": index,
-			"/recipes": index,
-			"/recipes/new": index,
-			"/recipes/:id": index,
-			"/*": new Response(notFoundPage, {
-				status: 404,
-				headers: { "Content-Type": "text/html; charset=utf-8" },
-			}),
-		},
-	});
-};
-
-if (import.meta.main) {
-	const version = resolvePuplerVersion();
-	const dbPath = resolveDatabasePath();
-	const filesPath = resolveFilesPath(dbPath);
-	const instance = server({ dbPath, filesPath });
-	console.log(
-		`Pupler ${version} listening on ${instance.url} using ${dbPath} with files at ${filesPath}`,
-	);
+if (process.env.PUPLER_DISABLE_JOB_WORKER !== "true") {
+	void routes.startJobWorker(database)
 }
+
+const apiRoutes = createApiRoutes({
+	public: {
+		"/api/auth/bootstrap": routes.authBootstrapRoute,
+		"/api/auth/login": routes.authLoginRoute,
+		"/api/auth/logout": routes.authLogoutRoute,
+		"/api/auth/session": routes.authSessionRoute,
+	},
+	authenticated: {
+		"/api/auth/password": routes.authPasswordRoute,
+		"/api/external-integrations": routes.externalIntegrationsCollectionRoute(database),
+		"/api/external-integrations/clockify": routes.clockifyIntegrationRoute(database),
+		"/api/external-integrations/:id/clockify-options": routes.clockifyIntegrationOptionsRoute(database),
+		"/api/external-integrations/:id": routes.externalIntegrationDetailRoute(database),
+		"/api/import-schedules": routes.importSchedulesCollectionRoute(database),
+		"/api/import-schedules/:id/run": routes.importScheduleRunRoute(database),
+		"/api/import-schedules/:id": routes.importScheduleDetailRoute(database),
+		"/api/jobs": routes.jobsCollectionRoute(database),
+		"/api/jobs/:id": routes.jobDetailRoute(database),
+		"/api/groups": routes.groupsCollectionRoute,
+		"/api/groups/:id": routes.groupDetailRoute,
+		"/api/ingredients": routes.ingredientsCollectionRoute,
+		"/api/ingredients/:id": routes.ingredientDetailRoute,
+		"/api/products": routes.productsCollectionRoute,
+		"/api/product-stats": routes.productStatsRoute,
+		"/api/products/:id": routes.productDetailRoute,
+		"/api/products/:id/picture": routes.productPictureRoute,
+		"/api/product-links": routes.productLinksCollectionRoute,
+		"/api/product-links/:id": routes.productLinkDetailRoute,
+		"/api/receipts": routes.receiptsCollectionRoute,
+		"/api/receipts/:id": routes.receiptDetailRoute,
+		"/api/receipts/:id/picture": routes.receiptPictureRoute,
+		"/api/receipt-items": routes.receiptItemsCollectionRoute,
+		"/api/receipt-items/:id": routes.receiptItemDetailRoute,
+		"/api/inventory-containers": routes.inventoryContainersCollectionRoute,
+		"/api/inventory-containers/:id": routes.inventoryContainerDetailRoute,
+		"/api/inventory-items": routes.inventoryItemsCollectionRoute,
+		"/api/inventory-items/:id/pictures":
+			routes.inventoryItemImagesCollectionRoute,
+		"/api/inventory-items/:id/pictures/:pictureId":
+			routes.inventoryItemImageDetailRoute,
+		"/api/inventory-items/:id": routes.inventoryItemDetailRoute,
+		"/api/recipes": routes.recipesCollectionRoute,
+		"/api/recipes/:id": routes.recipeDetailRoute,
+		"/api/recipes/:id/pictures": routes.recipeImagesCollectionRoute,
+		"/api/recipes/:id/pictures/:pictureId": routes.recipeImageDetailRoute,
+		"/api/recipe-ingredients": routes.recipeIngredientsCollectionRoute,
+		"/api/recipe-ingredients/:id": routes.recipeIngredientDetailRoute,
+		"/api/meal-plan-items": routes.mealPlanItemsCollectionRoute,
+		"/api/meal-plan-items/:id": routes.mealPlanItemDetailRoute,
+		"/api/shopping-list-items": routes.shoppingListItemsCollectionRoute,
+		"/api/shopping-list-items/:id": routes.shoppingListItemDetailRoute,
+		"/api/todos": routes.todosCollectionRoute,
+		"/api/todos/:id": routes.todoDetailRoute,
+		"/api/clients": routes.clientsCollectionRoute,
+		"/api/clients/:id": routes.clientDetailRoute,
+		"/api/projects": routes.projectsCollectionRoute,
+		"/api/projects/:id/merge": routes.projectMergeRoute,
+		"/api/projects/:id": routes.projectDetailRoute,
+		"/api/time-entries": routes.timeEntriesCollectionRoute,
+		"/api/time-entries/start": routes.timeEntryStartRoute,
+		"/api/time-entries/:id/stop": routes.timeEntryStopRoute,
+		"/api/time-entries/:id": routes.timeEntryDetailRoute,
+		"/api/time-report": routes.timeReportRoute,
+		"/api/spending": routes.spendingRoute,
+		"/version": () => Response.json(versionPayload()),
+	},
+	admin: {
+		"/api/users": routes.usersCollectionRoute,
+		"/api/users/:id": routes.userDetailRoute,
+	},
+})
+
+const instance = Bun.serve({
+	port,
+	routes: {
+		...apiRoutes,
+		"/health": new Response("ok"),
+		"/favicon.png": new Response(favicon, {
+			headers: { "Content-Type": "image/png" },
+		}),
+		"/api/*": Response.json({ error: "Route not found" }, { status: 404 }),
+		"/*": index,
+	},
+})
+
+console.log(
+	`Pupler ${version} listening on ${instance.url} using ${dbPath} with files at ${filesPath}`,
+)
