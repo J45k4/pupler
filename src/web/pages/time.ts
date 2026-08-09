@@ -2001,7 +2001,30 @@ const createTimerPanel = (context: TimePageContext) => {
 					)
 				}
 			}
-			actions.append(editButton.root, stopButton.root)
+			const discardButton = new Button({
+				text: "Discard",
+				className: "secondary time-running__discard",
+			})
+			discardButton.onClick = async () => {
+				if (!window.confirm("Discard this running timer? This cannot be undone.")) {
+					return
+				}
+				discardButton.root.disabled = true
+				try {
+					await context.actions.deleteEntry(runningEntry)
+					setStatus(context.status, "Timer discarded.")
+				} catch (error) {
+					discardButton.root.disabled = false
+					setStatus(
+						context.status,
+						error instanceof Error
+							? error.message
+							: "Failed to discard timer.",
+						true,
+					)
+				}
+			}
+			actions.append(editButton.root, stopButton.root, discardButton.root)
 			running.append(actions)
 			root.append(running, editModal.root, stopProjectModal.root)
 

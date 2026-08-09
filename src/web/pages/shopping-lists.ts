@@ -189,8 +189,7 @@ const setShoppingListItemDone = async (itemId: number, done: boolean) => {
 }
 
 const attachShoppingListPageEvents = () => {
-	document
-		.getElementById("shopping-list-item-form")
+	getElementById("shopping-list-item-form")
 		?.addEventListener("submit", async (event) => {
 			event.preventDefault()
 
@@ -255,8 +254,7 @@ const attachShoppingListPageEvents = () => {
 			}
 		})
 
-	document
-		.getElementById("shoppinglist-show-done")
+	getElementById("shoppinglist-show-done")
 		?.addEventListener("change", () => {
 			void loadShoppingListItems()
 		})

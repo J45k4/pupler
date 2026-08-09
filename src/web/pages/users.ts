@@ -29,9 +29,7 @@ const apiJson = async <T>(path: string, options: RequestInit = {}) => {
 		},
 	})
 	const body = (await response.json().catch(() => null)) as
-		| T
-		| { error?: string }
-		| null
+		T | { error?: string } | null
 	if (!response.ok) {
 		throw new Error(
 			typeof body === "object" && body !== null && "error" in body
@@ -58,14 +56,7 @@ const renderUsers = (users: User[]) => {
 
 	const table = createElement("table", { className: "user-table" })
 	const header = document.createElement("tr")
-	for (const label of [
-		"Name",
-		"Username",
-		"Email",
-		"Password",
-		"Admin",
-		"Actions",
-	]) {
+	for (const label of ["Name", "Username", "Email", "Admin", "Actions"]) {
 		const cell = createElement("th", { text: label })
 		cell.scope = "col"
 		header.append(cell)
@@ -99,10 +90,6 @@ const renderUsers = (users: User[]) => {
 			createElement("td", { text: user.name }),
 			createElement("td", { text: user.username ?? "—" }),
 			createElement("td", { text: user.email ?? "—" }),
-			createElement("td", {
-				className: "user-table__password",
-				text: "••••••••",
-			}),
 			adminCell,
 			createElement(
 				"td",

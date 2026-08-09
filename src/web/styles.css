@@ -2856,6 +2856,11 @@ body.modal-open {
 	gap: 0.5rem;
 }
 
+.time-running__discard {
+	background: rgba(174, 48, 48, 0.12);
+	color: #9b2f2f;
+}
+
 .time-color {
 	display: inline-block;
 	flex: 0 0 auto;
