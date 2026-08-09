@@ -1,4 +1,4 @@
-import { createElement, getElementById, type DomChild } from "../lib/dom"
+import { createElement, escapeHtml, getElementById, type DomChild } from "../lib/dom"
 
 type CreateModalOptions = {
 	id: string
@@ -19,6 +19,44 @@ type AttachModalOptions = {
 	onOpen?: () => void
 	onClose?: () => void
 }
+
+type RenderModalOptions = Omit<CreateModalOptions, "children"> & {
+	children: string
+}
+
+export const renderModal = ({
+	id,
+	title,
+	children,
+	closeDataAttribute,
+	ariaLabel,
+	className = "",
+	headerClassName = "",
+	titleId = `${id}-title`,
+}: RenderModalOptions) => `
+	<div class="app-modal ${escapeHtml(className)}" id="${escapeHtml(id)}" hidden>
+		<div class="app-modal__backdrop" ${closeDataAttribute}></div>
+		<div
+			class="app-modal__dialog card panel"
+			role="dialog"
+			aria-modal="true"
+			${ariaLabel ? `aria-label="${escapeHtml(ariaLabel)}"` : `aria-labelledby="${escapeHtml(titleId)}"`}
+		>
+			<div class="section-header ${escapeHtml(headerClassName)}">
+				<h2 id="${escapeHtml(titleId)}">${escapeHtml(title)}</h2>
+				<button
+					class="secondary"
+					type="button"
+					aria-label="Close ${escapeHtml(title.toLowerCase())} modal"
+					${closeDataAttribute}
+				>
+					Close
+				</button>
+			</div>
+			${children}
+		</div>
+	</div>
+`
 
 export const createModal = ({
 	id,

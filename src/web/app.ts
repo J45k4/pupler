@@ -15,12 +15,14 @@ import { displayCurrency, displayMoneyAmount } from "../currency"
 import {
 	createElement,
 	createEmptyState,
+	createHtmlFragment,
 	getElementById,
 	querySelector,
 	querySelectorAll,
 } from "./lib/dom"
 
 export { createProductCategoryInput, createUnitSelect } from "./ui/form-fields"
+export { escapeHtml } from "./lib/dom"
 export {
 	attachUploadDropzones,
 	createUploadDropzone,
@@ -365,9 +367,9 @@ export const renderAppShell = (shellClassName = "") => {
 	return main
 }
 
-export const renderPage = (content: Node, shellClassName = "") => {
+export const renderPage = (content: Node | string, shellClassName = "") => {
 	const main = renderAppShell(shellClassName)
-	main.replaceChildren(content)
+	main.replaceChildren(typeof content === "string" ? createHtmlFragment(content) : content)
 	return main
 }
 

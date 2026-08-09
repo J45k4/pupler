@@ -1,4 +1,5 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs"
+import { Database as SQLiteDatabase } from "bun:sqlite"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, test } from "bun:test"
@@ -8,11 +9,18 @@ import {
 	authLogoutRoute,
 	authPasswordRoute,
 	authSessionRoute,
+	clockifyIntegrationRoute,
+	clockifyIntegrationOptionsRoute,
 	closeDatabase,
+	externalIntegrationDetailRoute,
+	externalIntegrationsCollectionRoute,
 	groupDetailRoute,
 	groupsCollectionRoute,
 	ingredientDetailRoute,
 	ingredientsCollectionRoute,
+	importScheduleDetailRoute,
+	importScheduleRunRoute,
+	importSchedulesCollectionRoute,
 	inventoryContainerDetailRoute,
 	inventoryContainersCollectionRoute,
 	inventoryItemDetailRoute,
@@ -40,6 +48,10 @@ import {
 	shoppingListItemDetailRoute,
 	shoppingListItemsCollectionRoute,
 	spendingRoute,
+	jobDetailRoute,
+	jobEventsRoute,
+	jobsCollectionRoute,
+	nextScheduleRunAt,
 	timeEntriesCollectionRoute,
 	timeEntryDetailRoute,
 	timeEntryStartRoute,
@@ -55,6 +67,8 @@ import {
 	todosCollectionRoute,
 	userDetailRoute,
 	usersCollectionRoute,
+	publishJobUpdate,
+	wakeJobWorker,
 } from "../src/api"
 import {
 	resolveDatabasePath,
@@ -99,6 +113,16 @@ const createRoutes = () => {
 				"/api/auth/logout": authLogoutRoute,
 				"/api/auth/password": authPasswordRoute,
 				"/api/auth/session": authSessionRoute,
+				"/api/external-integrations": externalIntegrationsCollectionRoute(db),
+				"/api/external-integrations/clockify": clockifyIntegrationRoute(db),
+				"/api/external-integrations/:id/clockify-options": clockifyIntegrationOptionsRoute(db),
+				"/api/external-integrations/:id": externalIntegrationDetailRoute(db),
+				"/api/import-schedules": importSchedulesCollectionRoute(db),
+				"/api/import-schedules/:id/run": importScheduleRunRoute(db),
+				"/api/import-schedules/:id": importScheduleDetailRoute(db),
+				"/api/jobs": jobsCollectionRoute(db),
+				"/api/jobs/events": jobEventsRoute(db),
+				"/api/jobs/:id": jobDetailRoute(db),
 				"/api/groups": groupsCollectionRoute,
 				"/api/groups/:id": groupDetailRoute,
 				"/api/ingredients": ingredientsCollectionRoute,
@@ -163,37 +187,55 @@ const request = async (
 		? "/api/products/:id/picture"
 		: pathname.match(/^\/api\/receipts\/\d+\/picture$/)
 			? "/api/receipts/:id/picture"
-			: pathname.match(/^\/api\/auth\/(login|logout|password|session)$/)
-				? pathname
-				: pathname.match(/^\/api\/time-entries\/start$/)
-					? "/api/time-entries/start"
-					: pathname.match(/^\/api\/time-entries\/\d+\/stop$/)
-						? "/api/time-entries/:id/stop"
-						: pathname.match(/^\/api\/projects\/\d+\/merge$/)
-							? "/api/projects/:id/merge"
-							: pathname.match(/^\/api\/recipes\/\d+\/pictures$/)
-								? "/api/recipes/:id/pictures"
+			: pathname.match(/^\/api\/import-schedules\/\d+\/run$/)
+				? "/api/import-schedules/:id/run"
+				: pathname.match(
+							/^\/api\/external-integrations\/\d+\/clockify-options$/,
+					  )
+					? "/api/external-integrations/:id/clockify-options"
+					: pathname === "/api/external-integrations/clockify"
+						? "/api/external-integrations/clockify"
+						: pathname.match(
+									/^\/api\/auth\/(login|logout|password|session)$/,
+							  )
+							? pathname
+							: pathname.match(/^\/api\/time-entries\/start$/)
+								? "/api/time-entries/start"
 								: pathname.match(
-											/^\/api\/recipes\/\d+\/pictures\/\d+$/,
+											/^\/api\/time-entries\/\d+\/stop$/,
 									  )
-									? "/api/recipes/:id/pictures/:pictureId"
+									? "/api/time-entries/:id/stop"
 									: pathname.match(
-												/^\/api\/inventory-items\/\d+\/pictures$/,
+												/^\/api\/projects\/\d+\/merge$/,
 										  )
-										? "/api/inventory-items/:id/pictures"
+										? "/api/projects/:id/merge"
 										: pathname.match(
-													/^\/api\/inventory-items\/\d+\/pictures\/\d+$/,
+													/^\/api\/recipes\/\d+\/pictures$/,
 											  )
-											? "/api/inventory-items/:id/pictures/:pictureId"
-											: pathname
-														.split("/")
-														.filter(Boolean)
-														.length === 3
-												? pathname.replace(
-														/\/[^/]+$/,
-														"/:id",
-													)
-												: pathname
+											? "/api/recipes/:id/pictures"
+											: pathname.match(
+														/^\/api\/recipes\/\d+\/pictures\/\d+$/,
+												  )
+												? "/api/recipes/:id/pictures/:pictureId"
+												: pathname.match(
+															/^\/api\/inventory-items\/\d+\/pictures$/,
+													  )
+													? "/api/inventory-items/:id/pictures"
+													: pathname.match(
+																/^\/api\/inventory-items\/\d+\/pictures\/\d+$/,
+														  )
+														? "/api/inventory-items/:id/pictures/:pictureId"
+														: pathname
+																	.split("/")
+																	.filter(
+																		Boolean,
+																	).length ===
+															  3
+															? pathname.replace(
+																	/\/[^/]+$/,
+																	"/:id",
+																)
+															: pathname
 	const handler = routes.handlers[routeKey as keyof typeof routes.handlers]
 	if (handler instanceof Response) {
 		return handler.clone()
@@ -207,6 +249,20 @@ const request = async (
 	return handler(req)
 }
 
+const waitForJobRecord = async (
+	routes: ReturnType<typeof createRoutes>,
+	jobId: number,
+) => {
+	for (let index = 0; index < 50; index += 1) {
+		const job = await routes.db.client.job.findUnique({
+			where: { id: jobId },
+		})
+		if (job?.status === 3 || job?.status === 4) return job
+		await Bun.sleep(20)
+	}
+	throw new Error(`Job ${jobId} did not finish`)
+}
+
 describe("Pupler API", () => {
 	test("exposes the app version", async () => {
 		const routes = createRoutes()
@@ -216,6 +272,37 @@ describe("Pupler API", () => {
 		expect(await response.json()).toEqual({
 			version: "dev",
 		})
+	})
+
+	test("streams realtime job updates", async () => {
+		const routes = createRoutes()
+		const handler = routes.handlers["/api/jobs/events"]
+		const response = await handler(new Request("http://localhost/api/jobs/events"))
+		expect(response.status).toBe(200)
+		expect(response.headers.get("Content-Type")).toBe("text/event-stream; charset=utf-8")
+		const reader = response.body?.getReader()
+		if (!reader) throw new Error("Job event stream was not created")
+		const decoder = new TextDecoder()
+		const ready = await reader.read()
+		expect(decoder.decode(ready.value)).toContain("event: ready")
+
+		const now = new Date().toISOString()
+		const job = await routes.db.client.job.create({
+			data: {
+				type: 1,
+				status: 2,
+				params_json: "{}",
+				created_at: now,
+				updated_at: now,
+			},
+		})
+		publishJobUpdate(routes.db, job)
+		const update = await reader.read()
+		const updateText = decoder.decode(update.value)
+		expect(updateText).toContain("event: job")
+		expect(updateText).toContain(`\"id\":${job.id}`)
+		expect(updateText).toContain("\"status\":2")
+		await reader.cancel()
 	})
 
 	test("creates, updates, lists, and deletes groups", async () => {
@@ -974,6 +1061,548 @@ describe("Pupler API", () => {
 		expect(stopResponse.status).toBe(200)
 		const stopped = await stopResponse.json()
 		expect(stopped.ended_at).toBe("2026-05-26T14:00:00.000Z")
+	})
+
+	test("normalizes and initializes recurring import schedule times", async () => {
+		const routes = createRoutes()
+		const now = new Date().toISOString()
+		const integration = await routes.db.client.externalIntegration.create({
+			data: {
+				provider: 1,
+				name: "schedule-test",
+				status: 1,
+				config_json: "{}",
+				credentials_encrypted_json: "{}",
+				created_at: now,
+				updated_at: now,
+			},
+		})
+		const beforeCreate = Date.now()
+		const recurringResponse = await request(
+			routes,
+			"/api/import-schedules",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					integration_id: integration.id,
+					name: "Daily",
+					cadence: 3,
+					timezone: "Europe/Helsinki",
+				}),
+			},
+		)
+		expect(recurringResponse.status).toBe(201)
+		const recurringSchedule = await recurringResponse.json()
+		const firstRun = Date.parse(recurringSchedule.next_run_at)
+		expect(firstRun).toBeGreaterThan(beforeCreate + 22 * 60 * 60 * 1000)
+		expect(firstRun).toBeLessThan(Date.now() + 26 * 60 * 60 * 1000)
+
+		const explicitResponse = await request(
+			routes,
+			"/api/import-schedules",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					integration_id: integration.id,
+					name: "Explicit",
+					cadence: 3,
+					timezone: "Europe/Helsinki",
+					next_run_at: "2026-07-20T09:00:00+03:00",
+				}),
+			},
+		)
+		expect(explicitResponse.status).toBe(201)
+		expect((await explicitResponse.json()).next_run_at).toBe(
+			"2026-07-20T06:00:00.000Z",
+		)
+
+		const invalidTimezoneResponse = await request(
+			routes,
+			"/api/import-schedules",
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					integration_id: integration.id,
+					name: "Invalid timezone",
+					cadence: 3,
+					timezone: "Mars/Olympus_Mons",
+				}),
+			},
+		)
+		expect(invalidTimezoneResponse.status).toBe(400)
+
+		expect(
+			nextScheduleRunAt("2026-03-28T07:00:00.000Z", 3, "Europe/Helsinki"),
+		).toBe("2026-03-29T06:00:00.000Z")
+		expect(
+			nextScheduleRunAt("2026-10-24T06:00:00.000Z", 3, "Europe/Helsinki"),
+		).toBe("2026-10-25T07:00:00.000Z")
+	})
+
+	test("does not enqueue or execute imports for disabled integrations", async () => {
+		const routes = createRoutes()
+		const now = new Date().toISOString()
+		const integration = await routes.db.client.externalIntegration.create({
+			data: {
+				provider: 1,
+				name: "disabled",
+				status: 2,
+				config_json: "{}",
+				credentials_encrypted_json: "{}",
+				created_at: now,
+				updated_at: now,
+			},
+		})
+		const schedule = await routes.db.client.importSchedule.create({
+			data: {
+				integration_id: integration.id,
+				type: 1,
+				status: 1,
+				name: "Disabled daily",
+				cadence: 3,
+				timezone: "UTC",
+				cursor_json: null,
+				params_json: "{}",
+				next_run_at: "2026-01-01T00:00:00.000Z",
+				last_run_at: null,
+				last_job_id: null,
+				created_at: now,
+				updated_at: now,
+			},
+		})
+
+		wakeJobWorker(routes.db)
+		await Bun.sleep(100)
+		expect(await routes.db.client.job.count()).toBe(0)
+
+		const pendingJob = await routes.db.client.job.create({
+			data: {
+				schedule_id: schedule.id,
+				integration_id: integration.id,
+				type: 1,
+				status: 1,
+				params_json: "{}",
+				cursor_json: null,
+				created_at: now,
+				updated_at: now,
+			},
+		})
+		wakeJobWorker(routes.db)
+		const failedJob = await waitForJobRecord(routes, pendingJob.id)
+		expect(failedJob.status).toBe(4)
+		expect(failedJob.error_message).toBe(
+			"External integration is not active",
+		)
+	})
+
+	test("configures and runs Clockify imports through jobs and link tables", async () => {
+		const routes = createRoutes()
+		const originalKey = process.env.PUPLER_ENCRYPTION_KEY
+		const originalFullHistoryStart =
+			process.env.PUPLER_CLOCKIFY_FULL_HISTORY_START
+		const originalFetch = globalThis.fetch
+		process.env.PUPLER_ENCRYPTION_KEY = Buffer.from(
+			"0123456789abcdef0123456789abcdef",
+		).toString("base64")
+		process.env.PUPLER_CLOCKIFY_FULL_HISTORY_START =
+			"2026-07-01T00:00:00.000Z"
+
+		let clockifyDescription = "Planning"
+		const clockifyReportRequests: Array<{
+			dateRangeStart?: string
+			dateRangeEnd?: string
+		}> = []
+		globalThis.fetch = (async (input, init) => {
+			if (String(input).includes("/users")) {
+				return Response.json([
+					{
+						id: "user-1",
+						name: "Alice",
+						email: "alice@example.com",
+					},
+				])
+			}
+			clockifyReportRequests.push(JSON.parse(String(init?.body ?? "{}")))
+			return Response.json({
+				timeentries: [
+					{
+						id: "entry-1",
+						description: clockifyDescription,
+						projectId: "project-1",
+						projectName: "Pupler",
+						clientId: "client-1",
+						clientName: "OpenAI",
+						userId: "user-1",
+						userName: "Alice",
+						userEmail: "alice@example.com",
+						timeInterval: {
+							start: "2026-05-26T08:00:00.000Z",
+							end: "2026-05-26T09:00:00.000Z",
+						},
+					},
+				],
+			})
+		}) as unknown as typeof fetch
+
+		try {
+			const integrationResponse = await request(
+				routes,
+				"/api/external-integrations/clockify",
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						name: "default",
+						workspace_id: "workspace-1",
+						api_key: "clockify-secret",
+						reports_base_url: "https://clockify.test",
+					}),
+				},
+			)
+			expect(integrationResponse.status).toBe(200)
+			const integration = await integrationResponse.json()
+			expect(integration.provider).toBe(1)
+			expect(integration.credentials_encrypted_json).toBeUndefined()
+			const initialOptionsResponse = await request(
+				routes,
+				`/api/external-integrations/${integration.id}/clockify-options`,
+				{},
+				{ id: String(integration.id) },
+			)
+			expect(initialOptionsResponse.status).toBe(200)
+			expect((await initialOptionsResponse.json()).users).toEqual([
+				{
+					id: "user-1",
+					name: "Alice",
+					email: "alice@example.com",
+				},
+			])
+
+			const targetClientResponse = await request(routes, "/api/clients", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					name: "Work",
+				}),
+			})
+			expect(targetClientResponse.status).toBe(201)
+			const targetClient = await targetClientResponse.json()
+
+			const scheduleResponse = await request(
+				routes,
+				"/api/import-schedules",
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						integration_id: integration.id,
+						name: "Daily Clockify",
+						cadence: 1,
+						timezone: "UTC",
+						lookback_days: 14,
+						target_client_id: targetClient.id,
+					}),
+				},
+			)
+			expect(scheduleResponse.status).toBe(201)
+			const schedule = await scheduleResponse.json()
+
+			const runResponse = await request(
+				routes,
+				`/api/import-schedules/${schedule.id}/run`,
+				{ method: "POST", body: JSON.stringify({}) },
+				{ id: String(schedule.id) },
+			)
+			expect(runResponse.status).toBe(202)
+			const job = await runResponse.json()
+
+			let completedJob: {
+				status: number
+				result_json: string | null
+			} | null = null
+			for (let index = 0; index < 20; index += 1) {
+				const jobResponse = await request(
+					routes,
+					`/api/jobs/${job.id}`,
+					{},
+					{ id: String(job.id) },
+				)
+				completedJob = await jobResponse.json()
+				if (completedJob.status === 3 || completedJob.status === 4)
+					break
+				await Bun.sleep(25)
+			}
+			expect(completedJob?.status).toBe(3)
+			if (!completedJob) {
+				throw new Error("Clockify import job did not finish")
+			}
+			const firstResult = JSON.parse(completedJob.result_json ?? "{}")
+			expect(firstResult.created.clients).toBe(0)
+			expect(firstResult.created.time_entries).toBe(1)
+
+			const projectLinks =
+				await routes.db.client.clockifyProjectLink.findMany()
+			const timeEntryLinks =
+				await routes.db.client.clockifyTimeEntryLink.findMany()
+			expect(projectLinks).toHaveLength(1)
+			expect(timeEntryLinks).toHaveLength(1)
+			const importedProject =
+				await routes.db.client.project.findFirstOrThrow()
+			expect(importedProject.client_id).toBe(targetClient.id)
+			expect(
+				await routes.db.client.client.findFirst({
+					where: { name: "OpenAI" },
+				}),
+			).toBeNull()
+
+			const optionsResponse = await request(
+				routes,
+				`/api/external-integrations/${integration.id}/clockify-options`,
+				{},
+				{ id: String(integration.id) },
+			)
+			expect(optionsResponse.status).toBe(200)
+			const options = await optionsResponse.json()
+			expect(options.projects[0].id).toBe("project-1")
+			expect(options.users).toEqual([
+				{
+					id: "user-1",
+					name: "Alice",
+					email: "alice@example.com",
+				},
+			])
+
+			const updateScheduleResponse = await request(
+				routes,
+				`/api/import-schedules/${schedule.id}`,
+				{
+					method: "PATCH",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						lookback_days: null,
+						dry_run: false,
+					}),
+				},
+				{ id: String(schedule.id) },
+			)
+			expect(updateScheduleResponse.status).toBe(200)
+			const updatedSchedule = await updateScheduleResponse.json()
+			expect(
+				JSON.parse(updatedSchedule.params_json).lookback_days,
+			).toBeNull()
+
+			clockifyDescription = "Updated planning"
+			const secondRunResponse = await request(
+				routes,
+				`/api/import-schedules/${schedule.id}/run`,
+				{ method: "POST", body: JSON.stringify({}) },
+				{ id: String(schedule.id) },
+			)
+			const secondJob = await secondRunResponse.json()
+			for (let index = 0; index < 20; index += 1) {
+				const jobResponse = await request(
+					routes,
+					`/api/jobs/${secondJob.id}`,
+					{},
+					{ id: String(secondJob.id) },
+				)
+				const current = await jobResponse.json()
+				if (current.status === 3 || current.status === 4) break
+				await Bun.sleep(25)
+			}
+
+			expect(await routes.db.client.timeEntry.count()).toBe(1)
+			const updatedEntry =
+				await routes.db.client.timeEntry.findFirstOrThrow()
+			expect(updatedEntry.description).toBe("Updated planning")
+			expect(await routes.db.client.clockifyTimeEntryLink.count()).toBe(1)
+			expect(
+				clockifyReportRequests.some(
+					(request) =>
+						request.dateRangeStart === "2026-07-01T00:00:00.000Z",
+				),
+			).toBeTrue()
+
+			const userFilteredScheduleResponse = await request(
+				routes,
+				`/api/import-schedules/${schedule.id}`,
+				{
+					method: "PATCH",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ user_ids: ["other-user"] }),
+				},
+				{ id: String(schedule.id) },
+			)
+			expect(userFilteredScheduleResponse.status).toBe(200)
+			const userFilteredSchedule = await userFilteredScheduleResponse.json()
+			expect(JSON.parse(userFilteredSchedule.params_json).user_ids).toEqual([
+				"other-user",
+			])
+			const userFilteredRunResponse = await request(
+				routes,
+				`/api/import-schedules/${schedule.id}/run`,
+				{ method: "POST", body: JSON.stringify({}) },
+				{ id: String(schedule.id) },
+			)
+			const userFilteredJob = await userFilteredRunResponse.json()
+			const completedUserFilteredJob = await waitForJobRecord(
+				routes,
+				userFilteredJob.id,
+			)
+			expect(completedUserFilteredJob.status).toBe(3)
+			const userFilteredResult = JSON.parse(
+				completedUserFilteredJob.result_json ?? "{}",
+			)
+			expect(userFilteredResult.skipped.filtered_entries).toBeGreaterThanOrEqual(1)
+			expect(await routes.db.client.timeEntry.count()).toBe(1)
+
+			const filteredScheduleResponse = await request(
+				routes,
+				`/api/import-schedules/${schedule.id}`,
+				{
+					method: "PATCH",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ user_ids: [], project_ids: ["other-project"] }),
+				},
+				{ id: String(schedule.id) },
+			)
+			expect(filteredScheduleResponse.status).toBe(200)
+			const filteredRunResponse = await request(
+				routes,
+				`/api/import-schedules/${schedule.id}/run`,
+				{ method: "POST", body: JSON.stringify({}) },
+				{ id: String(schedule.id) },
+			)
+			const filteredJob = await filteredRunResponse.json()
+			let completedFilteredJob: {
+				status: number
+				result_json: string | null
+			} | null = null
+			for (let index = 0; index < 20; index += 1) {
+				const jobResponse = await request(
+					routes,
+					`/api/jobs/${filteredJob.id}`,
+					{},
+					{ id: String(filteredJob.id) },
+				)
+				completedFilteredJob = await jobResponse.json()
+				if (
+					completedFilteredJob.status === 3 ||
+					completedFilteredJob.status === 4
+				)
+					break
+				await Bun.sleep(25)
+			}
+			expect(completedFilteredJob?.status).toBe(3)
+			const filteredResult = JSON.parse(
+				completedFilteredJob?.result_json ?? "{}",
+			)
+			expect(filteredResult.skipped.filtered_entries).toBeGreaterThanOrEqual(1)
+			expect(await routes.db.client.timeEntry.count()).toBe(1)
+		} finally {
+			globalThis.fetch = originalFetch
+			if (originalKey === undefined) {
+				delete process.env.PUPLER_ENCRYPTION_KEY
+			} else {
+				process.env.PUPLER_ENCRYPTION_KEY = originalKey
+			}
+			if (originalFullHistoryStart === undefined) {
+				delete process.env.PUPLER_CLOCKIFY_FULL_HISTORY_START
+			} else {
+				process.env.PUPLER_CLOCKIFY_FULL_HISTORY_START =
+					originalFullHistoryStart
+			}
+		}
+	})
+
+	test("deduplicates dry-run client, user, and project counts", async () => {
+		const routes = createRoutes()
+		const originalKey = process.env.PUPLER_ENCRYPTION_KEY
+		const originalFetch = globalThis.fetch
+		process.env.PUPLER_ENCRYPTION_KEY = Buffer.from(
+			"0123456789abcdef0123456789abcdef",
+		).toString("base64")
+		globalThis.fetch = (async () =>
+			Response.json({
+				timeentries: ["entry-1", "entry-2"].map((id, index) => ({
+					id,
+					description: `Dry run ${index + 1}`,
+					projectId: "new-project",
+					projectName: "New Project",
+					clientId: "new-client",
+					clientName: "New Client",
+					userId: "new-user",
+					userName: "New User",
+					userEmail: "new-user@example.com",
+					timeInterval: {
+						start: `2026-07-15T0${8 + index}:00:00.000Z`,
+						end: `2026-07-15T${10 + index}:00:00.000Z`,
+					},
+				})),
+			})) as unknown as typeof fetch
+
+		try {
+			const integrationResponse = await request(
+				routes,
+				"/api/external-integrations/clockify",
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						name: "dry-run",
+						workspace_id: "workspace-dry-run",
+						api_key: "clockify-secret",
+						reports_base_url: "https://clockify.test",
+					}),
+				},
+			)
+			const integration = await integrationResponse.json()
+			const scheduleResponse = await request(
+				routes,
+				"/api/import-schedules",
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						integration_id: integration.id,
+						name: "Dry run",
+						cadence: 1,
+						timezone: "UTC",
+						dry_run: true,
+					}),
+				},
+			)
+			const schedule = await scheduleResponse.json()
+			const runResponse = await request(
+				routes,
+				`/api/import-schedules/${schedule.id}/run`,
+				{ method: "POST", body: JSON.stringify({}) },
+				{ id: String(schedule.id) },
+			)
+			const queuedJob = await runResponse.json()
+			const completedJob = await waitForJobRecord(routes, queuedJob.id)
+			expect(completedJob.status).toBe(3)
+			const result = JSON.parse(completedJob.result_json ?? "{}")
+			expect(result.created.clients).toBe(1)
+			expect(result.created.users).toBe(1)
+			expect(result.created.projects).toBe(1)
+			expect(result.created.project_links).toBe(1)
+			expect(result.created.time_entries).toBe(2)
+			expect(await routes.db.client.client.count()).toBe(0)
+			expect(await routes.db.client.user.count()).toBe(0)
+			expect(await routes.db.client.project.count()).toBe(0)
+			expect(await routes.db.client.timeEntry.count()).toBe(0)
+		} finally {
+			globalThis.fetch = originalFetch
+			if (originalKey === undefined) {
+				delete process.env.PUPLER_ENCRYPTION_KEY
+			} else {
+				process.env.PUPLER_ENCRYPTION_KEY = originalKey
+			}
+		}
 	})
 
 	test("groups receipts and clears receipt links when a group is deleted", async () => {
@@ -1937,6 +2566,16 @@ describe("Pupler API", () => {
 		expect(resolveFilesPath("/var/lib/pupler/custom.db", {})).toBe(
 			"/var/lib/pupler/files",
 		)
+	})
+
+	test("enables write-ahead logging for SQLite databases", () => {
+		const routes = createRoutes()
+		const sqlite = new SQLiteDatabase(routes.db.dbPath, { readonly: true, strict: true })
+		try {
+			expect(sqlite.query("PRAGMA journal_mode").get()).toEqual({ journal_mode: "wal" })
+		} finally {
+			sqlite.close()
+		}
 	})
 
 	test("returns standalone and linked recipe ingredients in recipe detail responses", async () => {

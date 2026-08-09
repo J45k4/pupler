@@ -222,6 +222,37 @@ describe("Pupler API e2e", () => {
 			"text/html",
 		)
 		expect(usersPage.body).toContain("<title>Pupler</title>")
+
+		const integrationsPage = await server.call<string>("/integrations")
+		expect(integrationsPage.response.status).toBe(200)
+		expect(integrationsPage.response.headers.get("content-type")).toContain(
+			"text/html",
+		)
+		expect(integrationsPage.body).toContain("<title>Pupler</title>")
+
+		const importSchedulesPage =
+			await server.call<string>("/import-schedules")
+		expect(importSchedulesPage.response.status).toBe(200)
+		expect(
+			importSchedulesPage.response.headers.get("content-type"),
+		).toContain("text/html")
+		expect(importSchedulesPage.body).toContain("<title>Pupler</title>")
+
+		const importScheduleEditPage = await server.call<string>(
+			"/import-schedules/1",
+		)
+		expect(importScheduleEditPage.response.status).toBe(200)
+		expect(
+			importScheduleEditPage.response.headers.get("content-type"),
+		).toContain("text/html")
+		expect(importScheduleEditPage.body).toContain("<title>Pupler</title>")
+
+		const jobsPage = await server.call<string>("/jobs")
+		expect(jobsPage.response.status).toBe(200)
+		expect(jobsPage.response.headers.get("content-type")).toContain(
+			"text/html",
+		)
+		expect(jobsPage.body).toContain("<title>Pupler</title>")
 	})
 
 	test("serves the app shell for receipt pages", async () => {

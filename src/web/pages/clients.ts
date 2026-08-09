@@ -226,8 +226,7 @@ const loadClients = async () => {
 }
 
 const attachClientEvents = () => {
-	document
-		.getElementById("client-create-form")
+	getElementById("client-create-form")
 		?.addEventListener("submit", async (event) => {
 			event.preventDefault()
 			const form = event.currentTarget
@@ -272,8 +271,7 @@ const attachClientEvents = () => {
 			}
 		})
 
-	document
-		.getElementById("clients-show-archived")
+	getElementById("clients-show-archived")
 		?.addEventListener("change", renderClientRows)
 }
 

@@ -154,6 +154,24 @@ const navigationEntries: NavigationEntry[] = [
 		keywords: "password account",
 	},
 	{
+		href: "/integrations",
+		label: "Integrations",
+		group: "Settings",
+		keywords: "clockify imports external",
+	},
+	{
+		href: "/import-schedules",
+		label: "Import Schedules",
+		group: "Settings",
+		keywords: "clockify schedules imports cadence",
+	},
+	{
+		href: "/jobs",
+		label: "Jobs",
+		group: "Settings",
+		keywords: "background jobs imports history",
+	},
+	{
 		href: "/users",
 		label: "Users",
 		group: "Settings",
@@ -238,6 +256,12 @@ const renderAccountMenu = (user: NavbarUser | null) => {
 	})
 	settings.href = "/settings"
 	settings.dataset.link = ""
+	const integrations = createElement("a", {
+		className: "account-menu__link",
+		text: "Integrations",
+	})
+	integrations.href = "/integrations"
+	integrations.dataset.link = ""
 	const logout = createElement("button", {
 		className: "account-menu__logout",
 		text: "Logout",
@@ -255,6 +279,7 @@ const renderAccountMenu = (user: NavbarUser | null) => {
 				text: label,
 			}),
 			settings,
+			integrations,
 			logout,
 		),
 	)

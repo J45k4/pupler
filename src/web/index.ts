@@ -36,6 +36,12 @@ import { renderNotFoundPage } from "./pages/not-found"
 import { renderLoginPage } from "./pages/login"
 import { renderSettingsPage } from "./pages/settings"
 import { renderUsersPage } from "./pages/users"
+import { renderIntegrationsPage } from "./pages/integrations"
+import {
+	renderImportScheduleDetailPage,
+	renderImportSchedulesPage,
+} from "./pages/import-schedules"
+import { renderJobsPage } from "./pages/jobs"
 
 window.onload = async () => {
 	installLinkInterceptor(document.body)
@@ -52,6 +58,11 @@ window.onload = async () => {
 		"/login": renderLoginPage,
 		"/settings": renderSettingsPage,
 		"/users": renderUsersPage,
+		"/integrations": renderIntegrationsPage,
+		"/import-schedules/:id": (_main, params) =>
+			renderImportScheduleDetailPage(params),
+		"/import-schedules": renderImportSchedulesPage,
+		"/jobs": renderJobsPage,
 		"/expirations": renderExpirationsPage,
 		"/inventory": renderInventoryPage,
 		"/inventory/expirations": renderExpirationsPage,

@@ -1,5 +1,19 @@
 export type DomChild = Node | string | number | null | undefined | false
 
+export const escapeHtml = (value: unknown) =>
+	String(value)
+		.replaceAll("&", "&amp;")
+		.replaceAll("<", "&lt;")
+		.replaceAll(">", "&gt;")
+		.replaceAll('"', "&quot;")
+		.replaceAll("'", "&#039;")
+
+export const createHtmlFragment = (html: string) => {
+	const template = document.createElement("template")
+	template.innerHTML = html
+	return template.content
+}
+
 let queryRoot: ParentNode | null = null
 
 const currentQueryRoot = () => queryRoot ?? document

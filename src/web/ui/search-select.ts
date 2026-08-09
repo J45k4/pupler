@@ -1,4 +1,4 @@
-import { createElement } from "../lib/dom"
+import { escapeHtml } from "../lib/dom"
 import { UiComponent } from "./component"
 
 export type SearchSelectOption = {
@@ -9,6 +9,7 @@ export type SearchSelectOption = {
 type SearchSelectState = {
 	options: SearchSelectOption[]
 	activeIndex: number
+	selectedValues: string[]
 }
 
 type SearchSelectItem =
@@ -20,18 +21,67 @@ const searchSelectState = new WeakMap<HTMLElement, SearchSelectState>()
 const searchSelectRegistry = new Map<string, SearchSelect>()
 let searchSelectId = 0
 
+export const renderSearchSelect = (options: {
+	id: string
+	name?: string
+	placeholder?: string
+	allowCreate?: boolean
+	createLabelPrefix?: string
+	required?: boolean
+	multiple?: boolean
+}) => {
+	const menuId = `${options.id}-menu`
+	const valueId = `${options.id}-value`
+
+	return `
+		<div
+			class="search-select ${options.multiple ? "search-select--multiple" : ""}"
+			data-search-select="${escapeHtml(options.id)}"
+			data-search-select-allow-create="${options.allowCreate ? "true" : "false"}"
+			data-search-select-create-label-prefix="${escapeHtml(options.createLabelPrefix ?? "Create")}"
+			data-search-select-multiple="${options.multiple ? "true" : "false"}"
+			${options.name ? `data-search-select-name="${escapeHtml(options.name)}"` : ""}
+		>
+			<div class="search-select__control">
+				<div class="search-select__tokens" data-search-select-tokens></div>
+				<input
+					id="${escapeHtml(options.id)}"
+					class="search-select__input"
+					data-search-select-input
+					role="combobox"
+					aria-autocomplete="list"
+					aria-expanded="false"
+					aria-controls="${escapeHtml(menuId)}"
+					placeholder="${escapeHtml(options.placeholder ?? "")}"
+					autocomplete="off"
+					${options.required ? "required" : ""}
+				/>
+			</div>
+			<div id="${escapeHtml(valueId)}" data-search-select-values></div>
+			<div
+				id="${escapeHtml(menuId)}"
+				class="search-select__menu"
+				role="listbox"
+				hidden
+			></div>
+		</div>
+	`
+}
+
 export class SearchSelect extends UiComponent<HTMLDivElement> {
 	private readonly input: HTMLInputElement
-	private readonly hiddenInput: HTMLInputElement
+	private readonly valuesRoot: HTMLDivElement
 	private readonly menu: HTMLDivElement
 	private readonly registryId: string | null
 
 	constructor(options: {
 		id?: string
+		name?: string
 		placeholder?: string
 		allowCreate?: boolean
 		createLabelPrefix?: string
 		required?: boolean
+		multiple?: boolean
 	}) {
 		super(document.createElement("div"))
 		const componentId = options.id ?? `search-select-${++searchSelectId}`
@@ -39,7 +89,7 @@ export class SearchSelect extends UiComponent<HTMLDivElement> {
 		const menuId = `${componentId}-menu`
 		const valueId = `${componentId}-value`
 
-		this.root.className = "search-select"
+		this.root.className = `search-select${options.multiple ? " search-select--multiple" : ""}`
 		this.root.dataset.searchSelect = componentId
 		this.root.dataset.searchSelectAllowCreate = options.allowCreate
 			? "true"
@@ -47,6 +97,18 @@ export class SearchSelect extends UiComponent<HTMLDivElement> {
 		this.root.dataset.searchSelectCreateLabelPrefix =
 			options.createLabelPrefix ?? "Create"
 		this.root.dataset.searchSelectManaged = "component"
+		this.root.dataset.searchSelectMultiple = options.multiple
+			? "true"
+			: "false"
+		if (options.name) {
+			this.root.dataset.searchSelectName = options.name
+		}
+
+		const control = document.createElement("div")
+		control.className = "search-select__control"
+		const tokens = document.createElement("div")
+		tokens.className = "search-select__tokens"
+		tokens.dataset.searchSelectTokens = ""
 
 		this.input = document.createElement("input")
 		this.input.id = componentId
@@ -59,11 +121,11 @@ export class SearchSelect extends UiComponent<HTMLDivElement> {
 		this.input.placeholder = options.placeholder ?? ""
 		this.input.autocomplete = "off"
 		this.input.required = options.required ?? false
+		control.append(tokens, this.input)
 
-		this.hiddenInput = document.createElement("input")
-		this.hiddenInput.id = valueId
-		this.hiddenInput.type = "hidden"
-		this.hiddenInput.dataset.searchSelectValue = ""
+		this.valuesRoot = document.createElement("div")
+		this.valuesRoot.id = valueId
+		this.valuesRoot.dataset.searchSelectValues = ""
 
 		this.menu = document.createElement("div")
 		this.menu.id = menuId
@@ -71,17 +133,22 @@ export class SearchSelect extends UiComponent<HTMLDivElement> {
 		this.menu.role = "listbox"
 		this.menu.hidden = true
 
-		this.root.append(this.input, this.hiddenInput, this.menu)
-		searchSelectState.set(this.root, { options: [], activeIndex: 0 })
+		this.root.append(control, this.valuesRoot, this.menu)
+		searchSelectState.set(this.root, {
+			options: [],
+			activeIndex: 0,
+			selectedValues: [],
+		})
 		if (this.registryId) {
 			searchSelectRegistry.set(this.registryId, this)
 		}
+		syncSearchSelectSelection(this.root)
 		attachSearchSelects(this.root)
 	}
 
 	public setOptions(options: SearchSelectOption[]) {
 		getSearchSelectState(this.root).options = options
-		syncSearchSelectSelectedValue(this.root)
+		syncSearchSelectSelection(this.root)
 		if (!this.menu.hidden) {
 			renderSearchSelectMenu(this.root)
 		}
@@ -90,6 +157,9 @@ export class SearchSelect extends UiComponent<HTMLDivElement> {
 
 	public setValue(value: string | null | undefined) {
 		if (!value) return this.clear()
+		if (searchSelectIsMultiple(this.root)) {
+			return this.setValues([value])
+		}
 		const option = getSearchSelectState(this.root).options.find(
 			(candidate) => candidate.value === value,
 		)
@@ -98,18 +168,38 @@ export class SearchSelect extends UiComponent<HTMLDivElement> {
 		return this
 	}
 
+	public setValues(values: string[]) {
+		const state = getSearchSelectState(this.root)
+		const availableValues = new Set(
+			state.options.map((option) => option.value),
+		)
+		state.selectedValues = [...new Set(values)].filter((value) =>
+			availableValues.has(value),
+		)
+		syncSearchSelectSelection(this.root)
+		if (!this.menu.hidden) {
+			renderSearchSelectMenu(this.root)
+		}
+		return this
+	}
+
 	public get text() {
 		return this.input.value.trim()
 	}
 
 	public get value() {
-		return this.hiddenInput.value
+		return getSearchSelectState(this.root).selectedValues[0] ?? ""
+	}
+
+	public get values() {
+		return [...getSearchSelectState(this.root).selectedValues]
 	}
 
 	public clear() {
 		this.input.value = ""
-		this.hiddenInput.value = ""
+		getSearchSelectState(this.root).selectedValues = []
 		this.root.dataset.searchSelectSelectedValue = ""
+		syncSearchSelectSelection(this.root)
 		return this
 	}
 
@@ -133,7 +223,12 @@ const normalizeSearchSelectText = (value: string) => value.trim().toLowerCase()
 const getSearchSelectState = (root: HTMLElement) => {
 	let state = searchSelectState.get(root)
 	if (!state) {
-		state = { options: [], activeIndex: 0 }
+		const selectedValue = root.dataset.searchSelectSelectedValue
+		state = {
+			options: [],
+			activeIndex: 0,
+			selectedValues: selectedValue ? [selectedValue] : [],
+		}
 		searchSelectState.set(root, state)
 	}
 	return state
@@ -142,27 +237,50 @@ const getSearchSelectState = (root: HTMLElement) => {
 const searchSelectInput = (root: HTMLElement) =>
 	root.querySelector<HTMLInputElement>("[data-search-select-input]")
 
-const searchSelectHiddenInput = (root: HTMLElement) =>
-	root.querySelector<HTMLInputElement>("[data-search-select-value]")
+const searchSelectValuesRoot = (root: HTMLElement) =>
+	root.querySelector<HTMLElement>("[data-search-select-values]")
+
+const searchSelectTokensRoot = (root: HTMLElement) =>
+	root.querySelector<HTMLElement>("[data-search-select-tokens]")
 
 const searchSelectMenu = (root: HTMLElement) =>
 	root.querySelector<HTMLElement>(".search-select__menu")
 
 const searchSelectAllowsCreate = (root: HTMLElement) =>
-	root.dataset.searchSelectAllowCreate === "true"
+	root.dataset.searchSelectAllowCreate === "true" &&
+	!searchSelectIsMultiple(root)
+
+const searchSelectIsMultiple = (root: HTMLElement) =>
+	root.dataset.searchSelectMultiple === "true"
+
+const searchSelectName = (root: HTMLElement) =>
+	root.dataset.searchSelectName ?? ""
+
+const optionForValue = (root: HTMLElement, value: string) =>
+	getSearchSelectState(root).options.find((option) => option.value === value)
+
+const selectedOptionValues = (root: HTMLElement) =>
+	new Set(getSearchSelectState(root).selectedValues)
 
 const searchSelectItems = (root: HTMLElement): SearchSelectItem[] => {
 	const state = getSearchSelectState(root)
 	const input = searchSelectInput(root)
+	const selectedValues = selectedOptionValues(root)
 	const query = input?.value.trim() ?? ""
 	const normalizedQuery = normalizeSearchSelectText(query)
-	const matches = normalizedQuery
-		? state.options.filter((option) =>
-				normalizeSearchSelectText(option.label).includes(
-					normalizedQuery,
-				),
-			)
-		: state.options
+	const matches = state.options
+		.filter(
+			(option) =>
+				!searchSelectIsMultiple(root) ||
+				!selectedValues.has(option.value),
+		)
+		.filter((option) =>
+			normalizedQuery
+				? normalizeSearchSelectText(option.label).includes(
+						normalizedQuery,
+					)
+				: true,
+		)
 	const items: SearchSelectItem[] = matches.slice(0, 8).map((option) => ({
 		kind: "option",
 		option,
@@ -184,17 +302,79 @@ const searchSelectItems = (root: HTMLElement): SearchSelectItem[] => {
 	return items
 }
 
-const syncSearchSelectSelectedValue = (root: HTMLElement) => {
+const syncSearchSelectSelection = (root: HTMLElement) => {
 	const input = searchSelectInput(root)
-	const hiddenInput = searchSelectHiddenInput(root)
-	if (!input || !hiddenInput) return
+	const valuesRoot = searchSelectValuesRoot(root)
+	const tokensRoot = searchSelectTokensRoot(root)
+	if (!input || !valuesRoot) return
+	const state = getSearchSelectState(root)
+	const isMultiple = searchSelectIsMultiple(root)
+	const availableValues = new Set(state.options.map((option) => option.value))
+	state.selectedValues = state.selectedValues.filter((value) =>
+		availableValues.has(value),
+	)
+
+	if (!isMultiple) {
+		const selectedValue = state.selectedValues[0] ?? ""
+		const selectedOption = selectedValue
+			? optionForValue(root, selectedValue)
+			: null
+		root.dataset.searchSelectSelectedValue = selectedOption?.value ?? ""
+		valuesRoot.innerHTML = selectedOption
+			? `<input type="hidden" data-search-select-value value="${escapeHtml(selectedOption.value)}" />`
+			: `<input type="hidden" data-search-select-value value="" />`
+		if (tokensRoot) tokensRoot.replaceChildren()
+		return
+	}
+
+	const name = searchSelectName(root)
+	root.dataset.searchSelectSelectedValue = state.selectedValues.join(",")
+	valuesRoot.innerHTML = state.selectedValues
+		.map(
+			(value) =>
+				`<input type="hidden" name="${escapeHtml(name)}" value="${escapeHtml(value)}" data-search-select-value />`,
+		)
+		.join("")
+	if (!tokensRoot) return
+	tokensRoot.innerHTML = state.selectedValues
+		.map((value) => {
+			const option = optionForValue(root, value)
+			if (!option) return ""
+			return `
+				<span class="search-select__token">
+					<span class="search-select__token-label">${escapeHtml(option.label)}</span>
+					<button
+						class="search-select__token-remove"
+						type="button"
+						aria-label="Remove ${escapeHtml(option.label)}"
+						data-search-select-remove="${escapeHtml(value)}"
+					>
+						&times;
+					</button>
+				</span>
+			`
+		})
+		.join("")
+}
+
+const notifySearchSelectChange = (root: HTMLElement) => {
+	root.dispatchEvent(new Event("change", { bubbles: true }))
+}
+
+const syncSearchSelectSelectedValue = (root: HTMLElement) => {
+	if (searchSelectIsMultiple(root)) {
+		syncSearchSelectSelection(root)
+		return
+	}
+	const input = searchSelectInput(root)
+	if (!input) return
 	const normalizedValue = normalizeSearchSelectText(input.value)
 	const option = getSearchSelectState(root).options.find(
 		(candidate) =>
 			normalizeSearchSelectText(candidate.label) === normalizedValue,
 	)
-	root.dataset.searchSelectSelectedValue = option?.value ?? ""
-	hiddenInput.value = option?.value ?? ""
+	getSearchSelectState(root).selectedValues = option ? [option.value] : []
+	syncSearchSelectSelection(root)
 }
 
 const closeSearchSelect = (root: HTMLElement) => {
@@ -217,43 +397,45 @@ const renderSearchSelectMenu = (root: HTMLElement) => {
 			: Math.min(Math.max(state.activeIndex, 0), selectableCount - 1)
 
 	let selectableIndex = 0
-	const children: HTMLElement[] = []
-	for (const item of items) {
-		if (item.kind === "empty") {
-			children.push(
-				createElement("div", {
-					className: "search-select__empty",
-					text: item.label,
-				}),
-			)
-			continue
-		}
+	menu.innerHTML = items
+		.map((item) => {
+			if (item.kind === "empty") {
+				return `<div class="search-select__empty">${escapeHtml(item.label)}</div>`
+			}
 
-		const currentIndex = selectableIndex
-		selectableIndex += 1
-		const isActive = currentIndex === state.activeIndex
-		const button = createElement("button", {
-			className: `search-select__option${isActive ? " search-select__option--active" : ""}`,
+			const currentIndex = selectableIndex
+			selectableIndex += 1
+			const isActive = currentIndex === state.activeIndex
+			if (item.kind === "create") {
+				const prefix =
+					root.dataset.searchSelectCreateLabelPrefix ?? "Create"
+				return `
+					<button
+						class="search-select__option ${isActive ? "search-select__option--active" : ""}"
+						type="button"
+						role="option"
+						aria-selected="${isActive ? "true" : "false"}"
+						data-search-select-create
+					>
+						<span>${escapeHtml(prefix)}</span>
+						<strong>${escapeHtml(item.label)}</strong>
+					</button>
+				`
+			}
+
+			return `
+				<button
+					class="search-select__option ${isActive ? "search-select__option--active" : ""}"
+					type="button"
+					role="option"
+					aria-selected="${isActive ? "true" : "false"}"
+					data-search-select-option-index="${item.optionIndex}"
+				>
+					${escapeHtml(item.option.label)}
+				</button>
+			`
 		})
-		button.type = "button"
-		button.role = "option"
-		button.setAttribute("aria-selected", String(isActive))
-		if (item.kind === "create") {
-			button.dataset.searchSelectCreate = ""
-			button.append(
-				createElement("span", {
-					text:
-						root.dataset.searchSelectCreateLabelPrefix ?? "Create",
-				}),
-				createElement("strong", { text: item.label }),
-			)
-		} else {
-			button.dataset.searchSelectOptionIndex = String(item.optionIndex)
-			button.textContent = item.option.label
-		}
-		children.push(button)
-	}
-	menu.replaceChildren(...children)
+		.join("")
 	menu.hidden = false
 	input.setAttribute("aria-expanded", "true")
 }
@@ -263,22 +445,53 @@ const selectSearchSelectOption = (
 	option: SearchSelectOption,
 ) => {
 	const input = searchSelectInput(root)
-	const hiddenInput = searchSelectHiddenInput(root)
-	if (!input || !hiddenInput) return
+	if (!input) return
+	const state = getSearchSelectState(root)
+	if (searchSelectIsMultiple(root)) {
+		if (!state.selectedValues.includes(option.value)) {
+			state.selectedValues = [...state.selectedValues, option.value]
+		}
+		input.value = ""
+		state.activeIndex = 0
+		syncSearchSelectSelection(root)
+		notifySearchSelectChange(root)
+		renderSearchSelectMenu(root)
+		return
+	}
+
 	input.value = option.label
-	hiddenInput.value = option.value
-	root.dataset.searchSelectSelectedValue = option.value
+	state.selectedValues = [option.value]
+	syncSearchSelectSelection(root)
+	notifySearchSelectChange(root)
 	closeSearchSelect(root)
 }
 
 const selectSearchSelectCreateValue = (root: HTMLElement) => {
 	const input = searchSelectInput(root)
-	const hiddenInput = searchSelectHiddenInput(root)
-	if (!input || !hiddenInput) return
+	if (!input) return
 	input.value = input.value.trim()
-	hiddenInput.value = ""
-	root.dataset.searchSelectSelectedValue = ""
+	getSearchSelectState(root).selectedValues = []
+	syncSearchSelectSelection(root)
+	notifySearchSelectChange(root)
 	closeSearchSelect(root)
+}
+
+const removeSearchSelectValue = (root: HTMLElement, value: string) => {
+	const state = getSearchSelectState(root)
+	state.selectedValues = state.selectedValues.filter(
+		(selectedValue) => selectedValue !== value,
+	)
+	syncSearchSelectSelection(root)
+	notifySearchSelectChange(root)
+	renderSearchSelectMenu(root)
+}
+
+const removeLastSearchSelectValue = (root: HTMLElement) => {
+	const state = getSearchSelectState(root)
+	state.selectedValues = state.selectedValues.slice(0, -1)
+	syncSearchSelectSelection(root)
+	notifySearchSelectChange(root)
+	renderSearchSelectMenu(root)
 }
 
 const searchSelectRootForId = (id: string) =>
@@ -356,6 +569,15 @@ export const attachSearchSelects = (root: Document | HTMLElement) => {
 		const selectableItems = searchSelectItems(searchRoot).filter(
 			(item) => item.kind !== "empty",
 		)
+		if (
+			searchSelectIsMultiple(searchRoot) &&
+			event.key === "Backspace" &&
+			event.target.value === ""
+		) {
+			event.preventDefault()
+			removeLastSearchSelectValue(searchRoot)
+			return
+		}
 		if (event.key === "ArrowDown") {
 			event.preventDefault()
 			state.activeIndex =
@@ -399,6 +621,18 @@ export const attachSearchSelects = (root: Document | HTMLElement) => {
 		const searchRoot = searchSelectRootForTarget(target)
 		if (!searchRoot) return
 		if (shouldSkipSearchRoot(searchRoot)) return
+		const removeButton = target.closest<HTMLElement>(
+			"[data-search-select-remove]",
+		)
+		if (removeButton) {
+			event.preventDefault()
+			removeSearchSelectValue(
+				searchRoot,
+				removeButton.dataset.searchSelectRemove ?? "",
+			)
+			searchSelectInput(searchRoot)?.focus()
+			return
+		}
 		const optionButton = target.closest<HTMLElement>(
 			"[data-search-select-option-index]",
 		)

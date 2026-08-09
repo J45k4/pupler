@@ -12,7 +12,11 @@ const envPort = process.env.PORT
 	? Number.parseInt(process.env.PORT, 10)
 	: undefined
 const port = Number.isFinite(envPort) ? envPort : 5995
-initializeDatabase()
+const database = initializeDatabase()
+
+if (process.env.PUPLER_DISABLE_JOB_WORKER !== "true") {
+	void routes.startJobWorker(database)
+}
 
 const apiRoutes = createApiRoutes({
 	public: {
@@ -23,6 +27,16 @@ const apiRoutes = createApiRoutes({
 	},
 	authenticated: {
 		"/api/auth/password": routes.authPasswordRoute,
+		"/api/external-integrations": routes.externalIntegrationsCollectionRoute(database),
+		"/api/external-integrations/clockify": routes.clockifyIntegrationRoute(database),
+		"/api/external-integrations/:id/clockify-options": routes.clockifyIntegrationOptionsRoute(database),
+		"/api/external-integrations/:id": routes.externalIntegrationDetailRoute(database),
+		"/api/import-schedules": routes.importSchedulesCollectionRoute(database),
+		"/api/import-schedules/:id/run": routes.importScheduleRunRoute(database),
+		"/api/import-schedules/:id": routes.importScheduleDetailRoute(database),
+		"/api/jobs": routes.jobsCollectionRoute(database),
+		"/api/jobs/events": routes.jobEventsRoute(database),
+		"/api/jobs/:id": routes.jobDetailRoute(database),
 		"/api/groups": routes.groupsCollectionRoute,
 		"/api/groups/:id": routes.groupDetailRoute,
 		"/api/ingredients": routes.ingredientsCollectionRoute,
