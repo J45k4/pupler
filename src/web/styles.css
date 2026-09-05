@@ -1076,8 +1076,8 @@ button:hover,
 
 .integration-table__row {
 	display: grid;
-	grid-template-columns: 1.1fr 0.8fr 1.2fr 0.7fr 1fr;
-	min-width: 48rem;
+	grid-template-columns: 1.1fr 0.8fr 1.2fr 0.7fr 1fr 0.7fr;
+	min-width: 56rem;
 	border-top: 1px solid var(--line);
 }
 
@@ -3437,6 +3437,10 @@ body.modal-open {
 	max-width: 16rem;
 }
 
+.time-overview-controls label[hidden] {
+	display: none;
+}
+
 .time-overview-results {
 	display: grid;
 	gap: 1.25rem;
@@ -3507,6 +3511,94 @@ body.modal-open {
 .time-overview-row__total span {
 	color: var(--muted);
 	font-size: 0.85rem;
+}
+
+.time-overview-client-group,
+.time-overview-project-group {
+	position: relative;
+	border-bottom: 1px solid var(--line);
+}
+
+.time-overview-client-group summary,
+.time-overview-project-group summary {
+	display: block;
+	list-style: none;
+	cursor: pointer;
+}
+
+.time-overview-client-group summary::-webkit-details-marker,
+.time-overview-project-group summary::-webkit-details-marker {
+	display: none;
+}
+
+.time-overview-client-group summary .time-overview-row,
+.time-overview-project-group summary .time-overview-row {
+	position: relative;
+	padding-left: 1.6rem;
+	border-bottom: 0;
+}
+
+.time-overview-client-group summary .time-overview-row::before,
+.time-overview-project-group summary .time-overview-row::before {
+	position: absolute;
+	left: 0.15rem;
+	top: 1.25rem;
+	width: 0.5rem;
+	height: 0.5rem;
+	border-right: 2px solid var(--muted);
+	border-bottom: 2px solid var(--muted);
+	transform: rotate(-45deg);
+	content: "";
+	transition: transform 140ms ease;
+}
+
+.time-overview-client-group[open] summary .time-overview-row::before,
+.time-overview-project-group[open] summary .time-overview-row::before {
+	transform: translateY(-0.12rem) rotate(45deg);
+}
+
+.time-overview-row__link {
+	color: inherit;
+	text-decoration: underline;
+	text-decoration-thickness: 1px;
+	text-underline-offset: 0.16em;
+}
+
+.time-overview-client-projects {
+	margin-left: 1.6rem;
+	padding-left: 0.85rem;
+	border-left: 1px solid var(--line);
+}
+
+.time-overview-client-projects .time-overview-project-row {
+	padding-left: 0;
+}
+
+.time-overview-project-entries {
+	margin-left: 1.6rem;
+	padding-left: 0.85rem;
+	border-left: 1px solid var(--line);
+}
+
+.time-overview-project-detail > .time-overview-project-entries {
+	margin-left: 0;
+	padding-left: 0;
+	border-left: 0;
+}
+
+.time-overview-entry-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+	padding: 0.7rem 0;
+	border-bottom: 1px solid var(--line);
+}
+
+.time-overview-entry-row__main {
+	display: grid;
+	gap: 0.25rem;
+	min-width: 0;
 }
 
 .time-weekly-toolbar {
@@ -4087,6 +4179,11 @@ body.modal-open {
 
 	.time-overview-pie {
 		justify-self: center;
+	}
+
+	.time-overview-entry-row {
+		align-items: stretch;
+		flex-direction: column;
 	}
 
 	.time-weekly-toolbar {

@@ -20,7 +20,13 @@ const currentQueryRoot = () => queryRoot ?? document
 
 export const getElementById = <T extends HTMLElement = HTMLElement>(
 	id: string,
-) => currentQueryRoot().querySelector<T>(`#${id}`)
+) => {
+	const root = currentQueryRoot()
+	if (root instanceof HTMLElement && root.id === id) {
+		return root as T
+	}
+	return root.querySelector<T>(`#${id}`)
+}
 
 export const querySelector = <T extends Element = Element>(selector: string) =>
 	currentQueryRoot().querySelector<T>(selector)

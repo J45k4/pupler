@@ -91,20 +91,30 @@ const publicIntegration = <
 	return {
 		...rest,
 		config: JSON.parse(configJson),
+		credentials_configured: Boolean(_credentials),
 	}
 }
 
-const parseClockifyConfig = (body: JsonObject) => {
+const parseClockifyConfig = (
+	body: JsonObject,
+	{ requireApiKey }: { requireApiKey: boolean },
+) => {
 	assertKnownFields(body, CLOCKIFY_FIELDS)
 	const workspaceId = requireBodyField(
 		body,
 		"workspace_id",
 		expectString,
 	).trim()
-	const apiKey = requireBodyField(body, "api_key", expectString).trim()
 	if (!workspaceId)
 		throw new HttpError(400, "Field `workspace_id` cannot be empty")
-	if (!apiKey) throw new HttpError(400, "Field `api_key` cannot be empty")
+	const suppliedApiKey = readOptionalBodyField(body, "api_key", expectString)
+	if (requireApiKey && suppliedApiKey === undefined) {
+		throw new HttpError(400, "Missing required field `api_key`")
+	}
+	const apiKey = suppliedApiKey?.trim()
+	if (suppliedApiKey !== undefined && !apiKey) {
+		throw new HttpError(400, "Field `api_key` cannot be empty")
+	}
 
 	const name = (
 		readOptionalBodyField(body, "name", expectString) ?? "default"
@@ -129,9 +139,7 @@ const parseClockifyConfig = (body: JsonObject) => {
 			reports_base_url:
 				reportsBaseUrl || "https://reports.api.clockify.me/v1",
 		},
-		credentials: {
-			api_key: apiKey,
-		},
+		credentials: apiKey ? { api_key: apiKey } : null,
 	}
 }
 
@@ -141,7 +149,9 @@ export const clockifyIntegrationRoute = (db: Database) =>
 			throw new HttpError(405, "Method not allowed for this route")
 		}
 
-		const values = parseClockifyConfig(await readJsonObject(req))
+		const values = parseClockifyConfig(await readJsonObject(req), {
+			requireApiKey: true,
+		})
 		const now = utcNow()
 		const integration = await db.client.externalIntegration.upsert({
 			where: {
@@ -155,14 +165,14 @@ export const clockifyIntegrationRoute = (db: Database) =>
 				name: values.name,
 				status: ExternalIntegrationStatus.Active,
 				config_json: JSON.stringify(values.config),
-				credentials_encrypted_json: encryptJson(values.credentials),
+				credentials_encrypted_json: encryptJson(values.credentials!),
 				created_at: now,
 				updated_at: now,
 			},
 			update: {
 				status: ExternalIntegrationStatus.Active,
 				config_json: JSON.stringify(values.config),
-				credentials_encrypted_json: encryptJson(values.credentials),
+				credentials_encrypted_json: encryptJson(values.credentials!),
 				updated_at: now,
 			},
 		})
@@ -195,24 +205,58 @@ export const externalIntegrationDetailRoute = (db: Database) =>
 		}
 		if (req.method === "PATCH") {
 			const body = await readJsonObject(req)
-			assertKnownFields(body, ["status"])
-			const status = requireBodyField(body, "status", expectInteger)
-			if (
-				!Object.values(ExternalIntegrationStatus).includes(
-					status as ExternalIntegrationStatus,
+			if (Object.keys(body).includes("status")) {
+				assertKnownFields(body, ["status"])
+				const status = requireBodyField(body, "status", expectInteger)
+				if (
+					!Object.values(ExternalIntegrationStatus).includes(
+						status as ExternalIntegrationStatus,
+					)
+				) {
+					throw new HttpError(
+						400,
+						"Field `status` must be a valid integration status",
+					)
+				}
+				return json(
+					200,
+					publicIntegration(
+						await db.client.externalIntegration.update({
+							where: { id },
+							data: { status, updated_at: utcNow() },
+						}),
+					),
 				)
-			) {
-				throw new HttpError(
-					400,
-					"Field `status` must be a valid integration status",
-				)
+			}
+
+			if (integration.provider !== ExternalIntegrationProvider.Clockify) {
+				throw new HttpError(400, "Integration provider cannot be configured")
+			}
+			const values = parseClockifyConfig(body, { requireApiKey: false })
+			const existingName = await db.client.externalIntegration.findUnique({
+				where: {
+					provider_name: {
+						provider: integration.provider,
+						name: values.name,
+					},
+				},
+			})
+			if (existingName && existingName.id !== integration.id) {
+				throw new HttpError(409, "An integration with this name already exists")
 			}
 			return json(
 				200,
 				publicIntegration(
 					await db.client.externalIntegration.update({
 						where: { id },
-						data: { status, updated_at: utcNow() },
+						data: {
+							name: values.name,
+							config_json: JSON.stringify(values.config),
+							credentials_encrypted_json: values.credentials
+								? encryptJson(values.credentials)
+								: integration.credentials_encrypted_json,
+							updated_at: utcNow(),
+						},
 					}),
 				),
 			)

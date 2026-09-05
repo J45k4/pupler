@@ -11,6 +11,7 @@ type ExternalIntegration = {
 		api_base_url?: string
 		reports_base_url?: string
 	}
+	credentials_configured: boolean
 	created_at: string
 	updated_at: string
 }
@@ -75,6 +76,7 @@ const renderIntegrationRows = (integrations: ExternalIntegration[]) => {
 				<div role="columnheader">Workspace</div>
 				<div role="columnheader">Status</div>
 				<div role="columnheader">Updated</div>
+				<div role="columnheader">Actions</div>
 			</div>
 			${integrations
 				.map((integration) => {
@@ -87,6 +89,7 @@ const renderIntegrationRows = (integrations: ExternalIntegration[]) => {
 							<div role="cell">${escapeHtml(workspace)}</div>
 							<div role="cell"><span class="tag">${integrationStatusLabel(integration.status)}</span></div>
 							<div role="cell">${formatDateTime(integration.updated_at)}</div>
+							<div role="cell"><button class="secondary" type="button" data-edit-integration="${integration.id}">Edit</button></div>
 						</div>
 					`
 				})
@@ -117,13 +120,77 @@ const loadIntegrationsPage = async () => {
 const attachIntegrationEvents = () => {
 	const integrationModal = attachModalControls({
 		modalId: "integration-create-modal",
-		openButtonId: "integration-create-button",
 		closeSelector: "[data-close-integration-modal]",
-		focusSelector: "select[name='provider']",
-		onOpen: () => setStatus("clockify-configure-status", ""),
+		focusSelector: "input[name='name']",
 	})
 
-	const configureForm = document.getElementById("clockify-configure-form")
+	const configureForm = document.getElementById(
+		"clockify-configure-form",
+	) as HTMLFormElement | null
+	const modalTitle = document.getElementById("integration-create-modal-title")
+	const apiKeyInput = configureForm?.elements.namedItem("api_key")
+	const apiKeyHint = document.getElementById("clockify-api-key-hint")
+	let editingIntegrationId: number | null = null
+
+	const setFieldValue = (name: string, value: string) => {
+		const input = configureForm?.elements.namedItem(name)
+		if (input instanceof HTMLInputElement) input.value = value
+	}
+
+	const openCreate = () => {
+		editingIntegrationId = null
+		if (configureForm instanceof HTMLFormElement) configureForm.reset()
+		if (modalTitle) modalTitle.textContent = "Create Integration"
+		if (apiKeyInput instanceof HTMLInputElement) {
+			apiKeyInput.required = true
+			apiKeyInput.placeholder = ""
+		}
+		if (apiKeyHint) apiKeyHint.textContent = "Required for a new integration."
+		setStatus("clockify-configure-status", "")
+		integrationModal.open()
+	}
+
+	document.getElementById("integration-create-button")?.addEventListener("click", openCreate)
+
+	document.getElementById("integrations-list")?.addEventListener("click", async (event) => {
+		const target = event.target
+		if (!(target instanceof HTMLElement)) return
+		const button = target.closest<HTMLButtonElement>("[data-edit-integration]")
+		if (!button) return
+		const integrationId = Number(button.dataset.editIntegration)
+		if (!Number.isInteger(integrationId)) return
+		setStatus("integrations-status", "Loading integration values...")
+		try {
+			const integration = await apiJson<ExternalIntegration>(
+				`/api/external-integrations/${integrationId}`,
+			)
+			editingIntegrationId = integration.id
+			if (modalTitle) modalTitle.textContent = "Edit Integration"
+			setFieldValue("name", integration.name)
+			setFieldValue("workspace_id", integration.config.workspace_id ?? "")
+			setFieldValue("api_base_url", integration.config.api_base_url ?? "")
+			setFieldValue("reports_base_url", integration.config.reports_base_url ?? "")
+			if (apiKeyInput instanceof HTMLInputElement) {
+				apiKeyInput.value = ""
+				apiKeyInput.required = false
+				apiKeyInput.placeholder = "Leave blank to keep the stored key"
+			}
+			if (apiKeyHint) {
+				apiKeyHint.textContent = integration.credentials_configured
+					? "A key is stored securely. Leave this blank to keep it, or enter a replacement."
+					: "No key is stored. Enter a Clockify API key."
+			}
+			setStatus("clockify-configure-status", "")
+			integrationModal.open()
+		} catch (error) {
+			setStatus(
+				"integrations-status",
+				error instanceof Error ? error.message : "Failed to load integration values.",
+				true,
+			)
+		}
+	})
+
 	configureForm?.addEventListener("submit", async (event) => {
 		event.preventDefault()
 		if (!(configureForm instanceof HTMLFormElement)) return
@@ -137,27 +204,34 @@ const attachIntegrationEvents = () => {
 			)
 			return
 		}
-		setStatus("clockify-configure-status", "Saving Clockify credentials...")
+		setStatus("clockify-configure-status", "Saving Clockify integration...")
 		try {
-			await apiJson("/api/external-integrations/clockify", {
-				method: "POST",
-				body: JSON.stringify({
-					name: String(data.get("name") ?? "default"),
-					workspace_id: String(data.get("workspace_id") ?? ""),
-					api_key: String(data.get("api_key") ?? ""),
-					api_base_url: String(data.get("api_base_url") ?? ""),
-					reports_base_url: String(
-						data.get("reports_base_url") ?? "",
-					),
-				}),
-			})
+			const apiKey = String(data.get("api_key") ?? "").trim()
+			const values: Record<string, string> = {
+				name: String(data.get("name") ?? "default"),
+				workspace_id: String(data.get("workspace_id") ?? ""),
+				api_base_url: String(data.get("api_base_url") ?? ""),
+				reports_base_url: String(data.get("reports_base_url") ?? ""),
+			}
+			if (apiKey) values.api_key = apiKey
+			await apiJson(
+				editingIntegrationId === null
+					? "/api/external-integrations/clockify"
+					: `/api/external-integrations/${editingIntegrationId}`,
+				{
+					method: editingIntegrationId === null ? "POST" : "PATCH",
+					body: JSON.stringify(values),
+				},
+			)
+			const wasEditing = editingIntegrationId !== null
+			editingIntegrationId = null
 			configureForm.reset()
 			integrationModal.close()
-			setStatus(
-				"clockify-configure-status",
-				"Clockify integration saved.",
-			)
 			await loadIntegrationsPage()
+			setStatus(
+				"integrations-status",
+				wasEditing ? "Integration updated." : "Clockify integration saved.",
+			)
 		} catch (error) {
 			setStatus(
 				"clockify-configure-status",
@@ -212,6 +286,15 @@ export const renderIntegrationsPage = () => {
 				<label>
 					API Key
 					<input name="api_key" type="password" required />
+				</label>
+				<p id="clockify-api-key-hint" class="form-hint">Required for a new integration.</p>
+				<label>
+					Clockify API base URL
+					<input name="api_base_url" type="url" placeholder="https://api.clockify.me/api/v1" />
+				</label>
+				<label>
+					Clockify reports base URL
+					<input name="reports_base_url" type="url" placeholder="https://reports.api.clockify.me/v1" />
 				</label>
 				<div class="actions">
 					<button class="primary" type="submit">Save</button>

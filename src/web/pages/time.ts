@@ -102,6 +102,7 @@ const TIME_OVERVIEW_SPANS = [
 	{ value: "this-week", label: "This Week" },
 	{ value: "last-week", label: "Last Week" },
 	{ value: "custom-day", label: "Selected Day" },
+	{ value: "custom-range", label: "Custom" },
 	{ value: "last-2-weeks", label: "Last 2 Weeks" },
 	{ value: "last-30-days", label: "Last 30 Days" },
 	{ value: "ytd", label: "YTD" },
@@ -112,7 +113,10 @@ type TimeOverviewSpan = (typeof TIME_OVERVIEW_SPANS)[number]
 type TimeOverviewSelection = {
 	span: TimeOverviewSpan
 	day: string
-	group: TimeOverviewGroup
+	fromDay: string
+	toDay: string
+	clientKey: string | null
+	projectKey: string | null
 }
 
 type TimeOverviewPeriod = {
@@ -146,15 +150,12 @@ type TimeEntryRangeInput = {
 }
 
 const DAY_SECONDS = 24 * 60 * 60
+const DAYS_PER_WEEK = 7
 const UNKNOWN_TIME_KEY = "__unknown_time__"
 const UNKNOWN_TIME_COLOR = "#cbd5e1"
 const DEFAULT_TIME_OVERVIEW_SPAN = "today"
-const TIME_OVERVIEW_GROUPS = [
-	{ value: "project", label: "Project" },
-	{ value: "client", label: "Client" },
-] as const
-type TimeOverviewGroup = (typeof TIME_OVERVIEW_GROUPS)[number]["value"]
-const DEFAULT_TIME_OVERVIEW_GROUP: TimeOverviewGroup = "project"
+type TimeOverviewGroup = "project" | "client"
+const DEFAULT_TIME_OVERVIEW_GROUP: TimeOverviewGroup = "client"
 
 const field = (label: string, control: HTMLElement) => {
 	const labelComponent = new Label({ text: label })
@@ -324,6 +325,18 @@ const timeEntryDurationSeconds = (entry: TimeEntry) => {
 	return Math.max(0, Math.floor((end - Date.parse(entry.started_at)) / 1000))
 }
 
+const timeEntryDurationInPeriod = (
+	entry: TimeEntry,
+	period: TimeOverviewPeriod,
+) => {
+	const start = Math.max(Date.parse(entry.started_at), Date.parse(period.from))
+	const end = Math.min(
+		entry.ended_at ? Date.parse(entry.ended_at) : Date.now(),
+		Date.parse(period.to),
+	)
+	return Math.max(0, Math.floor((end - start) / 1000))
+}
+
 const formatDateTimeLocalInput = (date = new Date()) =>
 	new Date(date.getTime() - date.getTimezoneOffset() * 60000)
 		.toISOString()
@@ -444,21 +457,31 @@ const getTimeOverviewSpan = (
 		(span) => span.value === DEFAULT_TIME_OVERVIEW_SPAN,
 	)!
 
-const getTimeOverviewGroup = (
-	value: string | null | undefined,
-): TimeOverviewGroup =>
-	TIME_OVERVIEW_GROUPS.find((group) => group.value === value)?.value ??
-	DEFAULT_TIME_OVERVIEW_GROUP
-
 const getCurrentTimeOverviewSelection = (): TimeOverviewSelection => {
 	const params = new URLSearchParams(window.location.search)
 	const span = getTimeOverviewSpan(params.get("span"))
-	const group = getTimeOverviewGroup(params.get("group"))
+	const today = formatDateInput()
 	const requestedDay = params.get("day") ?? ""
 	const day = localDateFromInput(requestedDay)
 		? requestedDay
-		: formatDateInput()
-	return { span, day, group }
+		: today
+	const requestedFromDay = params.get("from") ?? ""
+	const requestedToDay = params.get("to") ?? ""
+	let fromDay = localDateFromInput(requestedFromDay)
+		? requestedFromDay
+		: today
+	let toDay = localDateFromInput(requestedToDay) ? requestedToDay : today
+	if (fromDay > today) fromDay = today
+	if (toDay > today) toDay = today
+	if (fromDay > toDay) [fromDay, toDay] = [toDay, fromDay]
+	return {
+		span,
+		day,
+		fromDay,
+		toDay,
+		clientKey: params.get("client"),
+		projectKey: params.get("project"),
+	}
 }
 
 const getCurrentTimeWeeklyDate = () => {
@@ -482,8 +505,10 @@ const getTimeOverviewPeriod = (selection: TimeOverviewSelection) => {
 		switch (selection.span.value) {
 			case "today":
 				return startOfLocalDay(to)
-			case "custom-day":
-				return localDateFromInput(selection.day) ?? startOfLocalDay(to)
+		case "custom-day":
+			return localDateFromInput(selection.day) ?? startOfLocalDay(to)
+		case "custom-range":
+			return localDateFromInput(selection.fromDay) ?? startOfLocalDay(to)
 			case "this-week":
 				return thisWeekStart
 			case "last-week": {
@@ -505,8 +530,16 @@ const getTimeOverviewPeriod = (selection: TimeOverviewSelection) => {
 				return new Date(to.getFullYear(), 0, 1)
 		}
 	})()
-	if (selection.span.value === "custom-day") {
-		const end = new Date(from)
+	if (
+		selection.span.value === "custom-day" ||
+		selection.span.value === "custom-range"
+	) {
+		const endDay =
+			selection.span.value === "custom-day"
+				? selection.day
+				: selection.toDay
+		const endDayDate = localDateFromInput(endDay) ?? from
+		const end = startOfLocalDay(endDayDate)
 		end.setDate(end.getDate() + 1)
 		const clippedEndMs = Math.min(end.getTime(), to.getTime())
 		return {
@@ -569,6 +602,11 @@ const getTimeOverviewBaselineSeconds = (selection: TimeOverviewSelection) => {
 		case "today":
 		case "custom-day":
 			return DAY_SECONDS
+		case "custom-range": {
+			const from = localDateFromInput(selection.fromDay)
+			const to = localDateFromInput(selection.toDay)
+			return from && to ? countLocalDaysInclusive(from, to) * DAY_SECONDS : DAY_SECONDS
+		}
 		case "this-week":
 			return (
 				countLocalDaysInclusive(startOfLocalWeek(today), today) *
@@ -590,8 +628,9 @@ const getTimeOverviewBaselineSeconds = (selection: TimeOverviewSelection) => {
 	}
 }
 
-const updateTimeOverviewUrl = (selection: TimeOverviewSelection) => {
+const getTimeOverviewUrl = (selection: TimeOverviewSelection) => {
 	const url = new URL(window.location.href)
+	url.searchParams.delete("group")
 	if (selection.span.value === DEFAULT_TIME_OVERVIEW_SPAN) {
 		url.searchParams.delete("span")
 	} else {
@@ -602,12 +641,22 @@ const updateTimeOverviewUrl = (selection: TimeOverviewSelection) => {
 	} else {
 		url.searchParams.delete("day")
 	}
-	if (selection.group === DEFAULT_TIME_OVERVIEW_GROUP) {
-		url.searchParams.delete("group")
+	if (selection.span.value === "custom-range") {
+		url.searchParams.set("from", selection.fromDay)
+		url.searchParams.set("to", selection.toDay)
 	} else {
-		url.searchParams.set("group", selection.group)
+		url.searchParams.delete("from")
+		url.searchParams.delete("to")
 	}
-	window.history.replaceState({}, "", `${url.pathname}${url.search}`)
+	if (selection.clientKey) url.searchParams.set("client", selection.clientKey)
+	else url.searchParams.delete("client")
+	if (selection.projectKey) url.searchParams.set("project", selection.projectKey)
+	else url.searchParams.delete("project")
+	return `${url.pathname}${url.search}`
+}
+
+const updateTimeOverviewUrl = (selection: TimeOverviewSelection) => {
+	window.history.replaceState({}, "", getTimeOverviewUrl(selection))
 }
 
 const getCurrentTimeWeeklyViewMode = (): TimeWeeklyViewMode => {
@@ -713,6 +762,103 @@ const normalizeDescription = (description: string | null | undefined) =>
 
 const normalizeProjectName = (name: string) => name.trim().toLowerCase()
 const normalizeClientName = (name: string) => name.trim().toLowerCase()
+
+let descriptionSuggestionListId = 0
+
+const selectedProjectId = (value: string) => {
+	const projectId = Number(value)
+	return Number.isInteger(projectId) && projectId > 0 ? projectId : null
+}
+
+const createDescriptionAutocomplete = (
+	entries: TimeEntry[],
+	options: {
+		value?: string
+		placeholder: string
+		getProjectId?: () => number | null
+	} = {
+		placeholder: "What did you work on?",
+	},
+) => {
+	const input = document.createElement("input")
+	input.value = options.value ?? ""
+	input.placeholder = options.placeholder
+	input.autocomplete = "off"
+
+	const list = document.createElement("datalist")
+	list.id = `time-description-suggestions-${descriptionSuggestionListId}`
+	descriptionSuggestionListId += 1
+	input.setAttribute("list", list.id)
+
+	const renderSuggestions = () => {
+		const projectId = options.getProjectId?.() ?? null
+		if (projectId === null) {
+			list.replaceChildren()
+			return
+		}
+		const suggestions = new Map<
+			string,
+			{ description: string; entryCount: number; latestStartedAt: string }
+		>()
+		for (const entry of entries) {
+			if (entry.project_id !== projectId) continue
+			const description = normalizeDescription(entry.description)
+			if (!description) continue
+			const key = description.toLocaleLowerCase()
+			const existing = suggestions.get(key)
+			if (existing) {
+				existing.entryCount += 1
+				if (Date.parse(entry.started_at) > Date.parse(existing.latestStartedAt)) {
+					existing.latestStartedAt = entry.started_at
+				}
+				continue
+			}
+			suggestions.set(key, {
+				description,
+				entryCount: 1,
+				latestStartedAt: entry.started_at,
+			})
+		}
+		const query = input.value.trim().toLocaleLowerCase()
+		const matchingSuggestions = [...suggestions.values()]
+			.filter((suggestion) =>
+				query ? suggestion.description.toLocaleLowerCase().includes(query) : true,
+			)
+			.sort(
+				(left, right) =>
+					Date.parse(right.latestStartedAt) - Date.parse(left.latestStartedAt) ||
+					right.entryCount - left.entryCount ||
+					left.description.localeCompare(right.description),
+			)
+			.slice(0, 12)
+		list.replaceChildren(
+			...matchingSuggestions.map((suggestion) => {
+				const option = document.createElement("option")
+				option.value = suggestion.description
+				option.label = `${suggestion.entryCount} previous entr${
+					suggestion.entryCount === 1 ? "y" : "ies"
+				}`
+				return option
+			}),
+		)
+	}
+
+	input.addEventListener("input", renderSuggestions)
+	input.addEventListener("focus", renderSuggestions)
+	renderSuggestions()
+	return { input, list, refresh: renderSuggestions }
+}
+
+const bindDescriptionSuggestionsToProject = (
+	projectControl: HTMLElement,
+	description: ReturnType<typeof createDescriptionAutocomplete>,
+) => {
+	for (const eventName of ["change", "input"]) {
+		projectControl.addEventListener(eventName, () => {
+			window.setTimeout(description.refresh, 0)
+		})
+	}
+}
 
 const buildProjectChoices = (
 	entries: TimeEntry[],
@@ -1324,9 +1470,10 @@ const createTimeEntryCreateModal = (
 		required: true,
 	})
 
-	const description = document.createElement("input")
-	description.placeholder = "What did you work on?"
-	description.setAttribute("autocomplete", "off")
+	const description = createDescriptionAutocomplete(context.store.get().entries, {
+		placeholder: "What did you work on?",
+		getProjectId: () => selectedProjectId(projectSelect.value),
+	})
 
 	const startedAt = document.createElement("input")
 	startedAt.type = "datetime-local"
@@ -1354,7 +1501,8 @@ const createTimeEntryCreateModal = (
 	form.append(
 		field("Client (optional)", clientSelect.root),
 		field("Project", projectSelect.root),
-		field("Description", description),
+		field("Description", description.input),
+		description.list,
 		row,
 		actions,
 	)
@@ -1395,6 +1543,7 @@ const createTimeEntryCreateModal = (
 		clientSelect,
 		projectSelect,
 	)
+	bindDescriptionSuggestionsToProject(projectSelect.root, description)
 
 	closeButton.onClick = close
 	cancelButton.onClick = close
@@ -1419,7 +1568,7 @@ const createTimeEntryCreateModal = (
 			await context.actions.addEntry({
 				clientName: clientSelect.text,
 				projectName: projectSelect.text,
-				description: description.value.trim() || null,
+				description: description.input.value.trim() || null,
 				startedAt: startedAtValue,
 				endedAt: endedAtValue,
 			})
@@ -1482,9 +1631,14 @@ const createTimeEntryEditModal = (
 			entry.project_id,
 		)
 		projectSelect.setAttribute("aria-label", "Entry project")
-		const descriptionInput = document.createElement("input")
-		descriptionInput.value = entry.description ?? ""
+		const description = createDescriptionAutocomplete(context.store.get().entries, {
+			value: entry.description ?? "",
+			placeholder: "What did you work on?",
+			getProjectId: () => selectedProjectId(projectSelect.value),
+		})
+		const descriptionInput = description.input
 		descriptionInput.setAttribute("aria-label", "Entry description")
+		bindDescriptionSuggestionsToProject(projectSelect, description)
 
 		const startedAt = document.createElement("input")
 		startedAt.type = "datetime-local"
@@ -1580,6 +1734,7 @@ const createTimeEntryEditModal = (
 		form.append(
 			field("Project", projectSelect),
 			field("Description", descriptionInput),
+			description.list,
 			row,
 			actions,
 		)
@@ -1679,10 +1834,12 @@ const createRunningEditModal = (
 		projectSelect,
 	)
 
-	const description = document.createElement("input")
-	description.value = runningEntry.description ?? ""
-	description.placeholder = "What are you working on?"
-	description.setAttribute("autocomplete", "off")
+	const description = createDescriptionAutocomplete(context.store.get().entries, {
+		value: runningEntry.description ?? "",
+		placeholder: "What are you working on?",
+		getProjectId: () => selectedProjectId(projectSelect.value),
+	})
+	bindDescriptionSuggestionsToProject(projectSelect.root, description)
 
 	const startedAt = document.createElement("input")
 	startedAt.type = "datetime-local"
@@ -1694,7 +1851,8 @@ const createRunningEditModal = (
 	form.append(
 		field("Client (optional)", clientSelect.root),
 		field("Project (optional)", projectSelect.root),
-		field("Description", description),
+		field("Description", description.input),
+		description.list,
 		field("Started At", startedAt),
 		timeAdjustmentButtons("Started At", startedAt),
 	)
@@ -1772,7 +1930,7 @@ const createRunningEditModal = (
 			await context.actions.updateRunningTimer(runningEntry, {
 				clientName: clientSelect.text,
 				projectName: projectSelect.text,
-				description: description.value.trim() || null,
+				description: description.input.value.trim() || null,
 				startedAt: startedAtValue,
 			})
 			close()
@@ -1938,9 +2096,6 @@ const createTimerPanel = (context: TimePageContext) => {
 		)
 		root.append(header)
 
-		let unassignedStopModal: ReturnType<
-			typeof createStopTimerProjectModal
-		> | null = null
 		if (runningEntry) {
 			const previousEndedAt = findPreviousTimeEntryEnd(
 				state.entries,
@@ -1974,7 +2129,6 @@ const createTimerPanel = (context: TimePageContext) => {
 				context,
 				runningEntry,
 			)
-			unassignedStopModal = stopProjectModal
 			const editButton = new Button({
 				text: "Edit",
 				className: "secondary",
@@ -2061,9 +2215,11 @@ const createTimerPanel = (context: TimePageContext) => {
 			projectSelect,
 		)
 
-		const description = document.createElement("input")
-		description.placeholder = "What are you working on?"
-		description.setAttribute("autocomplete", "off")
+		const description = createDescriptionAutocomplete(state.entries, {
+			placeholder: "What are you working on?",
+			getProjectId: () => selectedProjectId(projectSelect.value),
+		})
+		bindDescriptionSuggestionsToProject(projectSelect.root, description)
 
 		const submit = new Button({
 			text: "Start Timer",
@@ -2073,20 +2229,17 @@ const createTimerPanel = (context: TimePageContext) => {
 		form.append(
 			field("Client (optional)", clientSelect.root),
 			field("Project (optional)", projectSelect.root),
-			field("Description", description),
+			field("Description", description.input),
+			description.list,
 			submit.root,
 		)
 		form.addEventListener("submit", async (event) => {
 			event.preventDefault()
-			if (runningEntry?.project_id === null) {
-				unassignedStopModal?.open()
-				return
-			}
 			try {
 				await context.actions.startTimer(
 					clientSelect.text,
 					projectSelect.text,
-					description.value.trim() || null,
+					description.input.value.trim() || null,
 				)
 				setStatus(context.status, "Timer started.")
 			} catch (error) {
@@ -2290,15 +2443,6 @@ const renderTimeOverviewSpanOptions = (selectedValue: string) =>
 		return option
 	})
 
-const renderTimeOverviewGroupOptions = (selectedValue: TimeOverviewGroup) =>
-	TIME_OVERVIEW_GROUPS.map((group) => {
-		const option = document.createElement("option")
-		option.value = group.value
-		option.textContent = group.label
-		option.selected = group.value === selectedValue
-		return option
-	})
-
 type TimeOverviewItem = {
 	key: string
 	name: string
@@ -2307,6 +2451,13 @@ type TimeOverviewItem = {
 	entryCount: number
 	projectCount?: number
 	synthetic?: boolean
+}
+
+type TimeOverviewEntryGroup = {
+	description: string
+	entryCount: number
+	totalSeconds: number
+	latestStartedAt: string
 }
 
 const projectTotalKey = (projectId: number | null) =>
@@ -2321,7 +2472,7 @@ const getTimeOverviewItems = (
 	group: TimeOverviewGroup,
 	baselineSeconds?: number,
 ): TimeOverviewItem[] => {
-	const items =
+	const items = (
 		group === "client"
 			? report.client_totals.map((client) => ({
 					key: clientTotalKey(client),
@@ -2338,6 +2489,10 @@ const getTimeOverviewItems = (
 					totalSeconds: project.total_seconds,
 					entryCount: project.entry_count,
 				}))
+	).sort(
+		(left, right) =>
+			right.totalSeconds - left.totalSeconds || left.name.localeCompare(right.name),
+	)
 	if (baselineSeconds === undefined) return items
 	const trackedSeconds = items.reduce(
 		(sum, item) => sum + item.totalSeconds,
@@ -2356,7 +2511,71 @@ const getTimeOverviewItems = (
 			projectCount: 0,
 			synthetic: true,
 		},
-	]
+	].sort(
+		(left, right) =>
+			right.totalSeconds - left.totalSeconds || left.name.localeCompare(right.name),
+	)
+}
+
+const clientKeyForProject = (project: TimeReportProjectTotal) =>
+	project.project_id === null
+		? "No project"
+		: project.client_id === null
+			? "No client"
+			: String(project.client_id)
+
+const filterTimeOverviewReport = (
+	report: TimeReport,
+	selection: TimeOverviewSelection,
+) => {
+	if (!selection.clientKey && !selection.projectKey) return report
+	const projectTotals = report.project_totals.filter((project) =>
+		selection.projectKey
+			? projectTotalKey(project.project_id) === selection.projectKey
+			: clientKeyForProject(project) === selection.clientKey,
+	)
+	const clientTotals = new Map<string, TimeReportClientTotal>()
+	const projectIdsByClient = new Map<string, Set<number>>()
+	for (const project of projectTotals) {
+		const key = clientKeyForProject(project)
+		const existing = clientTotals.get(key)
+		if (existing) {
+			existing.total_seconds += project.total_seconds
+			existing.entry_count += project.entry_count
+		} else {
+			clientTotals.set(key, {
+				client_id: project.project_id === null ? null : project.client_id,
+				client_name:
+					project.project_id === null
+						? "No project"
+						: (project.client_name ?? "No client"),
+				client_color:
+					project.project_id === null
+						? project.project_color
+						: (project.client_color ?? "#6b7280"),
+				total_seconds: project.total_seconds,
+				entry_count: project.entry_count,
+				project_count: 0,
+			})
+		}
+		if (project.project_id !== null) {
+			const projectIds = projectIdsByClient.get(key) ?? new Set<number>()
+			projectIds.add(project.project_id)
+			projectIdsByClient.set(key, projectIds)
+		}
+	}
+	for (const [key, client] of clientTotals) {
+		client.project_count = projectIdsByClient.get(key)?.size ?? 0
+	}
+	return {
+		...report,
+		total_seconds: projectTotals.reduce(
+			(sum, project) => sum + project.total_seconds,
+			0,
+		),
+		project_totals: projectTotals,
+		client_totals: [...clientTotals.values()],
+	}
 }
 
 const polarToPiePoint = (percent: number) => {
@@ -2435,6 +2654,9 @@ const createTimeOverviewProjectList = (
 	report: TimeReport,
 	average: TimeOverviewAverage | null,
 	group: TimeOverviewGroup,
+	entries: TimeEntry[],
+	period: TimeOverviewPeriod,
+	selection: TimeOverviewSelection,
 	baselineSeconds?: number,
 ) => {
 	const list = div("time-report-list time-overview-list")
@@ -2447,49 +2669,235 @@ const createTimeOverviewProjectList = (
 		return list
 	}
 
-	for (const item of items) {
-		const row = div("time-report-row time-overview-row")
+	const averageSecondsFor = (item: TimeOverviewItem, itemGroup: TimeOverviewGroup) =>
+		item.synthetic
+			? Math.max(
+					0,
+					(average?.baselineSeconds ?? 0) - (average?.totalSeconds ?? 0),
+				)
+			: itemGroup === "client"
+				? (average?.clientSecondsByKey.get(item.key) ?? 0)
+				: (average?.projectSecondsByKey.get(item.key) ?? 0)
+
+	const createOverviewRow = (
+		item: TimeOverviewItem,
+		rowGroup: TimeOverviewGroup,
+		totalForPercent: number,
+		className = "",
+	) => {
+		const row = div(`time-report-row time-overview-row${className ? ` ${className}` : ""}`)
 		const main = div("time-overview-row__main")
 		const title = div("time-entry-row__title")
-		title.append(timeColor(item.color), text("strong", item.name))
+		const name = item.synthetic
+			? text("strong", item.name)
+			: document.createElement("a")
+		if (name instanceof HTMLAnchorElement) {
+			name.className = "time-overview-row__link"
+			name.dataset.link = ""
+			name.href = getTimeOverviewUrl(
+				rowGroup === "client"
+					? { ...selection, clientKey: item.key, projectKey: null }
+					: { ...selection, clientKey: null, projectKey: item.key },
+			)
+			name.addEventListener("click", (event) => {
+				if (
+					event.button !== 0 ||
+					event.metaKey ||
+					event.ctrlKey ||
+					event.shiftKey ||
+					event.altKey
+				) {
+					return
+				}
+				event.preventDefault()
+				event.stopPropagation()
+				navigate(name.href)
+			})
+		}
+		name.textContent = item.name
+		title.append(timeColor(item.color), name)
 		const meta = text(
 			"span",
 			item.synthetic
 				? "24h minus tracked time"
-				: group === "client"
+				: rowGroup === "client"
 					? `${item.projectCount ?? 0} project${item.projectCount === 1 ? "" : "s"} - ${item.entryCount} entr${item.entryCount === 1 ? "y" : "ies"}`
 					: `${item.entryCount} entr${item.entryCount === 1 ? "y" : "ies"}`,
 		)
 		meta.className = "section-copy"
 		const percent =
-			itemTotal > 0
-				? Math.round((item.totalSeconds / itemTotal) * 100)
+			totalForPercent > 0
+				? Math.round((item.totalSeconds / totalForPercent) * 100)
 				: 0
 		main.append(title, meta)
 		const total = div("time-overview-row__total")
-		const averageSeconds = item.synthetic
-			? Math.max(
-					0,
-					(average?.baselineSeconds ?? 0) -
-						(average?.totalSeconds ?? 0),
-				)
-			: group === "client"
-				? (average?.clientSecondsByKey.get(item.key) ?? 0)
-				: (average?.projectSecondsByKey.get(item.key) ?? 0)
 		total.append(
 			text("strong", formatDuration(item.totalSeconds)),
 			text("span", `${percent}%`),
 		)
-		total.append(
-			text(
-				"span",
-				average && average.dayCount > 0
-					? `Avg/day ${formatDuration(averageSeconds / average.dayCount)}`
-					: "Avg/day No full days",
-			),
-		)
+		const averageSeconds = averageSecondsFor(item, rowGroup)
+		if (average && average.dayCount > 0) {
+			const dailyAverage = averageSeconds / average.dayCount
+			total.append(
+				text("span", `Avg/day ${formatDuration(dailyAverage)}`),
+				text(
+					"span",
+					`Avg/week ${formatDuration(dailyAverage * DAYS_PER_WEEK)}`,
+				),
+			)
+		} else {
+			total.append(
+				text("span", "Avg/day No full days"),
+				text("span", "Avg/week No full days"),
+			)
+		}
 		row.append(main, total)
-		list.append(row)
+		return row
+	}
+
+	const projectItemsForClient = (client: TimeOverviewItem) =>
+		report.project_totals
+			.filter((project) => {
+				if (project.project_id === null) return false
+				if (client.key === "No client") return project.client_id === null
+				return project.client_id !== null && String(project.client_id) === client.key
+			})
+			.map((project) => ({
+				key: projectTotalKey(project.project_id),
+				name: project.project_name,
+				color: project.project_color,
+				totalSeconds: project.total_seconds,
+				entryCount: project.entry_count,
+			}))
+			.sort(
+				(left, right) =>
+					right.totalSeconds - left.totalSeconds ||
+					left.name.localeCompare(right.name),
+			)
+
+	const entryGroupsForProject = (project: TimeOverviewItem) => {
+		const groups = new Map<string, TimeOverviewEntryGroup>()
+		for (const entry of entries) {
+			if (
+				project.key !== projectTotalKey(entry.project_id) ||
+				timeEntryDurationInPeriod(entry, period) <= 0
+			) {
+				continue
+			}
+			const description = normalizeDescription(entry.description) || "No description"
+			const key = description.toLocaleLowerCase()
+			const existing = groups.get(key)
+			if (existing) {
+				existing.entryCount += 1
+				existing.totalSeconds += timeEntryDurationInPeriod(entry, period)
+				if (Date.parse(entry.started_at) > Date.parse(existing.latestStartedAt)) {
+					existing.latestStartedAt = entry.started_at
+				}
+			} else {
+				groups.set(key, {
+					description,
+					entryCount: 1,
+					totalSeconds: timeEntryDurationInPeriod(entry, period),
+					latestStartedAt: entry.started_at,
+				})
+			}
+		}
+		return [...groups.values()].sort(
+			(left, right) =>
+				right.totalSeconds - left.totalSeconds ||
+				Date.parse(right.latestStartedAt) - Date.parse(left.latestStartedAt),
+		)
+	}
+
+	const createEntryRow = (entryGroup: TimeOverviewEntryGroup) => {
+		const row = div("time-overview-entry-row")
+		const main = div("time-overview-entry-row__main")
+		const description = text("strong", entryGroup.description)
+		const meta = text(
+			"span",
+			`${entryGroup.entryCount} entr${
+				entryGroup.entryCount === 1 ? "y" : "ies"
+			} - Latest ${formatDateTime(entryGroup.latestStartedAt)}`,
+		)
+		meta.className = "section-copy"
+		main.append(description, meta)
+		row.append(main, text("strong", formatDuration(entryGroup.totalSeconds)))
+		return row
+	}
+
+	const createProjectGroup = (
+		project: TimeOverviewItem,
+		totalForPercent: number,
+		className = "",
+	) => {
+		const entryGroups = entryGroupsForProject(project)
+		const overviewRow = createOverviewRow(
+			project,
+			"project",
+			totalForPercent,
+		)
+		if (selection.projectKey === project.key) {
+			const projectPage = div(
+				`time-overview-project-detail${className ? ` ${className}` : ""}`,
+			)
+			projectPage.append(overviewRow)
+			if (entryGroups.length) {
+				const entryList = div("time-overview-project-entries")
+				entryList.append(...entryGroups.map(createEntryRow))
+				projectPage.append(entryList)
+			}
+			return projectPage
+		}
+		if (!entryGroups.length) {
+			return createOverviewRow(project, "project", totalForPercent, className)
+		}
+		const projectGroup = document.createElement("details")
+		projectGroup.className = `time-overview-project-group${
+			className ? ` ${className}` : ""
+		}`
+		const summary = document.createElement("summary")
+		summary.setAttribute("aria-label", `Show time entries for ${project.name}`)
+		summary.append(overviewRow)
+		const entryList = div("time-overview-project-entries")
+		entryList.append(...entryGroups.map(createEntryRow))
+		projectGroup.append(summary, entryList)
+		return projectGroup
+	}
+
+	for (const item of items) {
+		if (group !== "client" || item.synthetic) {
+			list.append(
+				group === "project"
+					? createProjectGroup(item, itemTotal)
+					: createOverviewRow(item, group, itemTotal),
+			)
+			continue
+		}
+		const projects = projectItemsForClient(item)
+		if (!projects.length) {
+			list.append(createOverviewRow(item, group, itemTotal))
+			continue
+		}
+		const clientGroup = document.createElement("details")
+		clientGroup.className = "time-overview-client-group"
+		const summary = document.createElement("summary")
+		summary.setAttribute(
+			"aria-label",
+			`Show projects for ${item.name}`,
+		)
+		summary.append(createOverviewRow(item, "client", itemTotal))
+		const projectList = div("time-overview-client-projects")
+		for (const project of projects) {
+			projectList.append(
+				createProjectGroup(
+					project,
+					item.totalSeconds,
+					"time-overview-project-row",
+				),
+			)
+		}
+		clientGroup.append(summary, projectList)
+		list.append(clientGroup)
 	}
 
 	return list
@@ -2500,6 +2908,16 @@ const renderTimeOverviewReport = (
 	resultsRoot: HTMLElement,
 	average: TimeOverviewAverage | null = null,
 	group: TimeOverviewGroup = DEFAULT_TIME_OVERVIEW_GROUP,
+	entries: TimeEntry[] = [],
+	period: TimeOverviewPeriod | null = null,
+	selection: TimeOverviewSelection = {
+		span: getTimeOverviewSpan(DEFAULT_TIME_OVERVIEW_SPAN),
+		day: "",
+		fromDay: "",
+		toDay: "",
+		clientKey: null,
+		projectKey: null,
+	},
 	baselineSeconds?: number,
 ) => {
 	resultsRoot.replaceChildren()
@@ -2510,10 +2928,21 @@ const renderTimeOverviewReport = (
 		return
 	}
 
+	const filteredReport = filterTimeOverviewReport(report, selection)
+	const displayBaselineSeconds =
+		selection.clientKey || selection.projectKey ? undefined : baselineSeconds
 	const chartPanel = div("time-overview-chart")
 	chartPanel.append(
-		createTimeOverviewPie(report, group, baselineSeconds),
-		createTimeOverviewProjectList(report, average, group, baselineSeconds),
+		createTimeOverviewPie(filteredReport, group, displayBaselineSeconds),
+		createTimeOverviewProjectList(
+			filteredReport,
+			average,
+			group,
+			entries,
+			period ?? { from: report.period.from ?? "", to: report.period.to },
+			selection,
+			displayBaselineSeconds,
+		),
 	)
 	resultsRoot.append(chartPanel)
 }
@@ -3354,17 +3783,31 @@ export const renderTimeOverviewPage = (page: HTMLElement) => {
 	spanSelect.id = "time-overview-span-select"
 	spanSelect.append(...renderTimeOverviewSpanOptions(selected.span.value))
 	const spanLabel = field("Span", spanSelect)
-	const groupSelect = document.createElement("select")
-	groupSelect.id = "time-overview-group-select"
-	groupSelect.append(...renderTimeOverviewGroupOptions(selected.group))
-	const groupLabel = field("Group By", groupSelect)
 	const dayInput = document.createElement("input")
 	dayInput.id = "time-overview-day-input"
 	dayInput.type = "date"
 	dayInput.value = selected.day
 	dayInput.max = formatDateInput()
 	const dayLabel = field("Day", dayInput)
-	controls.append(spanLabel, groupLabel, dayLabel)
+	const fromInput = document.createElement("input")
+	fromInput.id = "time-overview-from-input"
+	fromInput.type = "date"
+	fromInput.value = selected.fromDay
+	fromInput.max = formatDateInput()
+	const fromLabel = field("From", fromInput)
+	const toInput = document.createElement("input")
+	toInput.id = "time-overview-to-input"
+	toInput.type = "date"
+	toInput.value = selected.toDay
+	toInput.max = formatDateInput()
+	const toLabel = field("To", toInput)
+	const showAll = new Button({
+		text: "Show All",
+		className: "secondary",
+		type: "button",
+	})
+	showAll.root.hidden = !selected.clientKey && !selected.projectKey
+	controls.append(spanLabel, dayLabel, fromLabel, toLabel, showAll.root)
 
 	const status = div("status")
 	const results = div("time-overview-results")
@@ -3372,25 +3815,39 @@ export const renderTimeOverviewPage = (page: HTMLElement) => {
 	pageBlock.className = "time-block"
 	pageBlock.append(controls, status, results)
 	page.append(pageBlock)
+	let currentSelection = selected
+	const updateDateControlVisibility = (span: TimeOverviewSpan) => {
+		dayLabel.hidden = span.value !== "custom-day"
+		fromLabel.hidden = span.value !== "custom-range"
+		toLabel.hidden = span.value !== "custom-range"
+	}
+	updateDateControlVisibility(selected.span)
 
 	const load = async (selection: TimeOverviewSelection) => {
+		currentSelection = selection
+		updateDateControlVisibility(selection.span)
+		showAll.root.hidden = !selection.clientKey && !selection.projectKey
 		setStatus(status, "Loading time overview...")
-		renderTimeOverviewReport(null, results, null, selection.group)
+		renderTimeOverviewReport(null, results)
 		try {
 			const period = getTimeOverviewPeriod(selection)
 			const baselineSeconds = getTimeOverviewBaselineSeconds(selection)
 			const averagePeriod = getFullLocalDayBounds(period)
 			const reportPromise = timeApi.fetchReport(period.from, period.to)
+			const entriesPromise = timeApi.fetchEntries(period)
 			const averageReportPromise = averagePeriod
 				? averagePeriod.from === period.from &&
 					averagePeriod.to === period.to
 					? reportPromise
 					: timeApi.fetchReport(averagePeriod.from, averagePeriod.to)
 				: Promise.resolve(null)
-			const [report, averageReport] = await Promise.all([
+			const [report, averageReport, entries] = await Promise.all([
 				reportPromise,
 				averageReportPromise,
+				entriesPromise,
 			])
+			const group =
+				selection.clientKey || selection.projectKey ? "project" : "client"
 			renderTimeOverviewReport(
 				report,
 				results,
@@ -3414,7 +3871,10 @@ export const renderTimeOverviewPage = (page: HTMLElement) => {
 							),
 						}
 					: null,
-				selection.group,
+				group,
+				entries,
+				period,
+				selection,
 				baselineSeconds,
 			)
 			setStatus(
@@ -3436,21 +3896,9 @@ export const renderTimeOverviewPage = (page: HTMLElement) => {
 		const span = getTimeOverviewSpan(spanSelect.value)
 		spanSelect.value = span.value
 		const selection = {
+			...currentSelection,
 			span,
 			day: dayInput.value || formatDateInput(),
-			group: getTimeOverviewGroup(groupSelect.value),
-		}
-		updateTimeOverviewUrl(selection)
-		void load(selection)
-	})
-
-	groupSelect.addEventListener("change", () => {
-		const group = getTimeOverviewGroup(groupSelect.value)
-		groupSelect.value = group
-		const selection = {
-			span: getTimeOverviewSpan(spanSelect.value),
-			day: dayInput.value || formatDateInput(),
-			group,
 		}
 		updateTimeOverviewUrl(selection)
 		void load(selection)
@@ -3461,13 +3909,47 @@ export const renderTimeOverviewPage = (page: HTMLElement) => {
 		const span = getTimeOverviewSpan("custom-day")
 		spanSelect.value = span.value
 		const selection = {
+			...currentSelection,
 			span,
 			day,
-			group: getTimeOverviewGroup(groupSelect.value),
 		}
 		updateTimeOverviewUrl(selection)
 		void load(selection)
 	})
+
+	const updateCustomRange = (changedInput: "from" | "to") => {
+		let fromDay = fromInput.value || formatDateInput()
+		let toDay = toInput.value || formatDateInput()
+		if (fromDay > toDay) {
+			if (changedInput === "from") toDay = fromDay
+			else fromDay = toDay
+		}
+		fromInput.value = fromDay
+		toInput.value = toDay
+		const span = getTimeOverviewSpan("custom-range")
+		spanSelect.value = span.value
+		const selection = {
+			...currentSelection,
+			span,
+			fromDay,
+			toDay,
+		}
+		updateTimeOverviewUrl(selection)
+		void load(selection)
+	}
+
+	fromInput.addEventListener("change", () => updateCustomRange("from"))
+	toInput.addEventListener("change", () => updateCustomRange("to"))
+
+	showAll.onClick = () => {
+		const selection = {
+			...currentSelection,
+			clientKey: null,
+			projectKey: null,
+		}
+		updateTimeOverviewUrl(selection)
+		void load(selection)
+	}
 
 	void load(selected)
 }

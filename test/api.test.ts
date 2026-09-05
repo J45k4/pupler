@@ -1198,6 +1198,72 @@ describe("Pupler API", () => {
 		)
 	})
 
+	test("edits Clockify values without exposing or replacing a stored API key", async () => {
+		const routes = createRoutes()
+		const originalKey = process.env.PUPLER_ENCRYPTION_KEY
+		process.env.PUPLER_ENCRYPTION_KEY = Buffer.from(
+			"0123456789abcdef0123456789abcdef",
+		).toString("base64")
+
+		try {
+			const createResponse = await request(
+				routes,
+				"/api/external-integrations/clockify",
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						name: "Clockify",
+						workspace_id: "workspace-1",
+						api_key: "clockify-secret",
+					}),
+				},
+			)
+			expect(createResponse.status).toBe(200)
+			const created = await createResponse.json()
+			expect(created.credentials_configured).toBeTrue()
+			expect(created.credentials_encrypted_json).toBeUndefined()
+			const before = await routes.db.client.externalIntegration.findUniqueOrThrow({
+				where: { id: created.id },
+			})
+
+			const updateResponse = await request(
+				routes,
+				`/api/external-integrations/${created.id}`,
+				{
+					method: "PATCH",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						name: "Updated Clockify",
+						workspace_id: "workspace-2",
+						api_base_url: "https://clockify.example/api/v1",
+						reports_base_url: "https://reports.clockify.example/v1",
+					}),
+				},
+				{ id: String(created.id) },
+			)
+			expect(updateResponse.status).toBe(200)
+			const updated = await updateResponse.json()
+			expect(updated.name).toBe("Updated Clockify")
+			expect(updated.config).toEqual({
+				workspace_id: "workspace-2",
+				api_base_url: "https://clockify.example/api/v1",
+				reports_base_url: "https://reports.clockify.example/v1",
+			})
+			expect(updated.credentials_configured).toBeTrue()
+			expect(updated.credentials_encrypted_json).toBeUndefined()
+			const after = await routes.db.client.externalIntegration.findUniqueOrThrow({
+				where: { id: created.id },
+			})
+			expect(after.credentials_encrypted_json).toBe(
+				before.credentials_encrypted_json,
+			)
+		} finally {
+			if (originalKey === undefined) delete process.env.PUPLER_ENCRYPTION_KEY
+			else process.env.PUPLER_ENCRYPTION_KEY = originalKey
+		}
+	})
+
 	test("configures and runs Clockify imports through jobs and link tables", async () => {
 		const routes = createRoutes()
 		const originalKey = process.env.PUPLER_ENCRYPTION_KEY
