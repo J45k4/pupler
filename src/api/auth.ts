@@ -100,6 +100,18 @@ const verifyPassword = async (
 }
 
 export const resolveAuthenticatedUser = async (req: Request) => {
+	const authorization = req.headers.get("authorization")
+	if (authorization !== null) {
+		const key = authorization.match(/^Bearer (pupler_[A-Za-z0-9_-]{43})$/i)?.[1]
+		if (!key) return null
+		const record = await db.client.userApiKey.findUnique({
+			where: { key_hash: hashSessionToken(key) },
+			include: { user: { select: PUBLIC_USER_SELECT } },
+		})
+		if (!record) return null
+		await db.client.userApiKey.updateMany({ where: { id: record.id }, data: { last_used_at: utcNow() } })
+		return record.user
+	}
 	const token = readSessionToken(req)
 	if (!token) return null
 

@@ -1,0 +1,16 @@
+{
+    "schemaVersion": 1,
+    "id": "puplerbar",
+    "name": "Puplerbar",
+    "version": "1.0.0",
+    "description": "Start and stop Pupler timers from the toolbar.",
+    "kinds": ["bar-widget"],
+    "entryPoints": { "barWidget": "BarWidget.qml" },
+    "barWidget": {
+        "displayName": "Puplerbar",
+        "description": "Start, show and stop time entries",
+        "category": "Productivity",
+        "allowMultiple": false,
+        "defaultSection": "right"
+    }
+}

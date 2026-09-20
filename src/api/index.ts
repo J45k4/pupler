@@ -4,6 +4,7 @@ export {
 	handleFallback,
 	openDatabase,
 } from "./core"
+export { apiKeysCollectionRoute, apiKeyDetailRoute } from "./api-keys"
 export {
 	authLoginRoute,
 	authBootstrapRoute,

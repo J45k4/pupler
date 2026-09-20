@@ -26,6 +26,8 @@ const apiRoutes = createApiRoutes({
 		"/api/auth/session": routes.authSessionRoute,
 	},
 	authenticated: {
+		"/api/auth/api-keys": routes.apiKeysCollectionRoute,
+		"/api/auth/api-keys/:id": routes.apiKeyDetailRoute,
 		"/api/auth/password": routes.authPasswordRoute,
 		"/api/external-integrations": routes.externalIntegrationsCollectionRoute(database),
 		"/api/external-integrations/clockify": routes.clockifyIntegrationRoute(database),

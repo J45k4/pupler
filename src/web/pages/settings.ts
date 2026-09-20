@@ -1,4 +1,5 @@
 import { changePassword } from "../auth"
+import { apiKeySettings } from "./api-key-settings"
 import { renderPage, setStatus } from "../app"
 import { createElement, getElementById, withQueryRoot } from "../lib/dom"
 
@@ -131,5 +132,6 @@ export const renderSettingsPage = () => {
 		),
 	)
 	withQueryRoot(page, attachSettingsEvents)
+	page.append(apiKeySettings())
 	renderPage(page)
 }
