@@ -4,6 +4,7 @@ import { resolvePuplerVersion, versionPayload } from "./config"
 import { dbPath, filesPath, initializeDatabase } from "./db"
 
 import index from "./web/index.html"
+import reactIndex from "./react/index.html"
 
 const favicon = Bun.file(new URL("./web/favicon.png", import.meta.url))
 
@@ -95,6 +96,10 @@ const apiRoutes = createApiRoutes({
 
 const instance = Bun.serve({
 	port,
+	development: process.env.NODE_ENV !== "production" && {
+		hmr: true,
+		console: true,
+	},
 	routes: {
 		...apiRoutes,
 		"/health": new Response("ok"),
@@ -102,6 +107,8 @@ const instance = Bun.serve({
 			headers: { "Content-Type": "image/png" },
 		}),
 		"/api/*": Response.json({ error: "Route not found" }, { status: 404 }),
+		"/react": reactIndex,
+		"/react/*": reactIndex,
 		"/*": index,
 	},
 })

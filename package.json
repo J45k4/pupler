@@ -24,6 +24,8 @@
 	"module": "index.ts",
 	"devDependencies": {
 		"@types/bun": "latest",
+		"@types/react": "^19.3.0",
+		"@types/react-dom": "^19.3.0",
 		"prisma": "^7.7.0"
 	},
 	"peerDependencies": {
@@ -31,6 +33,8 @@
 	},
 	"dependencies": {
 		"@prisma/adapter-libsql": "^7.7.0",
-		"@prisma/client": "^7.7.0"
+		"@prisma/client": "^7.7.0",
+		"react": "^19.3.0",
+		"react-dom": "^19.3.0"
 	}
 }
