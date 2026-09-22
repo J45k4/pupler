@@ -34,7 +34,7 @@ jobs:
           - platform: windows-x64
             runner: windows-latest
     env:
-      PUPLER_VERSION: ${{ inputs.tag || github.ref_name }}
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -44,12 +44,14 @@ jobs:
           bun-version: 1.3.11
       - name: Validate tag
         shell: bash
-        run: '[[ "$PUPLER_VERSION" =~ ^v[0-9][a-zA-Z0-9._-]*$ ]]'
+        run: '[[ "$RELEASE_TAG" =~ ^v[0-9][a-zA-Z0-9._-]*$ ]]'
       - run: bun install --frozen-lockfile
       - name: Test
         if: runner.os == 'Linux'
         run: bun test
       - run: bun run build:release
+        env:
+          PUPLER_VERSION: ${{ env.RELEASE_TAG }}
       - name: Smoke test standalone binaries
         if: runner.os == 'Linux'
         run: bun scripts/smoke-release.ts
