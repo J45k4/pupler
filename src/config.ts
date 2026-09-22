@@ -1,9 +1,13 @@
 import { deriveFilesPath } from "./api/core"
 
+declare const PUPLER_BUILD_VERSION: string
+
+const buildVersion = typeof PUPLER_BUILD_VERSION === "string" ? PUPLER_BUILD_VERSION : "dev"
+
 type Environment = Record<string, string | undefined>
 
 export const resolvePuplerVersion = (env: Environment = process.env) =>
-	env.PUPLER_VERSION ?? "dev"
+	env.PUPLER_VERSION ?? buildVersion
 
 export const versionPayload = (env: Environment = process.env) => ({
 	version: resolvePuplerVersion(env),

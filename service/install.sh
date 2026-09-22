@@ -1,111 +1,63 @@
 #!/usr/bin/env bash
-#
-# Install Pupler as a systemd user service from a local checkout.
-# No root, no Docker: just Bun + systemd --user.
-#
-#   ./service/install.sh
-#
-# Env overrides:
-#   PUPLER_SERVICE_NAME=pupler  PUPLER_PORT=5995
-#   PUPLER_BIND_ADDRESS=127.0.0.1
-#   PUPLER_INSTALL_DIR=~/.pupler PUPLER_DATA_DIR=~/.pupler/data
-#   PUPLER_REPO_DIR (defaults to this checkout)  PUPLER_BUN_BIN (auto-detected)
-#
-# Note: user services stop at logout unless lingering is enabled.
-# This script tries `loginctl enable-linger` and warns when it lacks
-# permission; ask an admin to run `loginctl enable-linger "$USER"` once
-# for boot persistence.
-
+# Install a GitHub Release as a systemd user service, without Bun or a checkout.
 set -euo pipefail
-
-if [ "$(uname -s)" != "Linux" ]; then
-	echo "User services are a Linux/systemd feature." >&2
-	exit 1
-fi
-
-if [ "$(id -u)" -eq 0 ]; then
-	echo "Do not run the user installer as root; run it as your own user." >&2
-	exit 1
-fi
-
-require_command() {
-	if ! command -v "$1" >/dev/null 2>&1; then
-		echo "Missing required command: $1" >&2
-		exit 1
-	fi
-}
-
-SERVICE_NAME="${PUPLER_SERVICE_NAME:-pupler}"
-PUPLER_PORT="${PUPLER_PORT:-5995}"
-PUPLER_BIND_ADDRESS="${PUPLER_BIND_ADDRESS:-127.0.0.1}"
-INSTALL_DIR="${PUPLER_INSTALL_DIR:-$HOME/.pupler}"
-PUPLER_DATA_DIR="${PUPLER_DATA_DIR:-${INSTALL_DIR}/data}"
-UNIT_DIR="$HOME/.config/systemd/user"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-
-require_command systemctl
-
-mkdir -p "$INSTALL_DIR" "$PUPLER_DATA_DIR" "$UNIT_DIR"
-
-cat >"$INSTALL_DIR/.env" <<EOF
-PUPLER_INSTALL_DIR=${INSTALL_DIR}
-PUPLER_SERVICE_NAME=${SERVICE_NAME}
-PUPLER_PORT=${PUPLER_PORT}
-PUPLER_BIND_ADDRESS=${PUPLER_BIND_ADDRESS}
-PUPLER_DATA_DIR=${PUPLER_DATA_DIR}
-EOF
-
-require_command systemctl
-require_command git
-
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PUPLER_REPO_DIR="${PUPLER_REPO_DIR:-$SCRIPT_DIR/..}"
-if ! git -C "$PUPLER_REPO_DIR" rev-parse --show-toplevel >/dev/null 2>&1; then
-	echo "Installer needs the Pupler checkout. Set PUPLER_REPO_DIR to the repo root." >&2
-	exit 1
+source "$SCRIPT_DIR/release.sh"
+EXPLICIT_DATA_DIR="${PUPLER_DATA_DIR:-}"
+release_init
+UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+if [[ ! -f $INSTALL_DIR/.env ]] && systemctl --user cat "$SERVICE_NAME" >/dev/null 2>&1 && [[ -z $EXPLICIT_DATA_DIR ]]; then
+	fail "Existing service detected. Set PUPLER_DATA_DIR to its existing DATA_PATH (and preserve its port/bind settings) to migrate it."
 fi
-PUPLER_REPO_DIR="$(git -C "$PUPLER_REPO_DIR" rev-parse --show-toplevel)"
-
-PUPLER_BUN_BIN="${PUPLER_BUN_BIN:-$(command -v bun 2>/dev/null || true)}"
-if [ -z "$PUPLER_BUN_BIN" ]; then
-	echo "Could not find bun. Install Bun or set PUPLER_BUN_BIN." >&2
-	exit 1
+fetch_release
+mkdir -p "$UNIT_DIR"
+if [[ -f $UNIT_DIR/$SERVICE_NAME.service ]]; then
+	cp -p "$UNIT_DIR/$SERVICE_NAME.service" "$INSTALL_DIR/previous-service-$(date +%s).service"
 fi
-
-if ! (cd "$PUPLER_REPO_DIR" && bun install); then
-	echo "bun install failed for $PUPLER_REPO_DIR" >&2
-	exit 1
+if [[ ! -f $INSTALL_DIR/.env ]]; then
+	umask 077
+	printf 'PUPLER_INSTALL_DIR=%q\nPUPLER_SERVICE_NAME=%q\nPUPLER_DATA_DIR=%q\nPUPLER_PORT=%q\nPUPLER_BIND_ADDRESS=%q\nPUPLER_RELEASE_REPOSITORY=%q\n' "$INSTALL_DIR" "$SERVICE_NAME" "$DATA_DIR" "$PORT" "$BIND_ADDRESS" "$REPOSITORY" > "$INSTALL_DIR/.env"
 fi
+cat > "$UNIT_DIR/$SERVICE_NAME.service" <<UNIT
+[Unit]
+Description=Pupler release service
+After=network-online.target
+Wants=network-online.target
 
-cat >>"$INSTALL_DIR/.env" <<EOF
-PUPLER_REPO_DIR=${PUPLER_REPO_DIR}
-PUPLER_BUN_BIN=${PUPLER_BUN_BIN}
-EOF
+[Service]
+Type=simple
+WorkingDirectory=$DATA_DIR
+Environment=NODE_ENV=production
+Environment=DATA_PATH=$DATA_DIR
+Environment=PORT=$PORT
+Environment=BIND_ADDRESS=$BIND_ADDRESS
+ExecStart=$INSTALL_DIR/current/pupler-server
+Restart=on-failure
+RestartSec=2
 
-sed -e "s|@PUPLER_REPO_DIR@|${PUPLER_REPO_DIR}|g" \
-	-e "s|@PUPLER_PORT@|${PUPLER_PORT}|g" \
-	-e "s|@PUPLER_DATA_DIR@|${PUPLER_DATA_DIR}|g" \
-	-e "s|@PUPLER_BUN_BIN@|${PUPLER_BUN_BIN}|g" \
-	"$SCRIPT_DIR/pupler-bun.service" >"$UNIT_DIR/${SERVICE_NAME}.service"
-
-cp "$SCRIPT_DIR/update.sh" "$INSTALL_DIR/update.sh"
-chmod 0755 "$INSTALL_DIR/update.sh"
-
+[Install]
+WantedBy=default.target
+UNIT
+# Stable wrapper always uses the helper shipped with the active release.
+cat > "$INSTALL_DIR/update.sh" <<'WRAPPER'
+#!/usr/bin/env bash
+set -euo pipefail
+export PUPLER_INSTALL_DIR="$(cd "$(dirname "$0")" && pwd)"
+exec bash "$PUPLER_INSTALL_DIR/current/service/update.sh" "$@"
+WRAPPER
+cat > "$INSTALL_DIR/backup.sh" <<'WRAPPER'
+#!/usr/bin/env bash
+set -euo pipefail
+export PUPLER_INSTALL_DIR="$(cd "$(dirname "$0")" && pwd)"
+exec bash "$PUPLER_INSTALL_DIR/current/service/backup.sh" "$@"
+WRAPPER
+chmod 0755 "$INSTALL_DIR/update.sh" "$INSTALL_DIR/backup.sh"
 systemctl --user daemon-reload
-systemctl --user enable --now "$SERVICE_NAME"
-
-if ! loginctl show-user "$USER" 2>/dev/null | grep -q '^Linger=yes'; then
-	if loginctl enable-linger "$USER" 2>/dev/null; then
-		echo "Lingering enabled: service persists after logout and at boot."
-	else
-		echo "NOTE: could not enable linger (needs admin once)." >&2
-		echo "Ask an admin to run: loginctl enable-linger $USER" >&2
-		echo "Until then the service stops when you log out." >&2
-	fi
+systemctl --user enable "$SERVICE_NAME"
+activate_release
+if ! loginctl show-user "$USER" --property=Linger --value 2>/dev/null | grep -qx yes; then
+	echo "For startup at boot and after logout, ask an administrator to run: loginctl enable-linger $USER"
 fi
-
-echo "Pupler installed as user service."
-echo "Install dir: $INSTALL_DIR"
-echo "Service: $SERVICE_NAME (systemctl --user)"
-echo "URL: http://${PUPLER_BIND_ADDRESS}:${PUPLER_PORT}"
-echo "Updater: $INSTALL_DIR/update.sh"
+echo "Update: $INSTALL_DIR/update.sh"
+echo "Full backup: $INSTALL_DIR/backup.sh"
+echo "Create admin: DATA_PATH=$DATA_DIR $INSTALL_DIR/current/pupler-create-user --name Admin --username admin --password '<password>'"

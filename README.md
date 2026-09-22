@@ -35,6 +35,14 @@ Run locally:
 docker run --rm -p 5995:5995 -v pupler-data:/data pupler:local
 ```
 
+## Release binaries and user service
+
+Push a `v*` tag to build and publish standalone binaries with GitHub Actions.
+The [release service installer and updater](./service/README.md) download
+verified release archives; the server needs no Git checkout or Bun installation.
+Web assets, migrations, CLI and admin creation are included, while database and
+uploads stay in the configured data directory.
+
 ## Linux install
 
 The repo includes a Linux bootstrap installer at

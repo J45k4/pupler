@@ -23,13 +23,13 @@ done
 
 INSTALL_DIR="${PUPLER_INSTALL_DIR:-$HOME/.pupler}"
 SERVICE_NAME="${PUPLER_SERVICE_NAME:-pupler}"
-UNIT_FILE="$HOME/.config/systemd/user/${SERVICE_NAME}.service"
+UNIT_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/${SERVICE_NAME}.service"
 
 if [ -f "$INSTALL_DIR/.env" ]; then
 	set -a
 	. "$INSTALL_DIR/.env"
 	set +a
-	UNIT_FILE="$HOME/.config/systemd/user/${PUPLER_SERVICE_NAME:-$SERVICE_NAME}.service"
+	UNIT_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/${PUPLER_SERVICE_NAME:-$SERVICE_NAME}.service"
 	SERVICE_NAME="${PUPLER_SERVICE_NAME:-$SERVICE_NAME}"
 fi
 

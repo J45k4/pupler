@@ -20,7 +20,8 @@
 		"test": "bun test",
 		"test:api": "bun test test/api.test.ts",
 		"test:cli": "bun test test/cli.test.ts",
-		"test:e2e": "bun test test/e2e.test.ts"
+		"test:e2e": "bun test test/e2e.test.ts",
+		"build:release": "bun run prisma:generate && bun scripts/build-release.ts"
 	},
 	"module": "index.ts",
 	"devDependencies": {

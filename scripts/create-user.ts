@@ -1,9 +1,10 @@
 import { closeDatabase, openDatabase } from "../src/api/core"
+import { resolveDatabasePath, resolveFilesPath } from "../src/config"
 
 const HELP = `Create a Pupler user directly in the local database.
 
 Usage:
-  bun scripts/create-user.ts --name <name> --username <username> --password <password> [--email <email>] [--no-admin]
+  pupler-create-user --name <name> --username <username> --password <password> [--email <email>] [--no-admin]
 
 Options:
   --name <name>        Display name (required).
@@ -15,7 +16,8 @@ Options:
   --help               Show this help.
 
 Environment:
-  DB_PATH          Database path, defaults to pupler.db.
+  DATA_PATH        Data directory containing pupler.db and files/.
+  DB_PATH          Override the database path.
   FILES_PATH       Files directory, defaults next to the database.
 `
 
@@ -66,8 +68,8 @@ const parseArgs = (): Args => {
 }
 
 const db = openDatabase(
-	process.env.DB_PATH ?? "pupler.db",
-	process.env.FILES_PATH,
+	resolveDatabasePath(),
+	process.env.FILES_PATH ?? resolveFilesPath(resolveDatabasePath()),
 )
 
 try {

@@ -6,7 +6,8 @@ import { dbPath, filesPath, initializeDatabase } from "./db"
 import index from "./web/index.html"
 import reactIndex from "./react/index.html"
 
-const favicon = Bun.file(new URL("./web/favicon.png", import.meta.url))
+import faviconPath from "./web/favicon.png" with { type: "file" }
+const favicon = Bun.file(faviconPath)
 
 const version = resolvePuplerVersion()
 const envPort = process.env.PORT
@@ -95,6 +96,7 @@ const apiRoutes = createApiRoutes({
 
 const instance = Bun.serve({
 	port,
+	hostname: process.env.BIND_ADDRESS ?? "0.0.0.0",
 	development: process.env.NODE_ENV !== "production" && {
 		hmr: true,
 		console: true,

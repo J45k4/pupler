@@ -2,101 +2,89 @@ name: Release Binaries
 
 on:
   push:
-    branches:
-      - "**"
-    tags:
-      - "v*"
-  pull_request:
+    tags: ["v*"]
   workflow_dispatch:
-
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    inputs:
+      tag:
+        description: Existing version tag to release (v1.0.0)
+        required: true
+        type: string
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
-  build-binaries:
-    name: Build Binaries (${{ matrix.name }})
+  build:
+    name: Build (${{ matrix.platform }})
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: linux
-            runner: ubuntu-latest
-            cli_asset_name: pupler-cli-linux-x64
-            server_asset_name: pupler-server-linux-x64
-          - name: macos
+          - platform: linux-x64
+            runner: ubuntu-22.04
+          - platform: linux-arm64
+            runner: ubuntu-24.04-arm
+          - platform: macos-arm64
             runner: macos-latest
-            cli_asset_name: pupler-cli-macos-arm64
-            server_asset_name: pupler-server-macos-arm64
-          - name: windows
+          - platform: windows-x64
             runner: windows-latest
-            cli_asset_name: pupler-cli-windows-x64.exe
-            server_asset_name: pupler-server-windows-x64.exe
-
+    env:
+      PUPLER_VERSION: ${{ inputs.tag || github.ref_name }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@v4
         with:
-          bun-version: latest
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Build CLI binary
-        run: bun run build:cli-bin
-
-      - name: Build server binary
-        run: bun run build:server-bin
-
-      - name: Prepare release assets (Unix)
-        if: runner.os != 'Windows'
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.11
+      - name: Validate tag
         shell: bash
+        run: '[[ "$PUPLER_VERSION" =~ ^v[0-9][a-zA-Z0-9._-]*$ ]]'
+      - run: bun install --frozen-lockfile
+      - name: Test
+        if: runner.os == 'Linux'
+        run: bun test
+      - run: bun run build:release
+      - name: Smoke test standalone binaries
+        if: runner.os == 'Linux'
+        run: bun scripts/smoke-release.ts
+      - name: Package release
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
         run: |
-          mv dist/pupler-cli "dist/${{ matrix.cli_asset_name }}"
-          mv dist/pupler-server "dist/${{ matrix.server_asset_name }}"
-
-      - name: Prepare release assets (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          Move-Item dist/pupler-cli.exe "dist/${{ matrix.cli_asset_name }}"
-          Move-Item dist/pupler-server.exe "dist/${{ matrix.server_asset_name }}"
-
-      - name: Upload CLI artifact
-        uses: actions/upload-artifact@v4
+          cp -r service dist/release/service
+          rm -f dist/release/service/pupler-bun.service
+          mkdir -p dist/assets
+          tar -czf "dist/assets/pupler-$PLATFORM.tar.gz" -C dist/release .
+          cd dist/assets
+          sha256sum "pupler-$PLATFORM.tar.gz" > "pupler-$PLATFORM.tar.gz.sha256"
+      - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.cli_asset_name }}
-          path: dist/${{ matrix.cli_asset_name }}
+          name: pupler-${{ matrix.platform }}
+          path: dist/assets/*
           if-no-files-found: error
 
-      - name: Upload server artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.server_asset_name }}
-          path: dist/${{ matrix.server_asset_name }}
-          if-no-files-found: error
-
-  create-release:
-    name: Create Release
-    if: startsWith(github.ref, 'refs/tags/')
+  release:
+    needs: build
     runs-on: ubuntu-latest
-    needs: build-binaries
-
+    permissions:
+      contents: write
     steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           path: release-assets
           merge-multiple: true
-
-      - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: release-assets/*
-          generate_release_notes: true
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          gh release create "$TAG" --verify-tag --draft --title "$TAG" --generate-notes release-assets/*
+          gh release edit "$TAG" --draft=false
