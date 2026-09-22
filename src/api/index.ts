@@ -7,7 +7,6 @@ export {
 export { apiKeysCollectionRoute, apiKeyDetailRoute } from "./api-keys"
 export {
 	authLoginRoute,
-	authBootstrapRoute,
 	authLogoutRoute,
 	authPasswordRoute,
 	authSessionRoute,

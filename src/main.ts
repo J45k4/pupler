@@ -21,7 +21,6 @@ if (process.env.PUPLER_DISABLE_JOB_WORKER !== "true") {
 
 const apiRoutes = createApiRoutes({
 	public: {
-		"/api/auth/bootstrap": routes.authBootstrapRoute,
 		"/api/auth/login": routes.authLoginRoute,
 		"/api/auth/logout": routes.authLogoutRoute,
 		"/api/auth/session": routes.authSessionRoute,

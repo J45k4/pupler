@@ -10,7 +10,6 @@ import { CliError } from "./error"
 import {
 	normalizeBaseUrl,
 	requestBinary,
-	bootstrapCli,
 	loginCli,
 	requestBody,
 	requestJson,
@@ -411,7 +410,6 @@ Usage:
 
 Resources:
   ${RESOURCE_NAMES}
-  auth bootstrap
   integrations clockify configure
   imports clockify schedule|run
 
@@ -1159,34 +1157,6 @@ Commands:
   ${CONFIG_COMMANDS.join(", ")}
 `
 
-const runAuthCommand = async (
-	args: string[],
-	globalOptions: GlobalOptions,
-): Promise<CommandResult> => {
-	const command = args[0]
-	if (globalOptions.help || command !== "bootstrap") {
-		return {
-			message:
-				"Usage: bun ./cli/cli.ts auth bootstrap --name <name> --username <username> --password <password> [--email <email>]",
-		}
-	}
-	const parsed = parseArgs(args.slice(1))
-	const name = ensureStringFlag(parsed.flags.name, "name")
-	const username = ensureStringFlag(parsed.flags.username, "username")
-	const password = ensureStringFlag(parsed.flags.password, "password")
-	const email =
-		parsed.flags.email === undefined
-			? null
-			: ensureStringFlag(parsed.flags.email, "email")
-	const payload = await bootstrapCli(resolveRequestBaseUrl(globalOptions), {
-		name,
-		username,
-		password,
-		email,
-	})
-	return { payload }
-}
-
 const runConfigCommand = async (
 	args: string[],
 	globalOptions: GlobalOptions,
@@ -1481,9 +1451,6 @@ export const runCliCommand = async (
 
 	if (args[0] === "config") {
 		return runConfigCommand(args.slice(1), globalOptions)
-	}
-	if (args[0] === "auth") {
-		return runAuthCommand(args.slice(1), globalOptions)
 	}
 
 	const baseUrl = resolveRequestBaseUrl(globalOptions)

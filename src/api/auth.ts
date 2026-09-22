@@ -3,9 +3,7 @@ import { createHash, randomBytes } from "node:crypto"
 import { db } from "../db"
 import {
 	empty,
-	assertKnownFields,
 	expectString,
-	expectNullableString,
 	HttpError,
 	json,
 	readJsonObject,
@@ -147,44 +145,6 @@ export const requireAdminUser = async (req: Request) => {
 	if (!user.is_admin)
 		throw new HttpError(403, "Administrator access required")
 	return user
-}
-
-const parseBootstrapValues = (body: JsonObject) => {
-	assertKnownFields(body, ["name", "username", "password", "email"])
-	const name = requireBodyField(body, "name", expectString).trim()
-	const username = requireBodyField(body, "username", expectString).trim()
-	const password = requireBodyField(body, "password", expectString)
-	const email =
-		body.email === undefined
-			? null
-			: expectNullableString(body.email, "email")?.trim() || null
-	if (!name || !username)
-		throw new HttpError(400, "Name and username are required")
-	if (password.length < 8)
-		throw new HttpError(400, "Password must be at least 8 characters")
-	return { name, username, password, email }
-}
-
-export const authBootstrapRoute = async (req: Request) => {
-	if (req.method !== "POST") throw new HttpError(405, "Method not allowed")
-	const userCount = await db.client.user.count()
-	if (userCount > 0)
-		throw new HttpError(409, "Initial administrator already exists")
-	const values = parseBootstrapValues(await readJsonObject(req))
-	const now = utcNow()
-	const user = await db.client.user.create({
-		data: {
-			name: values.name,
-			username: values.username,
-			email: values.email,
-			password_hash: await Bun.password.hash(values.password),
-			is_admin: true,
-			created_at: now,
-			updated_at: now,
-		},
-		select: PUBLIC_USER_SELECT,
-	})
-	return json(201, user)
 }
 
 export const authLoginRoute = async (req: Request) => {

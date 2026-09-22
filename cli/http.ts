@@ -46,24 +46,6 @@ export const loginCli = async (
 	storeSessionCookie(response)
 }
 
-export const bootstrapCli = async (
-	baseUrl: string,
-	body: {
-		name: string
-		username: string
-		password: string
-		email?: string | null
-	},
-) => {
-	const response = await fetch(buildUrl(baseUrl, "/api/auth/bootstrap"), {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify(body),
-	})
-	if (!response.ok) throw new CliError(await readErrorMessage(response))
-	return response.json()
-}
-
 const buildUrl = (
 	baseUrl: string,
 	path: string,

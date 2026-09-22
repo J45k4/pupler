@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
+import { Database } from "bun:sqlite"
 
 import { applyTestSchema } from "./test-db"
 
@@ -91,6 +92,19 @@ export class TestServer {
 		const dbPath = join(tempDir, "pupler.sqlite")
 		mkdirSync(tempDir, { recursive: true })
 		applyTestSchema(dbPath)
+		const now = new Date().toISOString()
+		const passwordHash = await Bun.password.hash("test-password")
+		const seedDb = new Database(dbPath, { create: true })
+		try {
+			seedDb.exec("PRAGMA foreign_keys = ON;")
+			seedDb
+				.query(
+					"INSERT INTO users (name, username, email, password_hash, is_admin, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+				)
+				.run("Test Admin", "test", null, passwordHash, 1, now, now)
+		} finally {
+			seedDb.close()
+		}
 
 		const child = Bun.spawn(["bun", "src/main.ts"], {
 			cwd: projectRoot,
@@ -115,20 +129,6 @@ export class TestServer {
 
 		try {
 			await waitForHealth(server.baseUrl)
-			const bootstrapResponse = await fetch(
-				`${server.baseUrl}/api/auth/bootstrap`,
-				{
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						name: "Test Admin",
-						username: "test",
-						password: "test-password",
-					}),
-				},
-			)
-			if (!bootstrapResponse.ok)
-				throw new Error(await bootstrapResponse.text())
 			const loginResponse = await fetch(
 				`${server.baseUrl}/api/auth/login`,
 				{
@@ -146,7 +146,7 @@ export class TestServer {
 				?.match(/pupler_session=[^;]+/)?.[0]
 			if (!cookie)
 				throw new Error(
-					"Test bootstrap did not return a session cookie",
+					"Test setup did not return a session cookie",
 				)
 			server.sessionCookie = cookie
 			return server
