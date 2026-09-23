@@ -1,5 +1,6 @@
 import { requireAdminUser, requireAuthenticatedUser } from "./auth"
 import {
+	HttpError,
 	withErrorHandling,
 	type BunRouteHandler,
 	type RouteHandler,
@@ -13,6 +14,13 @@ type WrappedRoutes<T extends ApiRouteMap> = {
 
 type Authorize = (req: Request) => Promise<unknown>
 
+const requireSameOriginMutation = (req: Request) => {
+	if (["GET", "HEAD", "OPTIONS"].includes(req.method)) return
+	const origin = req.headers.get("origin")
+	if (origin && origin !== new URL(req.url).origin) throw new HttpError(403, "Cross-origin requests are not allowed")
+	if (req.headers.get("sec-fetch-site") === "cross-site") throw new HttpError(403, "Cross-site requests are not allowed")
+}
+
 const wrapRoutes = <T extends ApiRouteMap>(
 	routeMap: T,
 	authorize?: Authorize,
@@ -21,8 +29,11 @@ const wrapRoutes = <T extends ApiRouteMap>(
 		Object.entries(routeMap).map(([path, handler]) => [
 			path,
 			withErrorHandling(async (req) => {
+				requireSameOriginMutation(req)
 				await authorize?.(req)
-				return (handler as RouteHandler)(req)
+				const response = await (handler as RouteHandler)(req)
+				if (!response.headers.has("Cache-Control")) response.headers.set("Cache-Control", "no-store")
+				return response
 			}),
 		]),
 	) as WrappedRoutes<T>

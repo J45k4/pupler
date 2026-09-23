@@ -363,7 +363,8 @@ export const handleError = (error: unknown) => {
 		if (error.message.includes("NOT NULL constraint failed")) {
 			return json(400, { error: error.message })
 		}
-		return json(500, { error: error.message })
+		console.error(error)
+		return json(500, { error: "Internal server error" })
 	}
 
 	return json(500, { error: "Unknown server error" })

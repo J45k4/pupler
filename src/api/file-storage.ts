@@ -3,6 +3,20 @@ import { dirname, extname, resolve, sep } from "node:path"
 
 import { HttpError, type Database } from "./core"
 
+const INLINE_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "image/avif"])
+
+export const requireSafeImageType = (file: File) => {
+	if (!INLINE_IMAGE_TYPES.has(file.type)) throw new HttpError(400, "Uploaded file must be a PNG, JPEG, GIF, WebP, or AVIF image")
+}
+
+export const storedImageHeaders = (contentType: string) => ({
+	"Content-Type": INLINE_IMAGE_TYPES.has(contentType) ? contentType : "application/octet-stream",
+	"Content-Disposition": INLINE_IMAGE_TYPES.has(contentType) ? "inline" : "attachment",
+	"X-Content-Type-Options": "nosniff",
+	"Content-Security-Policy": "sandbox",
+	"Cache-Control": "no-store",
+})
+
 const safeExtension = (filename: string) => {
 	const extension = extname(filename).toLowerCase()
 	if (!extension) {

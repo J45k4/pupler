@@ -111,6 +111,7 @@ export class TestServer {
 			env: {
 				...process.env,
 				PORT: String(port),
+				BIND_ADDRESS: "127.0.0.1",
 				DB_PATH: dbPath,
 				PUPLER_DISABLE_JOB_WORKER: "true",
 			},

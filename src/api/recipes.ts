@@ -24,6 +24,8 @@ import {
 import {
 	deleteStoredFileBestEffort,
 	readStoredFile,
+	requireSafeImageType,
+	storedImageHeaders,
 	writeUploadedFile,
 } from "./file-storage"
 import {
@@ -125,9 +127,7 @@ const parseUploadedRecipeImages = (files: Array<File | string>) =>
 				"Multipart form-data must include one or more `file` fields",
 			)
 		}
-		if (!entry.type.startsWith("image/")) {
-			throw new HttpError(400, "Uploaded file must be an image")
-		}
+		requireSafeImageType(entry)
 		if (entry.size === 0) {
 			throw new HttpError(400, "Uploaded file may not be empty")
 		}
@@ -428,15 +428,7 @@ export const recipeImageDetailRoute = async (req: BunRequest<string>) => {
 			await readStoredFile(db, image.file.path, "Recipe image not found"),
 			{
 				status: 200,
-				headers: {
-					"Content-Type": image.file.content_type,
-					"Cache-Control": "no-store",
-					...(image.file.filename
-						? {
-								"Content-Disposition": `inline; filename="${image.file.filename}"`,
-							}
-						: {}),
-				},
+				headers: storedImageHeaders(image.file.content_type),
 			},
 		)
 	}

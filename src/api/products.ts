@@ -24,6 +24,8 @@ import {
 import {
 	deleteStoredFileBestEffort,
 	readStoredFile,
+	requireSafeImageType,
+	storedImageHeaders,
 	writeUploadedFile,
 } from "./file-storage"
 import {
@@ -352,15 +354,7 @@ export const productPictureRoute = async (req: BunRequest<string>) => {
 			),
 			{
 				status: 200,
-				headers: {
-					"Content-Type": row.picture_file.content_type,
-					"Cache-Control": "no-store",
-					...(row.picture_file.filename
-						? {
-								"Content-Disposition": `inline; filename="${row.picture_file.filename}"`,
-							}
-						: {}),
-				},
+				headers: storedImageHeaders(row.picture_file.content_type),
 			},
 		)
 	}
@@ -394,9 +388,7 @@ export const productPictureRoute = async (req: BunRequest<string>) => {
 				"Multipart form-data must include a `file` field",
 			)
 		}
-		if (!uploaded.type.startsWith("image/")) {
-			throw new HttpError(400, "Uploaded file must be an image")
-		}
+		requireSafeImageType(uploaded)
 		if (uploaded.size === 0) {
 			throw new HttpError(400, "Uploaded file may not be empty")
 		}
