@@ -64,6 +64,64 @@ body {
 	box-shadow: var(--shadow);
 }
 
+.update-widget {
+	position: relative;
+	margin-left: auto;
+}
+
+.update-indicator {
+	width: 2.6rem;
+	height: 2.6rem;
+	border-radius: 50%;
+	background: var(--accent);
+	color: white;
+	font-size: 1.3rem;
+	font-weight: 800;
+}
+
+.update-indicator[hidden],
+.update-panel[hidden],
+.update-panel progress[hidden],
+.update-panel button[hidden] {
+	display: none;
+}
+
+.update-panel {
+	position: absolute;
+	top: calc(100% + 0.7rem);
+	right: 0;
+	z-index: 30;
+	width: min(20rem, calc(100vw - 1.5rem));
+	padding: 1rem;
+	box-shadow: var(--shadow);
+}
+
+.update-panel p {
+	margin: 0.6rem 0;
+}
+
+.update-panel progress {
+	width: 100%;
+	accent-color: var(--accent-2);
+}
+
+.update-panel small {
+	display: block;
+	color: var(--muted);
+}
+
+.app-version {
+	position: fixed;
+	right: calc(0.8rem + env(safe-area-inset-right));
+	bottom: calc(0.55rem + env(safe-area-inset-bottom));
+	z-index: 9;
+	padding: 0.25rem 0.45rem;
+	border-radius: 8px;
+	background: rgba(255, 252, 246, 0.88);
+	color: var(--muted);
+	font-size: 0.72rem;
+}
+
 .brand {
 	display: inline-flex;
 	align-items: center;

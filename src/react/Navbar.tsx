@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import type { AuthUser } from "./auth"
+import { mountUpdateWidget } from "../web/update-widget"
 
 export type NavEntry = {
 	href: string
@@ -63,6 +64,12 @@ export const Navbar = ({
 	const menuRef = useRef<HTMLDivElement>(null)
 	const triggerRef = useRef<HTMLButtonElement>(null)
 	const searchRef = useRef<HTMLInputElement>(null)
+	const updateRef = useRef<HTMLDivElement>(null)
+
+	useEffect(() => {
+		if (!user || !updateRef.current) return
+		return mountUpdateWidget(updateRef.current, user.is_admin)
+	}, [user?.id, user?.is_admin])
 
 	const entries = useMemo(
 		() => (user?.is_admin ? navigationEntries : navigationEntries.filter((e) => e.href !== "/users")),
@@ -242,6 +249,7 @@ export const Navbar = ({
 						</div>
 					</div>
 				) : null}
+				{user ? <div className="update-widget" ref={updateRef} /> : null}
 				{currentPath !== "/login" ? (
 					!user ? (
 						<a className="account-login" href={link("/login")} data-link="">

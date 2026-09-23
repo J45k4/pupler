@@ -99,6 +99,24 @@ if [[ -n "$output" ]]; then cp "$FIXTURE_ASSETS/$(basename "$url")" "$output"; f
 		expect(inactive.code).toBe(0)
 		expect(await readFile(calls, "utf8")).not.toContain("--user start")
 		expect(await readFile(calls, "utf8")).not.toContain("--user stop")
+		await packageVersion("v1.2.0")
+		const statusPath = join(install, "update-status.json")
+		const webUpdate = await run(["bash", join(install, "current/service/web-update.sh")], {
+			PUPLER_RELEASE_VERSION: "v1.2.0",
+			PUPLER_UPDATE_STATUS_PATH: statusPath,
+		})
+		expect(webUpdate.code).toBe(0)
+		expect(await readFile(join(install, "current/VERSION"), "utf8")).toBe("v1.2.0\n")
+		expect(JSON.parse(await readFile(statusPath, "utf8"))).toMatchObject({ phase: "complete", progress: 100, tag: "v1.2.0" })
+		await packageVersion("v1.3.0")
+		await writeFile(join(assets, "pupler-linux-x64.tar.gz.sha256"), `${"0".repeat(64)}  pupler-linux-x64.tar.gz\n`)
+		const failedWebUpdate = await run(["bash", join(install, "current/service/web-update.sh")], {
+			PUPLER_RELEASE_VERSION: "v1.3.0",
+			PUPLER_UPDATE_STATUS_PATH: statusPath,
+		})
+		expect(failedWebUpdate.code).not.toBe(0)
+		expect(await readFile(join(install, "current/VERSION"), "utf8")).toBe("v1.2.0\n")
+		expect(JSON.parse(await readFile(statusPath, "utf8"))).toMatchObject({ phase: "failed", tag: "v1.3.0" })
 
 	} finally { await rm(directory, { recursive: true, force: true }) }
 })

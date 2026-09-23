@@ -5,6 +5,13 @@ set -euo pipefail
 fail() { echo "$*" >&2; exit 1; }
 require_command() { command -v "$1" >/dev/null 2>&1 || fail "Missing required command: $1"; }
 
+update_stage() {
+	[[ -n ${PUPLER_UPDATE_STATUS_PATH:-} ]] || return 0
+	local temporary="${PUPLER_UPDATE_STATUS_PATH}.tmp.$$"
+	printf '{"phase":"%s","progress":%s,"tag":"%s","message":"%s"}\n' "$1" "$2" "${TAG:-}" "$3" > "$temporary"
+	mv -f "$temporary" "$PUPLER_UPDATE_STATUS_PATH"
+}
+
 release_init() {
 	umask 077
 	[[ $(uname -s) == Linux ]] || fail "The service installer supports Linux only."
@@ -46,9 +53,15 @@ fetch_release() {
 	STAGING=$(mktemp -d "$INSTALL_DIR/releases/.download-XXXXXX")
 	trap 'rm -rf "${STAGING:-}"' EXIT
 	BASE="https://github.com/$REPOSITORY/releases/download/$TAG"
+	update_stage downloading 0 "Downloading $TAG"
 	for file in "$ASSET" "$ASSET.sha256"; do
-		curl --fail --silent --show-error --location --retry 3 --proto '=https' --proto-redir '=https' "$BASE/$file" --output "$STAGING/$file"
+		if [[ -n ${PUPLER_UPDATE_STATUS_PATH:-} && $file == "$ASSET" ]]; then
+			curl --fail --show-error --progress-bar --location --retry 3 --proto '=https' --proto-redir '=https' "$BASE/$file" --output "$STAGING/$file" 2> "$INSTALL_DIR/update-download.progress"
+		else
+			curl --fail --silent --show-error --location --retry 3 --proto '=https' --proto-redir '=https' "$BASE/$file" --output "$STAGING/$file"
+		fi
 	done
+	update_stage verifying 55 "Verifying release archive"
 	# Only accept a digest for this archive, never arbitrary checksum file paths.
 	read -r DIGEST CHECKSUM_FILE < "$STAGING/$ASSET.sha256"
 	[[ $DIGEST =~ ^[a-fA-F0-9]{64}$ && $CHECKSUM_FILE == "$ASSET" ]] || fail "Invalid checksum file"
@@ -56,7 +69,7 @@ fetch_release() {
 	tar -tzf "$STAGING/$ASSET" > "$STAGING/entries"
 	while IFS= read -r entry; do
 		case "$entry" in
-			./|./service/|./VERSION|./pupler-server|./pupler-cli|./pupler-migrate|./pupler-create-user|./service/install.sh|./service/update.sh|./service/release.sh|./service/uninstall.sh|./service/README.md|./service/backup.sh) ;;
+			./|./service/|./VERSION|./pupler-server|./pupler-cli|./pupler-migrate|./pupler-create-user|./service/install.sh|./service/update.sh|./service/web-update.sh|./service/release.sh|./service/uninstall.sh|./service/README.md|./service/backup.sh) ;;
 			*) fail "Unexpected archive entry: $entry" ;;
 		esac
 	done < "$STAGING/entries"
@@ -71,7 +84,7 @@ fetch_release() {
 		[[ -f $STAGING/release/$binary ]] || fail "Missing release binary: $binary"
 		chmod 0755 "$STAGING/release/$binary"
 	done
-	for script in install update release uninstall backup; do
+	for script in install update web-update release uninstall backup; do
 		[[ -f $STAGING/release/service/$script.sh ]] || fail "Missing service script: $script"
 	done
 	# Runs before touching the service, catching unsupported binaries/libraries.
@@ -82,12 +95,15 @@ fetch_release() {
 
 activate_release() {
 	BACKUP="$DATA_DIR/backups/before-$TAG-$(date +%s).db"
+	update_stage backing_up 65 "Backing up database"
 	systemctl --user stop "$SERVICE_NAME"
+	update_stage migrating 75 "Applying migrations"
 	if ! env -u DB_PATH DATA_PATH="$DATA_DIR" "$RELEASE_DIR/pupler-migrate" --backup "$BACKUP"; then
 		fail "Migration failed; service remains stopped. Inspect the error. Database backup (if created): $BACKUP"
 	fi
 	ln -s "$RELEASE_DIR" "$INSTALL_DIR/.current-$$"
 	mv -Tf "$INSTALL_DIR/.current-$$" "$INSTALL_DIR/current"
+	update_stage restarting 90 "Restarting Pupler"
 	systemctl --user restart "$SERVICE_NAME"
 	HEALTH_HOST="$BIND_ADDRESS"
 	[[ $HEALTH_HOST != 0.0.0.0 ]] || HEALTH_HOST=127.0.0.1
@@ -95,6 +111,7 @@ activate_release() {
 	[[ $HEALTH_HOST != *:* ]] || HEALTH_HOST="[$HEALTH_HOST]"
 	for attempt in {1..30}; do
 		if systemctl --user is-active --quiet "$SERVICE_NAME" && curl --noproxy '*' --fail --silent --max-time 2 "http://$HEALTH_HOST:$PORT/health" >/dev/null; then
+			update_stage complete 100 "Pupler $TAG is running"
 			echo "Pupler $TAG is running. Data: $DATA_DIR"
 			return
 		fi

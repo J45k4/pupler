@@ -386,6 +386,7 @@ export const renderNavbar = (
 		)
 	}
 	if (currentPath !== "/login") inner.append(renderAccountMenu(user))
+	if (user) inner.insertBefore(createElement("div", { className: "update-widget" }), inner.lastChild)
 	return createElement("header", { className: "site-header" }, inner)
 }
 

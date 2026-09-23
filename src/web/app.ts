@@ -1,6 +1,7 @@
 import { InfiniteScroll } from "./infinite-scroll"
 import { getCurrentUser, logout } from "./auth"
 import { attachNavigationMenu, renderNavbar } from "./navbar"
+import { mountUpdateWidget } from "./update-widget"
 import { navigate } from "./router"
 import {
 	createProductCategoryInput,
@@ -364,6 +365,8 @@ export const renderAppShell = (shellClassName = "") => {
 			}
 		})
 	document.body.append(navbar, main)
+	const updateHost = navbar.querySelector<HTMLElement>(".update-widget")
+	if (updateHost && getCurrentUser()) mountUpdateWidget(updateHost, getCurrentUser()!.is_admin, navbarAbortController.signal)
 	return main
 }
 

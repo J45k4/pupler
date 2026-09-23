@@ -89,6 +89,7 @@ const apiRoutes = createApiRoutes({
 		"/version": () => Response.json(versionPayload()),
 	},
 	admin: {
+		"/api/update": routes.updateStatusRoute,
 		"/api/users": routes.usersCollectionRoute,
 		"/api/users/:id": routes.userDetailRoute,
 	},

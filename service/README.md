@@ -83,6 +83,15 @@ Prisma baseline before migration. Unresolved/modified migrations are rejected.
 
 ## Update
 
+Administrators on a release-based user service also see an update icon in the
+top bar when a newer GitHub release is available. Press it to start the update
+and follow download and installation progress. The updater runs in a separate
+systemd user unit so it can restart Pupler. Status is saved in
+`~/.pupler/update-status.json`, and detailed output in `~/.pupler/update.log`.
+The icon is unavailable for a source checkout or legacy system service; use
+the installation steps above to migrate those. The bottom-right version label
+is visible to signed-in users.
+
 ```sh
 ~/.pupler/update.sh
 # Or choose an exact release:

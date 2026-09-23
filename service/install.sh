@@ -31,6 +31,8 @@ Environment=NODE_ENV=production
 Environment=DATA_PATH=$DATA_DIR
 Environment=PORT=$PORT
 Environment=BIND_ADDRESS=$BIND_ADDRESS
+Environment=PUPLER_INSTALL_DIR=$INSTALL_DIR
+Environment=PUPLER_RELEASE_REPOSITORY=$REPOSITORY
 ExecStart=$INSTALL_DIR/current/pupler-server
 Restart=on-failure
 RestartSec=2

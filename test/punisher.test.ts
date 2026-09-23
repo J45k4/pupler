@@ -3,6 +3,7 @@ import { join } from "node:path"
 import { afterEach, expect, test } from "bun:test"
 
 import { projectRoot, TestServer } from "./support/test-server"
+import { compareReleaseVersions } from "../src/api/update"
 
 let server: TestServer | null = null
 
@@ -67,4 +68,17 @@ test("active content cannot be uploaded or served inline as an image", async () 
 	const response = await fetch(`${server.baseUrl}/api/products/${created.body.id}/picture`, { headers: { Cookie: server.sessionCookie } })
 	expect(response.headers.get("x-content-type-options")).toBe("nosniff")
 	expect(response.headers.get("content-security-policy")).toBe("sandbox")
+})
+
+test("in-app updates are admin-only and unavailable in source-server mode", async () => {
+	server = await TestServer.start()
+	const response = await server.call<{ supported: boolean; version: string }>("/api/update")
+	expect(response.response.status).toBe(200)
+	expect(response.body.supported).toBe(false)
+	expect((await server.call("/api/update", { method: "POST" })).response.status).toBe(409)
+	expect((await server.call("/api/update", { headers: { Authorization: "Bearer invalid", Cookie: server.sessionCookie } })).response.status).toBe(401)
+	expect(compareReleaseVersions("v0.0.3", "v0.0.2")).toBe(1)
+	expect(compareReleaseVersions("v0.0.2", "v0.0.2")).toBe(0)
+	expect(compareReleaseVersions("v0.0.3", "v0.0.3-local.1")).toBe(1)
+	expect(compareReleaseVersions("dev", "v0.0.2")).toBeNull()
 })

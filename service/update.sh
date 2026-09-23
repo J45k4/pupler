@@ -8,6 +8,7 @@ release_init
 fetch_release
 if [[ $(cat "$INSTALL_DIR/current/VERSION") == "$TAG" ]]; then
 	rm -rf "$RELEASE_DIR"
+	update_stage complete 100 "Pupler $TAG is already installed"
 	echo "Pupler $TAG is already installed."
 	exit 0
 fi
