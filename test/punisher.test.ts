@@ -8,6 +8,48 @@ import { resolvePublicOrigin } from "../src/config"
 
 let server: TestServer | null = null
 
+test("time ownership isolates cookies and API keys while preserving administrator access", async () => {
+	server = await TestServer.start()
+	const project = await server.call<{ id: number }>("/api/projects", { method: "POST", body: { name: "Ownership" } })
+	const accounts = []
+	for (const username of ["alice", "bob"]) {
+		const user = await server.call<{ id: number }>("/api/users", { method: "POST", body: { name: username, username, password: "ownership-password", is_admin: false } })
+		const login = await server.call("/api/auth/login", { method: "POST", body: { username, password: "ownership-password" } })
+		accounts.push({ id: user.body.id, headers: { Cookie: login.response.headers.get("set-cookie")!.split(";")[0]! } })
+	}
+	const [alice, bob] = accounts
+	const key = await server.call<{ key: string }>("/api/auth/api-keys", { method: "POST", headers: alice!.headers, body: { name: "Ownership" } })
+	const bobEntry = await server.call<{ id: number; user_id: number }>("/api/time-entries/start", { method: "POST", headers: bob!.headers, body: { project_id: project.body.id } })
+	expect(bobEntry.body.user_id).toBe(bob!.id)
+	const unassigned = await server.call<{ id: number }>("/api/time-entries", { method: "POST", body: { project_id: project.body.id, started_at: "2026-01-01T00:00:00.000Z", ended_at: "2026-01-01T01:00:00.000Z" } })
+	for (const headers of [alice!.headers, { Cookie: "", Authorization: `Bearer ${key.body.key}` }]) {
+		const own = await server.call<{ id: number; user_id: number }>("/api/time-entries/start", { method: "POST", headers, body: { project_id: project.body.id } })
+		expect(own.response.status).toBe(201)
+		expect(own.body.user_id).toBe(alice!.id)
+		const listed = await server.call<Array<{ user_id: number }>>("/api/time-entries", { headers })
+		expect(listed.body.every(entry => entry.user_id === alice!.id)).toBe(true)
+		for (const id of [bobEntry.body.id, unassigned.body.id]) {
+			for (const method of ["GET", "PUT", "PATCH", "DELETE"]) expect((await server.call(`/api/time-entries/${id}`, { method, headers, ...(method === "PUT" || method === "PATCH" ? { body: {} } : {}) })).response.status).toBe(404)
+			expect((await server.call(`/api/time-entries/${id}/stop`, { method: "POST", headers, body: {} })).response.status).toBe(404)
+		}
+		for (const owner of [bob!.id, null]) {
+			expect((await server.call("/api/time-entries/start", { method: "POST", headers, body: { user_id: owner } })).response.status).toBe(403)
+			expect((await server.call("/api/time-entries", { method: "POST", headers, body: { user_id: owner } })).response.status).toBe(403)
+			for (const method of ["PUT", "PATCH"]) expect((await server.call(`/api/time-entries/${own.body.id}`, { method, headers, body: { user_id: owner } })).response.status).toBe(403)
+			for (const path of ["/api/time-entries", "/api/time-report"]) expect((await server.call(`${path}?user_id=${owner}`, { headers })).response.status).toBe(403)
+		}
+		const report = await server.call<{ period: { user_id: number }; running_entry: { id: number } }>("/api/time-report", { headers })
+		expect(report.body.period.user_id).toBe(alice!.id)
+		expect(report.body.running_entry.id).toBe(own.body.id)
+		expect((await server.call(`/api/time-entries/${own.body.id}`, { method: "PATCH", headers, body: { description: "Mine" } })).response.status).toBe(200)
+		expect((await server.call(`/api/time-entries/${own.body.id}/stop`, { method: "POST", headers, body: {} })).response.status).toBe(200)
+		expect((await server.call(`/api/time-entries/${own.body.id}`, { method: "DELETE", headers })).response.status).toBe(204)
+	}
+	const other = await server.call<{ ended_at: string | null }>(`/api/time-entries/${bobEntry.body.id}`)
+	expect(other.body.ended_at).toBeNull()
+	expect((await server.call(`/api/time-entries/${bobEntry.body.id}/stop`, { method: "POST", body: {} })).response.status).toBe(200)
+}, 20000)
+
 afterEach(async () => {
 	await server?.close()
 	server = null

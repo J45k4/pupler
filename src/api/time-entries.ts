@@ -1,6 +1,8 @@
 import type { BunRequest } from "bun"
 
 import { db } from "../db"
+import { requireAuthenticatedUser } from "./auth"
+import { ownedTimeBody, requireTimeOwner, scopeTimeOwner } from "./time-ownership"
 import {
 	assertKnownFields,
 	empty,
@@ -396,12 +398,15 @@ const updateEntry = async (
 }
 
 export const timeEntriesCollectionRoute = async (req: Request) => {
+	const user = await requireAuthenticatedUser(req)
 	if (req.method === "GET") {
 		const url = new URL(req.url)
+		const where = parseFilters(url)
+		if (!user.is_admin) where.user_id = scopeTimeOwner(user, where.user_id)
 		return json(
 			200,
 			await db.client.timeEntry.findMany({
-				where: parseFilters(url),
+				where,
 				orderBy: parseSort(url),
 				include: ENTRY_INCLUDE,
 			}),
@@ -410,15 +415,17 @@ export const timeEntriesCollectionRoute = async (req: Request) => {
 	if (req.method === "POST") {
 		return json(
 			201,
-			await createEntry(db, parseCreateValues(await readJsonObject(req))),
+			await createEntry(db, parseCreateValues(await ownedTimeBody(user, await readJsonObject(req)))),
 		)
 	}
 	throw new HttpError(405, "Method not allowed for this route")
 }
 
 export const timeEntryDetailRoute = async (req: BunRequest<string>) => {
+	const user = await requireAuthenticatedUser(req)
 	const id = parseIdParam(req.params.id ?? "")
 	const existingRow = await fetchTimeEntry(db, id)
+	requireTimeOwner(user, existingRow)
 	if (!existingRow) throw new HttpError(404, "Resource not found")
 
 	if (req.method === "GET") return json(200, existingRow)
@@ -428,7 +435,7 @@ export const timeEntryDetailRoute = async (req: BunRequest<string>) => {
 			await updateEntry(
 				db,
 				id,
-				parseReplaceValues(await readJsonObject(req), existingRow),
+				parseReplaceValues(await ownedTimeBody(user, await readJsonObject(req)), existingRow),
 				existingRow,
 			),
 		)
@@ -439,7 +446,7 @@ export const timeEntryDetailRoute = async (req: BunRequest<string>) => {
 			await updateEntry(
 				db,
 				id,
-				parsePatchValues(await readJsonObject(req), existingRow),
+				parsePatchValues(await ownedTimeBody(user, await readJsonObject(req)), existingRow),
 				existingRow,
 			),
 		)
@@ -452,21 +459,24 @@ export const timeEntryDetailRoute = async (req: BunRequest<string>) => {
 }
 
 export const timeEntryStartRoute = async (req: Request) => {
+	const user = await requireAuthenticatedUser(req)
 	if (req.method !== "POST") {
 		throw new HttpError(405, "Method not allowed for this route")
 	}
 
-	const values = parseStartValues(await readJsonObject(req))
+	const values = parseStartValues(await ownedTimeBody(user, await readJsonObject(req)))
 	return json(201, await createEntry(db, values))
 }
 
 export const timeEntryStopRoute = async (req: BunRequest<string>) => {
+	const user = await requireAuthenticatedUser(req)
 	if (req.method !== "POST") {
 		throw new HttpError(405, "Method not allowed for this route")
 	}
 
 	const id = parseIdParam(req.params.id ?? "")
 	const existingRow = await fetchTimeEntry(db, id)
+	requireTimeOwner(user, existingRow)
 	if (!existingRow) throw new HttpError(404, "Resource not found")
 	if (existingRow.ended_at !== null) {
 		throw new HttpError(400, "Time entry is already stopped")

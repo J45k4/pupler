@@ -240,9 +240,19 @@ const request = async (
 	if (handler instanceof Response) {
 		return handler.clone()
 	}
+	const headers = new Headers(options.headers)
+	if (pathname.startsWith("/api/time-") && !headers.has("Cookie")) {
+		const username = "time-test-admin"
+		if (!await routes.db.client.user.findUnique({ where: { username } })) {
+			const now = new Date().toISOString()
+			await routes.db.client.user.create({ data: { name: "Time test admin", username, password_hash: await Bun.password.hash("time-test-password"), is_admin: true, created_at: now, updated_at: now } })
+		}
+		const login = await authLoginRoute(new Request("http://localhost/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password: "time-test-password" }) }))
+		headers.set("Cookie", login.headers.get("set-cookie")!.split(";")[0]!)
+	}
 	const req = new Request(`http://localhost${path}`, {
 		method: options.method ?? "GET",
-		headers: options.headers,
+		headers,
 		body: options.body,
 	}) as Request & { params?: Record<string, string> }
 	req.params = params

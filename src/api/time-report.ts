@@ -1,4 +1,6 @@
 import { db } from "../db"
+import { requireAuthenticatedUser } from "./auth"
+import { scopeTimeOwner } from "./time-ownership"
 import {
 	HttpError,
 	json,
@@ -99,12 +101,14 @@ const entryDurationSeconds = (
 }
 
 export const timeReportRoute = async (req: Request) => {
+	const user = await requireAuthenticatedUser(req)
 	if (req.method !== "GET") {
 		throw new HttpError(405, "Method not allowed for this route")
 	}
 
 	const url = new URL(req.url)
 	const period = parseTimeReportQuery(url)
+	if (!user.is_admin) period.user_id = scopeTimeOwner(user, period.user_id) as number
 	const entries = await db.client.timeEntry.findMany({
 		where: {
 			...(period.user_id === undefined
