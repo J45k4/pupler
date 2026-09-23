@@ -16,8 +16,16 @@ export const mountUpdateWidget = (host: HTMLElement, isAdmin: boolean, signal?: 
 	button.type = "button"
 	button.className = "update-indicator"
 	button.setAttribute("aria-label", "Install Pupler update")
-	button.title = "Update available"
-	button.textContent = "⬇"
+	button.title = "Pupler update available"
+	const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg")
+	icon.setAttribute("viewBox", "0 0 24 24")
+	icon.setAttribute("aria-hidden", "true")
+	const iconPath = document.createElementNS("http://www.w3.org/2000/svg", "path")
+	iconPath.setAttribute("d", "M12 3v12m0 0 4-4m-4 4-4-4M4 17v3h16v-3")
+	icon.append(iconPath)
+	const label = document.createElement("span")
+	label.textContent = "Update"
+	button.append(icon, label)
 	button.hidden = true
 	const panel = document.createElement("div")
 	panel.className = "update-panel card"
