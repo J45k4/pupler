@@ -81,6 +81,25 @@ Databases previously managed with Prisma migrations reuse `_prisma_migrations`.
 An existing database without that ledger is rejected and needs a deliberate
 Prisma baseline before migration. Unresolved/modified migrations are rejected.
 
+## HTTPS reverse proxy
+
+When a reverse proxy terminates HTTPS, set `PUBLIC_ORIGIN` to the browser-facing
+origin, including its scheme and any non-default port (for example,
+`https://pupler.example.com`). Pupler uses this origin to validate browser
+mutations, including login. Leave it unset for direct access; Pupler then uses
+the request URL's origin. Forwarded headers do not change this check.
+
+For a user service, run `systemctl --user edit pupler` and add:
+
+```ini
+[Service]
+Environment=PUBLIC_ORIGIN=https://pupler.example.com
+```
+
+Then run `systemctl --user restart pupler`. The override survives release updates.
+Set this on the server process; the installer's `~/.pupler/.env` is not loaded
+as application environment. Invalid origins cause startup to fail.
+
 ## Update
 
 Administrators on a release-based user service also see an update icon in the

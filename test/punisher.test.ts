@@ -4,6 +4,7 @@ import { afterEach, expect, test } from "bun:test"
 
 import { projectRoot, TestServer } from "./support/test-server"
 import { compareReleaseVersions } from "../src/api/update"
+import { resolvePublicOrigin } from "../src/config"
 
 let server: TestServer | null = null
 
@@ -49,6 +50,33 @@ test("cookie-authenticated mutations reject cross-origin browser requests", asyn
 	const session = await server.call("/api/auth/session")
 	expect(session.response.status).toBe(200)
 	expect(session.response.headers.get("cache-control")).toBe("no-store")
+})
+
+test("PUBLIC_ORIGIN permits HTTPS proxy mutations and rejects other origins and forged forwarding headers", async () => {
+	const publicOrigin = "https://pupler.example.com:8443"
+	server = await TestServer.start({ publicOrigin: `${publicOrigin}/` })
+	const createProduct = (headers: Record<string, string>) => server!.call("/api/products", {
+		method: "POST", headers,
+		body: { name: "Proxy test", category: "food", default_unit: "pcs", is_perishable: false },
+	})
+	expect((await createProduct({ Origin: publicOrigin, "Sec-Fetch-Site": "same-origin" })).response.status).toBe(201)
+	for (const origin of [server.baseUrl, "http://pupler.example.com:8443", "https://pupler.example.com", "https://evil.example", "null"]) {
+		expect((await createProduct({ Origin: origin, "X-Forwarded-Host": "pupler.example.com:8443", "X-Forwarded-Proto": "https" })).response.status).toBe(403)
+	}
+	expect((await createProduct({ Origin: publicOrigin, "Sec-Fetch-Site": "cross-site" })).response.status).toBe(403)
+	const login = await fetch(`${server.baseUrl}/api/auth/login`, {
+		method: "POST", headers: { Origin: publicOrigin, "Content-Type": "application/json" },
+		body: JSON.stringify({ username: "test", password: "test-password" }),
+	})
+	expect(login.status).toBe(200)
+})
+
+test("PUBLIC_ORIGIN rejects invalid configuration", () => {
+	expect(resolvePublicOrigin({})).toBeUndefined()
+	expect(resolvePublicOrigin({ PUBLIC_ORIGIN: "https://pupler.example.com/" })).toBe("https://pupler.example.com")
+	for (const value of ["", "pupler.example.com", "*", "null", "ftp://pupler.example.com", "https://user:password@pupler.example.com", "https://pupler.example.com/path", "https://pupler.example.com?query=1", "https://pupler.example.com#fragment"]) {
+		expect(() => resolvePublicOrigin({ PUBLIC_ORIGIN: value })).toThrow("PUBLIC_ORIGIN must be")
+	}
 })
 
 test("active content cannot be uploaded or served inline as an image", async () => {

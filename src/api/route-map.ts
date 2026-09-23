@@ -1,4 +1,5 @@
 import { requireAdminUser, requireAuthenticatedUser } from "./auth"
+import { resolvePublicOrigin } from "../config"
 import {
 	HttpError,
 	withErrorHandling,
@@ -14,10 +15,12 @@ type WrappedRoutes<T extends ApiRouteMap> = {
 
 type Authorize = (req: Request) => Promise<unknown>
 
+const publicOrigin = resolvePublicOrigin()
+
 const requireSameOriginMutation = (req: Request) => {
 	if (["GET", "HEAD", "OPTIONS"].includes(req.method)) return
 	const origin = req.headers.get("origin")
-	if (origin && origin !== new URL(req.url).origin) throw new HttpError(403, "Cross-origin requests are not allowed")
+	if (origin && origin !== (publicOrigin ?? new URL(req.url).origin)) throw new HttpError(403, "Cross-origin requests are not allowed")
 	if (req.headers.get("sec-fetch-site") === "cross-site") throw new HttpError(403, "Cross-site requests are not allowed")
 }
 

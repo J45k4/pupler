@@ -6,6 +6,17 @@ const buildVersion = typeof PUPLER_BUILD_VERSION === "string" ? PUPLER_BUILD_VER
 
 type Environment = Record<string, string | undefined>
 
+export const resolvePublicOrigin = (env: Environment = process.env) => {
+	if (env.PUBLIC_ORIGIN === undefined) return undefined
+	try {
+		const url = new URL(env.PUBLIC_ORIGIN)
+		if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.pathname !== "/" || url.search || url.hash) throw new Error()
+		return url.origin
+	} catch {
+		throw new Error("PUBLIC_ORIGIN must be an HTTP(S) origin such as https://pupler.example.com, without credentials, a path, query, or fragment")
+	}
+}
+
 export const resolvePuplerVersion = (env: Environment = process.env) =>
 	env.PUPLER_VERSION ?? buildVersion
 
