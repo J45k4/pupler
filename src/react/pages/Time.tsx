@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { memo, useCallback, useEffect, useMemo, useState } from "react"
 import { apiFetch } from "../api"
 import { Combobox } from "../Combobox"
 import {
@@ -120,6 +120,34 @@ const EntryRow = ({
 		</div>
 	</div>
 )
+
+const PastEntries = memo(({ entries, projects, onEdit, onStartAgain }: {
+	entries: TimeEntry[] | null
+	projects: Project[] | null
+	onEdit: (entry: TimeEntry) => void
+	onStartAgain: (entry: TimeEntry) => void
+}) => {
+	const [page, setPage] = useState(0)
+	const history = useMemo(() => (entries ?? []).filter(entry => entry.ended_at !== null), [entries])
+	const projectById = useMemo(() => new Map((projects ?? []).map(project => [project.id, project])), [projects])
+	const pageSize = 50
+	const lastPage = Math.max(0, Math.ceil(history.length / pageSize) - 1)
+	const currentPage = Math.min(page, lastPage)
+	const offset = currentPage * pageSize
+	if (!history.length) return <Empty message="No past entries." />
+	return <>
+		<div className="time-entry-list">
+			{history.slice(offset, offset + pageSize).map(entry => (
+				<EntryRow key={entry.id} entry={entry} project={entry.project ?? projectById.get(entry.project_id!)} onEdit={onEdit} onStartAgain={onStartAgain} />
+			))}
+		</div>
+		{history.length > pageSize ? <nav className="actions" aria-label="Time entry pages">
+			<button className="secondary" type="button" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous</button>
+			<span aria-live="polite">{offset + 1}–{Math.min(offset + pageSize, history.length)} of {history.length} entries</span>
+			<button className="secondary" type="button" disabled={currentPage === lastPage} onClick={() => setPage(currentPage + 1)}>Next</button>
+		</nav> : null}
+	</>
+})
 
 const EntryEditModal = ({
 	entry,
@@ -246,10 +274,14 @@ export const TimePage = ({ link }: { link: (p: string) => string }) => {
 	const { data: projects, reload: reloadProjects } = useApi<Project[]>("/api/projects?sort=name&order=asc")
 	const { data: entries, loading, error, reload: reloadEntries } = useApi<TimeEntry[]>("/api/time-entries?sort=started_at&order=desc")
 
-	const reload = () => {
+	const reload = useCallback(() => {
 		reloadEntries()
 		reloadProjects()
-	}
+	}, [reloadEntries, reloadProjects])
+	const editEntry = useCallback((entry: TimeEntry) => {
+		setEditing(entry)
+		setEditOpen(true)
+	}, [])
 	const changed = (msg: string) => {
 		setStatus(msg)
 		setStatusError(false)
@@ -257,6 +289,17 @@ export const TimePage = ({ link }: { link: (p: string) => string }) => {
 	}
 
 	const running = useMemo(() => (entries ?? []).find((e) => e.ended_at === null) ?? null, [entries])
+	const descriptionOptions = useMemo(() => {
+		const trimmed = projectText.trim().toLowerCase()
+		const project = trimmed ? (projects ?? []).find(p => p.name.trim().toLowerCase() === trimmed) : null
+		const descriptions = new Set<string>()
+		for (const entry of entries ?? []) {
+			if (project && entry.project_id !== project.id) continue
+			if (entry.description) descriptions.add(entry.description)
+			if (descriptions.size === 50) break
+		}
+		return [...descriptions].map(description => ({ value: description, label: description }))
+	}, [entries, projects, projectText])
 
 	const quickActions = useMemo(() => {
 		const map = new Map<string, { project_id: number; description: string; entry_count: number; latest_started_at: string; total_seconds: number; project?: Project }>()
@@ -337,7 +380,7 @@ export const TimePage = ({ link }: { link: (p: string) => string }) => {
 		return created
 	}
 
-	const startForProject = async (projectId: number, desc: string | null) => {
+	const startForProject = useCallback(async (projectId: number, desc: string | null) => {
 		try {
 			await apiFetch("/api/time-entries/start", {
 				method: "POST",
@@ -350,7 +393,7 @@ export const TimePage = ({ link }: { link: (p: string) => string }) => {
 			setStatus(err instanceof Error ? err.message : "Failed to start timer.")
 			setStatusError(true)
 		}
-	}
+	}, [reload])
 
 	const stop = async () => {
 		if (!running) return
@@ -368,7 +411,7 @@ export const TimePage = ({ link }: { link: (p: string) => string }) => {
 		}
 	}
 
-	const startAgain = async (entry: TimeEntry) => {
+	const startAgain = useCallback(async (entry: TimeEntry) => {
 		try {
 			if (entry.project_id === null) {
 				await apiFetch("/api/time-entries/start", {
@@ -386,7 +429,7 @@ export const TimePage = ({ link }: { link: (p: string) => string }) => {
 			setStatus(err instanceof Error ? err.message : "Failed to start timer.")
 			setStatusError(true)
 		}
-	}
+	}, [reload, startForProject])
 
 	const discard = async () => {
 		if (!running) return
@@ -480,19 +523,7 @@ export const TimePage = ({ link }: { link: (p: string) => string }) => {
 									Description
 									<Combobox
 										placeholder="What are you working on?"
-										options={(() => {
-											const trimmed = projectText.trim().toLowerCase()
-											const project = trimmed
-												? (projects ?? []).find((p) => p.name.trim().toLowerCase() === trimmed)
-												: null
-											const pool =
-												projectText.trim() && project
-													? (entries ?? []).filter((e) => e.project_id === project.id)
-													: (entries ?? [])
-											return [...new Set(pool.map((e) => e.description).filter((d): d is string => !!d))]
-												.slice(0, 50)
-												.map((d) => ({ value: d, label: d }))
-										})()}
+										options={descriptionOptions}
 										value={description}
 										onChange={setDescription}
 									/>
@@ -562,28 +593,7 @@ export const TimePage = ({ link }: { link: (p: string) => string }) => {
 							</div>
 						</div>
 						<Status message={loading ? "Loading…" : error ?? status} error={!!error || statusError} />
-						{!loading && !error ? (
-							(entries ?? []).filter((e) => e.ended_at !== null).length === 0 ? (
-								<Empty message="No past entries." />
-							) : (
-								<div className="time-entry-list">
-									{(entries ?? [])
-										.filter((e) => e.ended_at !== null)
-										.map((entry) => (
-											<EntryRow
-												key={entry.id}
-												entry={entry}
-												project={entry.project ?? (projects ?? []).find((p) => p.id === entry.project_id)}
-												onEdit={(e) => {
-													setEditing(e)
-													setEditOpen(true)
-												}}
-												onStartAgain={(e) => void startAgain(e)}
-											/>
-										))}
-								</div>
-							)
-						) : null}
+						{!loading && !error ? <PastEntries entries={entries} projects={projects} onEdit={editEntry} onStartAgain={startAgain} /> : null}
 					</section>
 				</div>
 			</div>
