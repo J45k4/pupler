@@ -1,5 +1,5 @@
 type UpdateStatus = { phase: string; progress: number; tag: string; message: string }
-type UpdateInfo = { version: string; supported: boolean; latest: string | null; available: boolean; status: UpdateStatus | null; check_error: string | null }
+export type UpdateInfo = { version: string; supported: boolean; latest: string | null; available: boolean; status: UpdateStatus | null; check_error: string | null }
 
 const runningPhases = new Set(["starting", "downloading", "verifying", "backing_up", "migrating", "restarting"])
 
@@ -107,8 +107,11 @@ export const mountUpdateWidget = (host: HTMLElement, isAdmin: boolean, signal?: 
 		}
 	})
 
+	const onUpdateChecked = () => { void refresh() }
+	if (isAdmin) window.addEventListener("pupler:update-checked", onUpdateChecked)
 	const stop = () => {
 		stopped = true
+		window.removeEventListener("pupler:update-checked", onUpdateChecked)
 		if (timer !== null) window.clearTimeout(timer)
 		version.remove()
 	}

@@ -45,8 +45,8 @@ const releaseInstallation = async () => {
 	}
 }
 
-const latestRelease = async () => {
-	if (latestCache && latestCache.expiresAt > Date.now()) return latestCache.tag
+const latestRelease = async (force = false) => {
+	if (!force && latestCache && latestCache.expiresAt > Date.now()) return latestCache.tag
 	if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(REPOSITORY)) throw new Error("Invalid release repository")
 	const response = await fetch(`https://api.github.com/repos/${REPOSITORY}/releases/latest`, {
 		headers: { Accept: "application/vnd.github+json", "User-Agent": "Pupler" },
@@ -86,7 +86,7 @@ export const updateStatusRoute = async (req: Request) => {
 		let latest: string | null = null
 		let checkError: string | null = null
 		if (supported) {
-			try { latest = await latestRelease() } catch { checkError = "Could not check for updates" }
+			try { latest = await latestRelease(new URL(req.url).searchParams.get("check") === "1") } catch { checkError = "Could not check for updates" }
 		}
 		return Response.json({ version, supported, latest, available: latest ? compareReleaseVersions(latest, version) === 1 : false, status, check_error: checkError })
 	}

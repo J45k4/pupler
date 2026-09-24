@@ -1,6 +1,43 @@
 import { useState } from "react"
 import { apiFetch } from "../api"
 import { Status, useApi } from "../lib"
+import { useAuth } from "../auth"
+import type { UpdateInfo } from "../../web/update-widget"
+
+const UpdatesPanel = () => {
+	const [pending, setPending] = useState(false)
+	const [message, setMessage] = useState("")
+	const [error, setError] = useState(false)
+	const check = async () => {
+		setPending(true)
+		setError(false)
+		setMessage("Checking for updates…")
+		try {
+			const info = await apiFetch<UpdateInfo>("/api/update?check=1", { cache: "no-store" })
+			if (info.check_error) throw new Error(info.check_error)
+			setMessage(!info.supported
+				? "In-app updates require a release-based user service."
+				: info.available
+					? `${info.latest} is available. Use the Update button at the top to install it.`
+					: `Pupler ${info.version} is up to date.`)
+			window.dispatchEvent(new Event("pupler:update-checked"))
+		} catch (err) {
+			setError(true)
+			setMessage(err instanceof Error ? err.message : "Could not check for updates")
+		} finally {
+			setPending(false)
+		}
+	}
+	return (
+		<div className="card panel settings-panel">
+			<h2>Updates</h2>
+			<button type="button" disabled={pending} onClick={() => void check()}>
+				{pending ? "Checking…" : "Check for updates"}
+			</button>
+			<div role="status" aria-live="polite"><Status message={message} error={error} /></div>
+		</div>
+	)
+}
 
 type ApiKey = {
 	id: number
@@ -109,6 +146,7 @@ const ApiKeysPanel = () => {
 }
 
 export const SettingsPage = () => {
+	const { user } = useAuth()
 	const [currentPassword, setCurrentPassword] = useState("")
 	const [newPassword, setNewPassword] = useState("")
 	const [confirmPassword, setConfirmPassword] = useState("")
@@ -145,6 +183,7 @@ export const SettingsPage = () => {
 
 	return (
 		<section className="workspace workspace--single">
+			{user?.is_admin ? <UpdatesPanel /> : null}
 			<div className="card panel settings-panel">
 				<div className="section-header">
 					<h2>Password</h2>
