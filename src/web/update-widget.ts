@@ -46,10 +46,13 @@ export const mountUpdateWidget = (host: HTMLElement, isAdmin: boolean, signal?: 
 	const render = () => {
 		if (!info) return
 		version.textContent = `Pupler ${info.version}`
+		if (info.status?.phase === "complete") {
+			info.status = null
+			panel.hidden = true
+		}
 		const status = info.status
 		updating = Boolean(status && runningPhases.has(status.phase))
-		const completedCurrent = status?.phase === "complete" && (status.tag === info.version || status.tag === `v${info.version}`)
-		button.hidden = !info.available && !updating && status?.phase !== "failed" && !((status?.phase === "complete") && !completedCurrent)
+		button.hidden = !info.available && !updating && status?.phase !== "failed"
 		if (panel.hidden) return
 		title.textContent = status ? `Updating to ${status.tag}` : `Update to ${info.latest}`
 		message.textContent = status?.message ?? info.check_error ?? "A new version is ready"
@@ -87,7 +90,7 @@ export const mountUpdateWidget = (host: HTMLElement, isAdmin: boolean, signal?: 
 
 	button.addEventListener("click", async () => {
 		panel.hidden = false
-		if (!info?.available || updating || info.status?.phase === "complete") { render(); return }
+		if (!info?.available || updating) { render(); return }
 		button.disabled = true
 		message.textContent = "Starting update…"
 		try {
