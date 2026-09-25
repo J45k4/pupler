@@ -181,6 +181,15 @@ describe("Pupler API e2e", () => {
 		)
 		expect(timePage.body).toContain("<title>Pupler</title>")
 
+		for (const path of ["/time", "/time/overview", "/time/weekly", "/time/monthly"]) {
+			const page = await server.call<string>(path)
+			expect(page.response.status).toBe(200)
+			expect(page.response.headers.get("content-type")).toContain("text/html")
+			const retiredPage = await server.call(`/react${path}?date=2026-09-25`, { redirect: "manual" })
+			expect(retiredPage.response.status).toBe(404)
+			expect(retiredPage.response.headers.get("location")).toBeNull()
+		}
+
 		const timeOverviewPage = await server.call<string>("/time/overview")
 		expect(timeOverviewPage.response.status).toBe(200)
 		expect(timeOverviewPage.response.headers.get("content-type")).toContain(
@@ -209,10 +218,9 @@ describe("Pupler API e2e", () => {
 		)
 		expect(loginPage.body).toContain("<title>Pupler</title>")
 
-		const settingsRedirect = await server.call("/react/settings?tab=server", { redirect: "manual" })
-		expect(settingsRedirect.response.status).toBe(302)
-		expect(new URL(settingsRedirect.response.headers.get("location")!, server.baseUrl).pathname).toBe("/settings")
-		expect(new URL(settingsRedirect.response.headers.get("location")!, server.baseUrl).search).toBe("?tab=server")
+		const retiredSettings = await server.call("/react/settings?tab=server", { redirect: "manual" })
+		expect(retiredSettings.response.status).toBe(404)
+		expect(retiredSettings.response.headers.get("location")).toBeNull()
 
 		const settingsPage = await server.call<string>("/settings")
 		expect(new URL(settingsPage.response.url).pathname).toBe("/settings")

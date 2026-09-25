@@ -1905,7 +1905,8 @@ body.modal-open {
 	backdrop-filter: blur(4px);
 }
 
-.time-entry-create-modal--range-preview .time-entry-create-modal__backdrop {
+.time-entry-create-modal--range-preview .time-entry-create-modal__backdrop,
+.time-entry-create-modal--range-preview .app-modal__backdrop {
 	background: rgba(20, 14, 10, 0.28);
 	backdrop-filter: blur(1px);
 }

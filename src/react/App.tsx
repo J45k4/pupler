@@ -29,10 +29,12 @@ import { JobsPage } from "./pages/Jobs"
 
 const BASE = "/react"
 
-const link = (path: string) => (path === "/settings" ? path : path === "/" ? BASE : `${BASE}${path}`)
+const link = (path: string) => (path === "/settings" || path === "/time" || path.startsWith("/time/") ? path : path === "/" ? BASE : `${BASE}${path}`)
 
 const stripBase = (path: string) =>
-	path === BASE || path === `${BASE}/`
+	/^\/react\/(settings|time)(\/|$)/.test(path)
+		? path
+		: path === BASE || path === `${BASE}/`
 		? "/"
 		: path.startsWith(`${BASE}/`)
 			? path.slice(BASE.length)

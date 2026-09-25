@@ -110,6 +110,10 @@ const handleRoute = async (path: string) => {
 		window.location.replace(`/settings${window.location.search}${window.location.hash}`)
 		return
 	}
+	if (["/time", "/time/overview", "/time/weekly", "/time/monthly"].includes(path.replace(/\/$/, ""))) {
+		window.location.replace(`${path.replace(/\/$/, "")}${window.location.search}${window.location.hash}`)
+		return
+	}
 	if (path === "/react" || path.startsWith("/react/")) {
 		window.location.assign(`${path}${window.location.search}${window.location.hash}`)
 		return

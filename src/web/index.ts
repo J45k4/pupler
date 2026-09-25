@@ -23,12 +23,6 @@ import { renderInventoryItemDetailPage } from "./pages/inventory-item-detail"
 import { renderInventoryContainerDetailPage } from "./pages/inventory-container-detail"
 import { renderReceiptsPage } from "./pages/receipts"
 import { renderShoppingListsPage } from "./pages/shopping-lists"
-import {
-	renderTimeMonthlyPage,
-	renderTimeOverviewPage,
-	renderTimePage,
-	renderTimeWeeklyPage,
-} from "./pages/time"
 import { renderTodosPage } from "./pages/todos"
 import { renderGroupDetailPage } from "./pages/group-detail"
 import { renderReceiptDetailPage } from "./pages/receipt-detail"
@@ -83,10 +77,6 @@ window.onload = async () => {
 		"/spending/items": renderSpendingItemsPage,
 		"/shoppinglist": renderShoppingListsPage,
 		"/todos": renderTodosPage,
-		"/time": renderTimePage,
-		"/time/overview": renderTimeOverviewPage,
-		"/time/monthly": renderTimeMonthlyPage,
-		"/time/weekly": renderTimeWeeklyPage,
 		"/recipes/new": renderRecipeCreatePage,
 		"/recipes/:id": (_main, params) => renderRecipeDetailPage(params),
 		"/recipes": renderRecipesPage,

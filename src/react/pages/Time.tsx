@@ -1,79 +1,20 @@
-import { memo, useCallback, useEffect, useMemo, useState } from "react"
+import { rankTimeProjects } from "./time-entry-data"
+import { EntryCreateModal, EntryEditModal, StopTimerModal, DescriptionInput, ensureTimeProject } from "./TimeEntryForms"
+import { memo, useCallback, useMemo, useState } from "react"
 import { apiFetch } from "../api"
 import { Combobox } from "../Combobox"
 import {
 	Empty,
-	Modal,
 	Status,
 	formatDuration,
 	formatReceiptDateTime,
 	timeEntryDurationSeconds,
 	TickingDuration,
-	toDateTimeLocalValue,
 	useApi,
 	type Client,
 	type Project,
 	type TimeEntry,
 } from "../lib"
-
-type ProjectTotal = {
-	project_id: number | null
-	project_name: string
-	project_color: string
-	client_id: number | null
-	client_name: string | null
-	client_color: string | null
-	total_seconds: number
-	entry_count: number
-}
-
-type ClientTotal = {
-	client_id: number | null
-	client_name: string
-	client_color: string
-	total_seconds: number
-	entry_count: number
-	project_count: number
-}
-
-type TimeReport = {
-	period: { from: string | null; to: string; range: "custom" | "all" }
-	total_seconds: number
-	project_totals: ProjectTotal[]
-	client_totals: ClientTotal[]
-}
-
-const reportQuery = (from: string, to: string) =>
-	`/api/time-report?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
-
-const startOfDay = (date = new Date()) => {
-	const d = new Date(date)
-	d.setHours(0, 0, 0, 0)
-	return d
-}
-
-const dayBounds = (date: Date) => {
-	const from = startOfDay(date)
-	const to = new Date(from)
-	to.setDate(to.getDate() + 1)
-	return { from: from.toISOString(), to: to.toISOString() }
-}
-
-const weekBounds = (date: Date) => {
-	const d = startOfDay(date)
-	const day = (d.getDay() + 6) % 7
-	const from = new Date(d)
-	from.setDate(from.getDate() - day)
-	const to = new Date(from)
-	to.setDate(to.getDate() + 7)
-	return { from: from.toISOString(), to: to.toISOString() }
-}
-
-const monthBounds = (date: Date) => {
-	const from = new Date(date.getFullYear(), date.getMonth(), 1)
-	const to = new Date(date.getFullYear(), date.getMonth() + 1, 1)
-	return { from: from.toISOString(), to: to.toISOString() }
-}
 
 const TimeColor = ({ color }: { color: string }) => (
 	<span className="time-color" style={{ ["--time-color" as string]: color }} />
@@ -149,117 +90,6 @@ const PastEntries = memo(({ entries, projects, onEdit, onStartAgain }: {
 	</>
 })
 
-const EntryEditModal = ({
-	entry,
-	projects,
-	open,
-	onClose,
-	onSaved,
-	onDeleted,
-}: {
-	entry: TimeEntry | null
-	projects: Project[]
-	open: boolean
-	onClose: () => void
-	onSaved: () => void
-	onDeleted: () => void
-}) => {
-	const [projectText, setProjectText] = useState("")
-	const [description, setDescription] = useState("")
-	const [startedAt, setStartedAt] = useState("")
-	const [endedAt, setEndedAt] = useState("")
-	const [status, setStatus] = useState("")
-
-	useEffect(() => {
-		if (entry && open) {
-			setProjectText(entry.project?.name ?? "")
-			setDescription(entry.description ?? "")
-			setStartedAt(toDateTimeLocalValue(new Date(entry.started_at)))
-			setEndedAt(entry.ended_at ? toDateTimeLocalValue(new Date(entry.ended_at)) : "")
-			setStatus("")
-		}
-	}, [entry?.id, open])
-
-	if (!entry) return null
-
-	const remove = async () => {
-		if (!window.confirm("Delete this time entry?")) return
-		try {
-			await apiFetch(`/api/time-entries/${entry.id}`, { method: "DELETE" })
-			onClose()
-			onDeleted()
-		} catch (err) {
-			setStatus(err instanceof Error ? err.message : "Failed to delete entry.")
-		}
-	}
-
-	const save = async (event: React.FormEvent) => {
-		event.preventDefault()
-		const trimmed = projectText.trim()
-		const project = trimmed
-			? projects.find((p) => p.name.trim().toLowerCase() === trimmed.toLowerCase())
-			: null
-		if (trimmed && !project) {
-			setStatus("Pick an existing project from the list, or clear it for no project.")
-			return
-		}
-		try {
-			await apiFetch(`/api/time-entries/${entry.id}`, {
-				method: "PATCH",
-				body: JSON.stringify({
-					project_id: project ? project.id : null,
-					description: description.trim() || null,
-					started_at: new Date(startedAt).toISOString(),
-					ended_at: endedAt.trim() ? new Date(endedAt).toISOString() : null,
-				}),
-			})
-			onClose()
-			onSaved()
-		} catch (err) {
-			setStatus(err instanceof Error ? err.message : "Failed to save entry.")
-		}
-	}
-
-	return (
-		<Modal id="time-entry-edit-modal" title="Edit Entry" open={open} onClose={onClose}>
-			<form onSubmit={save}>
-				<label>
-					Project
-					<Combobox
-						placeholder="No project"
-						options={projects
-							.filter((p) => p.archived_at === null || p.id === entry.project_id)
-							.map((p) => ({ value: String(p.id), label: p.name }))}
-						value={projectText}
-						onChange={setProjectText}
-					/>
-				</label>
-				<label>
-					Description
-					<input value={description} onChange={(e) => setDescription(e.target.value)} />
-				</label>
-				<label>
-					Started At
-					<input type="datetime-local" required value={startedAt} onChange={(e) => setStartedAt(e.target.value)} />
-				</label>
-				<label>
-					Ended At
-					<input type="datetime-local" value={endedAt} onChange={(e) => setEndedAt(e.target.value)} />
-				</label>
-				<div className="actions">
-					<button className="primary" type="submit">
-						Save Entry
-					</button>
-					<button className="secondary" type="button" onClick={() => void remove()}>
-						Delete
-					</button>
-				</div>
-			</form>
-			<Status message={status} error={!!status} />
-		</Modal>
-	)
-}
-
 export const TimePage = ({ link }: { link: (p: string) => string }) => {
 	const [status, setStatus] = useState("")
 	const [statusError, setStatusError] = useState(false)
@@ -267,17 +97,19 @@ export const TimePage = ({ link }: { link: (p: string) => string }) => {
 	const [projectText, setProjectText] = useState("")
 	const [description, setDescription] = useState("")
 	const [createOpen, setCreateOpen] = useState(false)
+	const [stopOpen, setStopOpen] = useState(false)
 	const [editing, setEditing] = useState<TimeEntry | null>(null)
 	const [editOpen, setEditOpen] = useState(false)
 
-	const { data: clients } = useApi<Client[]>("/api/clients?sort=name&order=asc")
+	const { data: clients, reload: reloadClients } = useApi<Client[]>("/api/clients?sort=name&order=asc")
 	const { data: projects, reload: reloadProjects } = useApi<Project[]>("/api/projects?sort=name&order=asc")
 	const { data: entries, loading, error, reload: reloadEntries } = useApi<TimeEntry[]>("/api/time-entries?sort=started_at&order=desc")
 
 	const reload = useCallback(() => {
 		reloadEntries()
 		reloadProjects()
-	}, [reloadEntries, reloadProjects])
+		reloadClients()
+	}, [reloadEntries, reloadProjects, reloadClients])
 	const editEntry = useCallback((entry: TimeEntry) => {
 		setEditing(entry)
 		setEditOpen(true)
@@ -289,23 +121,16 @@ export const TimePage = ({ link }: { link: (p: string) => string }) => {
 	}
 
 	const running = useMemo(() => (entries ?? []).find((e) => e.ended_at === null) ?? null, [entries])
-	const descriptionOptions = useMemo(() => {
-		const trimmed = projectText.trim().toLowerCase()
-		const project = trimmed ? (projects ?? []).find(p => p.name.trim().toLowerCase() === trimmed) : null
-		const descriptions = new Set<string>()
-		for (const entry of entries ?? []) {
-			if (project && entry.project_id !== project.id) continue
-			if (entry.description) descriptions.add(entry.description)
-			if (descriptions.size === 50) break
-		}
-		return [...descriptions].map(description => ({ value: description, label: description }))
-	}, [entries, projects, projectText])
+	const rankedProjects = useMemo(() => rankTimeProjects(projects ?? [], entries ?? []), [projects, entries])
+	const selectedClient = (clients ?? []).find(client => client.name.trim().toLowerCase() === clientText.trim().toLowerCase())
+	const selectedProject = (projects ?? []).find(project => project.archived_at === null && (!clientText.trim() || project.client_id === selectedClient?.id) && project.name.trim().toLowerCase() === projectText.trim().toLowerCase())
 
 	const quickActions = useMemo(() => {
+		const activeProjects = new Set((projects ?? []).filter(project => project.archived_at === null).map(project => project.id))
 		const map = new Map<string, { project_id: number; description: string; entry_count: number; latest_started_at: string; total_seconds: number; project?: Project }>()
 		for (const entry of entries ?? []) {
-			if (entry.project_id === null) continue
-			const key = `${entry.project_id}\n${entry.description ?? ""}`
+			if (entry.project_id === null || !activeProjects.has(entry.project_id)) continue
+			const key = `${entry.project_id}\n${entry.description?.trim() ?? ""}`
 			const existing = map.get(key)
 			if (existing) {
 				existing.entry_count += 1
@@ -314,7 +139,7 @@ export const TimePage = ({ link }: { link: (p: string) => string }) => {
 			} else {
 				map.set(key, {
 					project_id: entry.project_id,
-					description: entry.description ?? "",
+					description: entry.description?.trim() ?? "",
 					entry_count: 1,
 					latest_started_at: entry.started_at,
 					total_seconds: timeEntryDurationSeconds(entry),
@@ -322,8 +147,8 @@ export const TimePage = ({ link }: { link: (p: string) => string }) => {
 				})
 			}
 		}
-		return [...map.values()].sort((a, b) => b.latest_started_at.localeCompare(a.latest_started_at)).slice(0, 8)
-	}, [entries])
+		return [...map.values()].sort((a, b) => b.entry_count - a.entry_count || b.latest_started_at.localeCompare(a.latest_started_at)).slice(0, 8)
+	}, [entries, projects])
 
 	const start = async (event: React.FormEvent) => {
 		event.preventDefault()
@@ -333,7 +158,7 @@ export const TimePage = ({ link }: { link: (p: string) => string }) => {
 			}
 			let projectId: number | undefined
 			if (projectText.trim()) {
-				const project = await ensureProject(projectText, clientText)
+				const project = await ensureTimeProject(projects ?? [], clients ?? [], projectText, clientText)
 				projectId = project.id
 			}
 			await apiFetch("/api/time-entries/start", {
@@ -350,34 +175,6 @@ export const TimePage = ({ link }: { link: (p: string) => string }) => {
 			setStatus(err instanceof Error ? err.message : "Failed to start timer.")
 			setStatusError(true)
 		}
-	}
-
-	const ensureClient = async (name: string): Promise<Client> => {
-		const trimmed = name.trim()
-		if (!trimmed) throw new Error("Client is required.")
-		const existing = (clients ?? []).find((c) => c.name.trim().toLowerCase() === trimmed.toLowerCase())
-		if (existing) return existing
-		const created = await apiFetch<Client>("/api/clients", {
-			method: "POST",
-			body: JSON.stringify({ name: trimmed, color: "#2d7c6f", archived_at: null }),
-		})
-		reloadProjects()
-		return created
-	}
-
-	const ensureProject = async (projectName: string, clientName = ""): Promise<Project> => {
-		const trimmed = projectName.trim()
-		if (!trimmed) throw new Error("Project is required.")
-		const client = clientName.trim() ? await ensureClient(clientName) : null
-		const pool = client ? (projects ?? []).filter((p) => p.client_id === client.id) : (projects ?? [])
-		const existing = pool.find((p) => p.name.trim().toLowerCase() === trimmed.toLowerCase())
-		if (existing) return existing
-		const created = await apiFetch<Project>("/api/projects", {
-			method: "POST",
-			body: JSON.stringify({ name: trimmed, color: "#2d7c6f", client_id: client?.id ?? null, archived_at: null }),
-		})
-		reloadProjects()
-		return created
 	}
 
 	const startForProject = useCallback(async (projectId: number, desc: string | null) => {
@@ -399,8 +196,7 @@ export const TimePage = ({ link }: { link: (p: string) => string }) => {
 		if (!running) return
 		try {
 			if (running.project_id === null) {
-				setStatus("Project is required before stopping timer")
-				setStatusError(true)
+				setStopOpen(true)
 				return
 			}
 			await apiFetch(`/api/time-entries/${running.id}/stop`, { method: "POST", body: "{}" })
@@ -491,7 +287,7 @@ export const TimePage = ({ link }: { link: (p: string) => string }) => {
 											.filter((c) => c.archived_at === null)
 											.map((c) => ({ value: String(c.id), label: c.name }))}
 										value={clientText}
-										onChange={setClientText}
+										onChange={value => { setClientText(value); setProjectText("") }}
 										allowCreate
 										createLabelPrefix="Create client"
 									/>
@@ -506,9 +302,9 @@ export const TimePage = ({ link }: { link: (p: string) => string }) => {
 												? (clients ?? []).find((c) => c.name.trim().toLowerCase() === trimmed)
 												: null
 											const pool =
-												clientText.trim() && client
-													? (projects ?? []).filter((p) => p.client_id === client.id)
-													: (projects ?? [])
+												clientText.trim()
+													? rankedProjects.filter((p) => p.client_id === client?.id)
+													: rankedProjects
 											return pool
 												.filter((p) => p.archived_at === null)
 												.map((p) => ({ value: String(p.id), label: p.name }))
@@ -521,12 +317,7 @@ export const TimePage = ({ link }: { link: (p: string) => string }) => {
 								</label>
 								<label>
 									Description
-									<Combobox
-										placeholder="What are you working on?"
-										options={descriptionOptions}
-										value={description}
-										onChange={setDescription}
-									/>
+									<DescriptionInput entries={entries ?? []} projectId={selectedProject?.id ?? null} value={description} onChange={setDescription} />
 								</label>
 								<div className="actions">
 									<button className="primary" type="submit">
@@ -597,291 +388,18 @@ export const TimePage = ({ link }: { link: (p: string) => string }) => {
 					</section>
 				</div>
 			</div>
+			{running ? <StopTimerModal key={String(stopOpen)} entry={running} projects={projects ?? []} clients={clients ?? []} open={stopOpen} onClose={() => setStopOpen(false)} onSaved={() => changed("Timer stopped.")} /> : null}
 			<EntryCreateModal
 				projects={projects ?? []}
 				clients={clients ?? []}
+				entries={entries ?? []}
 				open={createOpen}
 				onClose={() => setCreateOpen(false)}
 				onSaved={() => changed("Entry created.")}
 			/>
-			<EntryEditModal entry={editing} projects={projects ?? []} open={editOpen} onClose={() => setEditOpen(false)} onSaved={() => changed("Entry saved.")} onDeleted={() => changed("Entry deleted.")} />
+			<EntryEditModal entry={editing} clients={clients ?? []} entries={entries ?? []} projects={projects ?? []} open={editOpen} onClose={() => setEditOpen(false)} onSaved={() => changed("Entry saved.")} onDeleted={() => changed("Entry deleted.")} />
 		</>
 	)
 }
 
-const EntryCreateModal = ({
-	projects,
-	clients,
-	open,
-	onClose,
-	onSaved,
-}: {
-	projects: Project[]
-	clients: Client[]
-	open: boolean
-	onClose: () => void
-	onSaved: () => void
-}) => {
-	const [projectText, setProjectText] = useState("")
-	const [description, setDescription] = useState("")
-	const [startedAt, setStartedAt] = useState(toDateTimeLocalValue())
-	const [endedAt, setEndedAt] = useState("")
-	const [status, setStatus] = useState("")
-
-	const save = async (event: React.FormEvent) => {
-		event.preventDefault()
-		const trimmed = projectText.trim()
-		const project = trimmed
-			? projects.find((p) => p.name.trim().toLowerCase() === trimmed.toLowerCase())
-			: null
-		if (trimmed && !project) {
-			setStatus("Pick an existing project from the list, or clear it for no project.")
-			return
-		}
-		try {
-			await apiFetch("/api/time-entries", {
-				method: "POST",
-				body: JSON.stringify({
-					project_id: project ? project.id : null,
-					description: description.trim() || null,
-					started_at: new Date(startedAt).toISOString(),
-					ended_at: endedAt.trim() ? new Date(endedAt).toISOString() : null,
-				}),
-			})
-			setDescription("")
-			setEndedAt("")
-			onClose()
-			onSaved()
-		} catch (err) {
-			setStatus(err instanceof Error ? err.message : "Failed to create entry.")
-		}
-	}
-
-	return (
-		<Modal id="time-entry-create-modal" title="Add Entry" open={open} onClose={onClose}>
-			<form onSubmit={save}>
-				<label>
-					Project
-					<Combobox
-						placeholder="No project"
-						options={projects
-							.filter((p) => p.archived_at === null)
-							.map((p) => ({ value: String(p.id), label: p.name }))}
-						value={projectText}
-						onChange={setProjectText}
-					/>
-				</label>
-				<label>
-					Description
-					<input value={description} onChange={(e) => setDescription(e.target.value)} />
-				</label>
-				<label>
-					Started At
-					<input type="datetime-local" required value={startedAt} onChange={(e) => setStartedAt(e.target.value)} />
-				</label>
-				<label>
-					Ended At
-					<input type="datetime-local" value={endedAt} onChange={(e) => setEndedAt(e.target.value)} />
-				</label>
-				<div className="actions">
-					<button className="primary" type="submit">
-						Create Entry
-					</button>
-				</div>
-			</form>
-			<Status message={status} error={!!status} />
-		</Modal>
-	)
-}
-
-const ReportTables = ({ report, link }: { report: TimeReport; link: (p: string) => string }) => (
-	<>
-		<div className="dashboard-spending-summary">
-			<div className="dashboard-spending-summary__metric">
-				<span>Total</span>
-				<strong>{formatDuration(report.total_seconds)}</strong>
-			</div>
-		</div>
-		<h3>Projects</h3>
-		{report.project_totals.length === 0 ? (
-			<Empty message="No project totals." />
-		) : (
-			<table className="shoppinglist-table">
-				<thead>
-					<tr>
-						<th>Project</th>
-						<th>Entries</th>
-						<th>Total</th>
-					</tr>
-				</thead>
-				<tbody>
-					{report.project_totals.map((total) => (
-						<tr key={total.project_id ?? "none"}>
-							<td>
-								<TimeColor color={total.project_color} /> {total.project_name}
-								{total.client_name ? <span className="section-copy"> · {total.client_name}</span> : null}
-							</td>
-							<td>{total.entry_count}</td>
-							<td>{formatDuration(total.total_seconds)}</td>
-						</tr>
-					))}
-				</tbody>
-			</table>
-		)}
-		<h3>Clients</h3>
-		{report.client_totals.length === 0 ? (
-			<Empty message="No client totals." />
-		) : (
-			<table className="shoppinglist-table">
-				<thead>
-					<tr>
-						<th>Client</th>
-						<th>Entries</th>
-						<th>Total</th>
-					</tr>
-				</thead>
-				<tbody>
-					{report.client_totals.map((total) => (
-						<tr key={total.client_id ?? "none"}>
-							<td>
-								<TimeColor color={total.client_color} /> {total.client_name}
-							</td>
-							<td>{total.entry_count}</td>
-							<td>{formatDuration(total.total_seconds)}</td>
-						</tr>
-					))}
-				</tbody>
-			</table>
-		)}
-	</>
-)
-
-const useSpan = (spans: Array<{ value: string; label: string }>, def: string) => {
-	const [span, setSpan] = useState(() => new URLSearchParams(window.location.search).get("span") ?? def)
-	return { span, setSpan: (v: string) => {
-		setSpan(v)
-		const url = new URL(window.location.href)
-		url.searchParams.set("span", v)
-		window.history.replaceState({}, "", `${url.pathname}${url.search}`)
-	}, spans }
-}
-
-export const TimeOverviewPage = ({ link }: { link: (p: string) => string }) => {
-	const spans = [
-		{ value: "today", label: "Today" },
-		{ value: "this-week", label: "This Week" },
-		{ value: "last-7", label: "Last 7 Days" },
-		{ value: "last-30", label: "Last 30 Days" },
-		{ value: "all", label: "All Time" },
-	]
-	const { span, setSpan } = useSpan(spans, "today")
-
-	const period = useMemo(() => {
-		const now = new Date()
-		if (span === "today") return dayBounds(now)
-		if (span === "this-week") return weekBounds(now)
-		if (span === "last-7") {
-			const to = new Date(now)
-			const from = new Date(now)
-			from.setDate(from.getDate() - 7)
-			return { from: from.toISOString(), to: to.toISOString() }
-		}
-		if (span === "last-30") {
-			const to = new Date(now)
-			const from = new Date(now)
-			from.setDate(from.getDate() - 30)
-			return { from: from.toISOString(), to: to.toISOString() }
-		}
-		return { from: "", to: new Date().toISOString() }
-	}, [span])
-
-	const path = span === "all" ? "/api/time-report?range=all" : reportQuery(period.from, period.to)
-	const { data: report, loading, error } = useApi<TimeReport>(path)
-
-	return (
-		<section className="time-block">
-			<div className="spending-breakdown-controls time-overview-controls">
-				<label>
-					Span
-					<select value={span} onChange={(e) => setSpan(e.target.value)}>
-						{spans.map((s) => (
-							<option key={s.value} value={s.value}>
-								{s.label}
-							</option>
-						))}
-					</select>
-				</label>
-			</div>
-			<Status message={loading ? "Loading time overview..." : error ?? ""} error={!!error} />
-			{!loading && !error && report ? (
-				<div className="time-overview-results">
-					<ReportTables report={report} link={link} />
-				</div>
-			) : null}
-		</section>
-	)
-}
-
-export const TimeWeeklyPage = ({ link }: { link: (p: string) => string }) => {
-	const [weekStart, setWeekStart] = useState(() => {
-		const d = new Date()
-		const day = (d.getDay() + 6) % 7
-		d.setDate(d.getDate() - day)
-		return d.toISOString().slice(0, 10)
-	})
-	const period = useMemo(() => weekBounds(new Date(`${weekStart}T12:00:00`)), [weekStart])
-	const { data: report, loading, error } = useApi<TimeReport>(reportQuery(period.from, period.to))
-
-	const days = useMemo(() => {
-		const from = new Date(period.from)
-		return Array.from({ length: 7 }, (_, i) => {
-			const d = new Date(from)
-			d.setDate(d.getDate() + i)
-			return d
-		})
-	}, [period])
-
-	return (
-		<section className="time-block">
-			<div className="spending-breakdown-controls">
-				<label>
-					Week
-					<input type="date" value={weekStart} onChange={(e) => setWeekStart(e.target.value)} />
-				</label>
-			</div>
-			<Status message={loading ? "Loading weekly time..." : error ?? ""} error={!!error} />
-			{!loading && !error && report ? (
-				<>
-					<div className="section-copy">
-						{days[0]?.toLocaleDateString()} → {days[6]?.toLocaleDateString()} · Total {formatDuration(report.total_seconds)}
-					</div>
-					<ReportTables report={report} link={link} />
-				</>
-			) : null}
-		</section>
-	)
-}
-
-export const TimeMonthlyPage = ({ link }: { link: (p: string) => string }) => {
-	const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7))
-	const period = useMemo(() => monthBounds(new Date(`${month}-15T12:00:00`)), [month])
-	const { data: report, loading, error } = useApi<TimeReport>(reportQuery(period.from, period.to))
-
-	return (
-		<section className="time-block">
-			<div className="spending-breakdown-controls">
-				<label>
-					Month
-					<input type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
-				</label>
-			</div>
-			<Status message={loading ? "Loading monthly time..." : error ?? ""} error={!!error} />
-			{!loading && !error && report ? (
-				<>
-					<div className="section-copy">Total {formatDuration(report.total_seconds)}</div>
-					<ReportTables report={report} link={link} />
-				</>
-			) : null}
-		</section>
-	)
-}
+export { TimeOverviewPage, TimeWeeklyPage, TimeMonthlyPage } from "./TimeReports"
