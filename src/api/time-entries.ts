@@ -1,3 +1,4 @@
+import { fetchTimePage, fetchTimeDescriptions } from "./time-page"
 import type { BunRequest } from "bun"
 
 import { db } from "../db"
@@ -401,6 +402,8 @@ export const timeEntriesCollectionRoute = async (req: Request) => {
 	const user = await requireAuthenticatedUser(req)
 	if (req.method === "GET") {
 		const url = new URL(req.url)
+		if (url.searchParams.get("view") === "timer") return Response.json(await fetchTimePage(db, user, url, ENTRY_INCLUDE))
+		if (url.searchParams.get("view") === "descriptions") return Response.json(await fetchTimeDescriptions(db, user, url))
 		const where = parseFilters(url)
 		if (!user.is_admin) where.user_id = scopeTimeOwner(user, where.user_id)
 		return json(

@@ -1,3 +1,4 @@
+import { useTimePage } from "./use-time-page"
 import { rankTimeProjects } from "./time-entry-data"
 import { EntryCreateModal, EntryEditModal, StopTimerModal, DescriptionInput, ensureTimeProject } from "./TimeEntryForms"
 import { memo, useCallback, useMemo, useState } from "react"
@@ -62,30 +63,25 @@ const EntryRow = ({
 	</div>
 )
 
-const PastEntries = memo(({ entries, projects, onEdit, onStartAgain }: {
-	entries: TimeEntry[] | null
+const PastEntries = memo(({ entries, projects, offset, total, onPage, onEdit, onStartAgain }: {
+	entries: TimeEntry[]
 	projects: Project[] | null
+	offset: number
+	total: number
+	onPage: (offset: number) => void
 	onEdit: (entry: TimeEntry) => void
 	onStartAgain: (entry: TimeEntry) => void
 }) => {
-	const [page, setPage] = useState(0)
-	const history = useMemo(() => (entries ?? []).filter(entry => entry.ended_at !== null), [entries])
 	const projectById = useMemo(() => new Map((projects ?? []).map(project => [project.id, project])), [projects])
-	const pageSize = 50
-	const lastPage = Math.max(0, Math.ceil(history.length / pageSize) - 1)
-	const currentPage = Math.min(page, lastPage)
-	const offset = currentPage * pageSize
-	if (!history.length) return <Empty message="No past entries." />
+	if (!entries.length) return <Empty message="No past entries." />
 	return <>
 		<div className="time-entry-list">
-			{history.slice(offset, offset + pageSize).map(entry => (
-				<EntryRow key={entry.id} entry={entry} project={entry.project ?? projectById.get(entry.project_id!)} onEdit={onEdit} onStartAgain={onStartAgain} />
-			))}
+			{entries.map(entry => <EntryRow key={entry.id} entry={entry} project={entry.project ?? projectById.get(entry.project_id!)} onEdit={onEdit} onStartAgain={onStartAgain} />)}
 		</div>
-		{history.length > pageSize ? <nav className="actions" aria-label="Time entry pages">
-			<button className="secondary" type="button" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous</button>
-			<span aria-live="polite">{offset + 1}–{Math.min(offset + pageSize, history.length)} of {history.length} entries</span>
-			<button className="secondary" type="button" disabled={currentPage === lastPage} onClick={() => setPage(currentPage + 1)}>Next</button>
+		{total > 50 ? <nav className="actions" aria-label="Time entry pages">
+			<button className="secondary" type="button" disabled={offset === 0} onClick={() => onPage(Math.max(0, offset - 50))}>Previous</button>
+			<span aria-live="polite">{offset + 1}–{offset + entries.length} of {total} entries</span>
+			<button className="secondary" type="button" disabled={offset + entries.length >= total} onClick={() => onPage(offset + 50)}>Next</button>
 		</nav> : null}
 	</>
 })
@@ -100,10 +96,12 @@ export const TimePage = ({ link }: { link: (p: string) => string }) => {
 	const [stopOpen, setStopOpen] = useState(false)
 	const [editing, setEditing] = useState<TimeEntry | null>(null)
 	const [editOpen, setEditOpen] = useState(false)
+	const [offset, setOffset] = useState(0)
 
 	const { data: clients, reload: reloadClients } = useApi<Client[]>("/api/clients?sort=name&order=asc")
 	const { data: projects, reload: reloadProjects } = useApi<Project[]>("/api/projects?sort=name&order=asc")
-	const { data: entries, loading, error, reload: reloadEntries } = useApi<TimeEntry[]>("/api/time-entries?sort=started_at&order=desc")
+	const { data: page, summary, loading, error, reload: reloadEntries } = useTimePage(offset)
+	const entries = page?.entries ?? null
 
 	const reload = useCallback(() => {
 		reloadEntries()
@@ -120,35 +118,12 @@ export const TimePage = ({ link }: { link: (p: string) => string }) => {
 		reload()
 	}
 
-	const running = useMemo(() => (entries ?? []).find((e) => e.ended_at === null) ?? null, [entries])
-	const rankedProjects = useMemo(() => rankTimeProjects(projects ?? [], entries ?? []), [projects, entries])
+	const running = summary?.running ?? null
+	const rankedProjects = useMemo(() => rankTimeProjects(projects ?? [], [], summary?.project_usage), [projects, summary?.project_usage])
 	const selectedClient = (clients ?? []).find(client => client.name.trim().toLowerCase() === clientText.trim().toLowerCase())
 	const selectedProject = (projects ?? []).find(project => project.archived_at === null && (!clientText.trim() || project.client_id === selectedClient?.id) && project.name.trim().toLowerCase() === projectText.trim().toLowerCase())
 
-	const quickActions = useMemo(() => {
-		const activeProjects = new Set((projects ?? []).filter(project => project.archived_at === null).map(project => project.id))
-		const map = new Map<string, { project_id: number; description: string; entry_count: number; latest_started_at: string; total_seconds: number; project?: Project }>()
-		for (const entry of entries ?? []) {
-			if (entry.project_id === null || !activeProjects.has(entry.project_id)) continue
-			const key = `${entry.project_id}\n${entry.description?.trim() ?? ""}`
-			const existing = map.get(key)
-			if (existing) {
-				existing.entry_count += 1
-				existing.total_seconds += timeEntryDurationSeconds(entry)
-				if (entry.started_at > existing.latest_started_at) existing.latest_started_at = entry.started_at
-			} else {
-				map.set(key, {
-					project_id: entry.project_id,
-					description: entry.description?.trim() ?? "",
-					entry_count: 1,
-					latest_started_at: entry.started_at,
-					total_seconds: timeEntryDurationSeconds(entry),
-					project: entry.project ?? undefined,
-				})
-			}
-		}
-		return [...map.values()].sort((a, b) => b.entry_count - a.entry_count || b.latest_started_at.localeCompare(a.latest_started_at)).slice(0, 8)
-	}, [entries, projects])
+	const quickActions = useMemo(() => (summary?.quick_actions ?? []).map(action => ({ ...action, project: (projects ?? []).find(project => project.id === action.project_id) })), [summary?.quick_actions, projects])
 
 	const start = async (event: React.FormEvent) => {
 		event.preventDefault()
@@ -239,6 +214,8 @@ export const TimePage = ({ link }: { link: (p: string) => string }) => {
 		}
 	}
 
+	if (!summary) return <Status message={error ?? "Loading time tracking…"} error={!!error} />
+
 	return (
 		<>
 			<div className="workspace time-workspace">
@@ -317,7 +294,7 @@ export const TimePage = ({ link }: { link: (p: string) => string }) => {
 								</label>
 								<label>
 									Description
-									<DescriptionInput entries={entries ?? []} projectId={selectedProject?.id ?? null} value={description} onChange={setDescription} />
+									<DescriptionInput projectId={selectedProject?.id ?? null} value={description} onChange={setDescription} />
 								</label>
 								<div className="actions">
 									<button className="primary" type="submit">
@@ -384,7 +361,7 @@ export const TimePage = ({ link }: { link: (p: string) => string }) => {
 							</div>
 						</div>
 						<Status message={loading ? "Loading…" : error ?? status} error={!!error || statusError} />
-						{!loading && !error ? <PastEntries entries={entries} projects={projects} onEdit={editEntry} onStartAgain={startAgain} /> : null}
+						{!loading && !error ? <PastEntries entries={page?.entries ?? []} offset={page?.offset ?? offset} total={page?.total ?? 0} onPage={setOffset} projects={projects} onEdit={editEntry} onStartAgain={startAgain} /> : null}
 					</section>
 				</div>
 			</div>
@@ -393,11 +370,12 @@ export const TimePage = ({ link }: { link: (p: string) => string }) => {
 				projects={projects ?? []}
 				clients={clients ?? []}
 				entries={entries ?? []}
+				projectUsage={summary?.project_usage}
 				open={createOpen}
 				onClose={() => setCreateOpen(false)}
 				onSaved={() => changed("Entry created.")}
 			/>
-			<EntryEditModal entry={editing} clients={clients ?? []} entries={entries ?? []} projects={projects ?? []} open={editOpen} onClose={() => setEditOpen(false)} onSaved={() => changed("Entry saved.")} onDeleted={() => changed("Entry deleted.")} />
+			<EntryEditModal projectUsage={summary?.project_usage} previousEndedAt={summary?.previous_ended_at} entry={editing} clients={clients ?? []} entries={entries ?? []} projects={projects ?? []} open={editOpen} onClose={() => setEditOpen(false)} onSaved={() => changed("Entry saved.")} onDeleted={() => changed("Entry deleted.")} />
 		</>
 	)
 }
