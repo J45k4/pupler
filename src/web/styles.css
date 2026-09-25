@@ -65,8 +65,9 @@ body {
 }
 
 .update-widget {
-	position: relative;
-	margin-left: auto;
+	display: grid;
+	gap: 1rem;
+	justify-items: start;
 }
 
 .update-indicator {
@@ -100,13 +101,8 @@ body {
 }
 
 .update-panel {
-	position: absolute;
-	top: calc(100% + 0.7rem);
-	right: 0;
-	z-index: 30;
-	width: min(20rem, calc(100vw - 1.5rem));
+	width: 100%;
 	padding: 1rem;
-	box-shadow: var(--shadow);
 }
 
 .update-panel p {
@@ -4566,6 +4562,7 @@ body.modal-open {
 	.panel > .receipt-metadata,
 	.panel > .time-report-summary,
 	.panel > .spending-breakdown-controls,
+	.panel > .api-key-list,
 	.panel > .inventory-detail-block,
 	.panel > .recipe-detail-section {
 		padding-right: 1rem;
@@ -4925,4 +4922,39 @@ body.modal-open {
 	.shoppinglist-table--shopping td:last-child {
 		width: 4.25rem;
 	}
+}
+
+.api-key-list {
+	display: grid;
+	gap: 0.75rem;
+}
+
+.api-key-card {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+	padding: 1rem;
+	border: 1px solid var(--line);
+	border-radius: 1rem;
+}
+
+.api-key-details {
+	display: grid;
+	gap: 0.4rem;
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.api-key-dates {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.35rem 1rem;
+	color: var(--muted);
+	font-size: 0.85rem;
+}
+
+.api-key-card > button {
+	flex-shrink: 0;
 }

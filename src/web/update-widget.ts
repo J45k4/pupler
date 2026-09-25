@@ -4,10 +4,6 @@ export type UpdateInfo = { version: string; supported: boolean; latest: string |
 const runningPhases = new Set(["starting", "downloading", "verifying", "backing_up", "migrating", "restarting"])
 
 export const mountUpdateWidget = (host: HTMLElement, isAdmin: boolean, signal?: AbortSignal) => {
-	const version = document.createElement("div")
-	version.className = "app-version"
-	version.textContent = "Pupler"
-	document.body.append(version)
 	let stopped = false
 	let timer: number | null = null
 	let updating = false
@@ -24,7 +20,7 @@ export const mountUpdateWidget = (host: HTMLElement, isAdmin: boolean, signal?: 
 	iconPath.setAttribute("d", "M12 3v12m0 0 4-4m-4 4-4-4M4 17v3h16v-3")
 	icon.append(iconPath)
 	const label = document.createElement("span")
-	label.textContent = "Update"
+	label.textContent = "Install update"
 	button.append(icon, label)
 	button.hidden = true
 	const panel = document.createElement("div")
@@ -45,7 +41,6 @@ export const mountUpdateWidget = (host: HTMLElement, isAdmin: boolean, signal?: 
 
 	const render = () => {
 		if (!info) return
-		version.textContent = `Pupler ${info.version}`
 		if (info.status?.phase === "complete") {
 			info.status = null
 			panel.hidden = true
@@ -53,6 +48,7 @@ export const mountUpdateWidget = (host: HTMLElement, isAdmin: boolean, signal?: 
 		const status = info.status
 		updating = Boolean(status && runningPhases.has(status.phase))
 		button.hidden = !info.available && !updating && status?.phase !== "failed"
+		if (updating || status?.phase === "failed") panel.hidden = false
 		if (panel.hidden) return
 		title.textContent = status ? `Updating to ${status.tag}` : `Update to ${info.latest}`
 		message.textContent = status?.message ?? info.check_error ?? "A new version is ready"
@@ -116,9 +112,25 @@ export const mountUpdateWidget = (host: HTMLElement, isAdmin: boolean, signal?: 
 		stopped = true
 		window.removeEventListener("pupler:update-checked", onUpdateChecked)
 		if (timer !== null) window.clearTimeout(timer)
-		version.remove()
+		button.remove()
+		panel.remove()
 	}
 	signal?.addEventListener("abort", stop, { once: true })
 	void refresh()
+	return stop
+}
+
+export const mountAppVersion = (signal?: AbortSignal) => {
+	const version = document.createElement("div")
+	version.className = "app-version"
+	version.textContent = "Pupler"
+	document.body.append(version)
+	void fetch("/version", { credentials: "same-origin", cache: "no-store", signal })
+		.then(async (response) => {
+			if (response.ok) version.textContent = `Pupler ${(await response.json() as { version: string }).version}`
+		})
+		.catch(() => {})
+	const stop = () => version.remove()
+	signal?.addEventListener("abort", stop, { once: true })
 	return stop
 }

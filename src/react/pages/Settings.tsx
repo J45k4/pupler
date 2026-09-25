@@ -1,10 +1,14 @@
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { apiFetch } from "../api"
 import { Status, useApi } from "../lib"
 import { useAuth } from "../auth"
-import type { UpdateInfo } from "../../web/update-widget"
+import { mountUpdateWidget, type UpdateInfo } from "../../web/update-widget"
 
-const UpdatesPanel = () => {
+const ServerPanel = () => {
+	const updateRef = useRef<HTMLDivElement>(null)
+	useEffect(() => {
+		if (updateRef.current) return mountUpdateWidget(updateRef.current, true)
+	}, [])
 	const [pending, setPending] = useState(false)
 	const [message, setMessage] = useState("")
 	const [error, setError] = useState(false)
@@ -18,7 +22,7 @@ const UpdatesPanel = () => {
 			setMessage(!info.supported
 				? "In-app updates require a release-based user service."
 				: info.available
-					? `${info.latest} is available. Use the Update button at the top to install it.`
+					? `${info.latest} is available. Use Install update below to install it.`
 					: `Pupler ${info.version} is up to date.`)
 			window.dispatchEvent(new Event("pupler:update-checked"))
 		} catch (err) {
@@ -30,11 +34,12 @@ const UpdatesPanel = () => {
 	}
 	return (
 		<div className="card panel settings-panel">
-			<h2>Updates</h2>
+			<h2>Server</h2>
 			<button type="button" disabled={pending} onClick={() => void check()}>
 				{pending ? "Checking…" : "Check for updates"}
 			</button>
 			<div role="status" aria-live="polite"><Status message={message} error={error} /></div>
+			<div className="update-widget" ref={updateRef} />
 		</div>
 	)
 }
@@ -125,14 +130,17 @@ const ApiKeysPanel = () => {
 				(data ?? []).length === 0 ? (
 					<p>No API keys yet.</p>
 				) : (
-					<div>
+					<div className="api-key-list">
 						{(data ?? []).map((key) => (
-							<div key={key.id} className="card">
-								<strong>{key.name}</strong>
-								<p>
-									{key.prefix}… · Created {new Date(key.created_at).toLocaleString()} · Last used{" "}
-									{key.last_used_at ? new Date(key.last_used_at).toLocaleString() : "never"}
-								</p>
+							<div key={key.id} className="api-key-card">
+								<div className="api-key-details">
+									<strong>{key.name}</strong>
+									<code>{key.prefix}…</code>
+									<div className="api-key-dates">
+										<span>Created {new Date(key.created_at).toLocaleString()}</span>
+										<span>Last used {key.last_used_at ? new Date(key.last_used_at).toLocaleString() : "never"}</span>
+									</div>
+								</div>
 								<button type="button" onClick={() => void revoke(key)}>
 									Revoke
 								</button>
@@ -183,7 +191,7 @@ export const SettingsPage = () => {
 
 	return (
 		<section className="workspace workspace--single">
-			{user?.is_admin ? <UpdatesPanel /> : null}
+			{user?.is_admin ? <ServerPanel /> : null}
 			<div className="card panel settings-panel">
 				<div className="section-header">
 					<h2>Password</h2>

@@ -34,7 +34,6 @@ import { renderGroupDetailPage } from "./pages/group-detail"
 import { renderReceiptDetailPage } from "./pages/receipt-detail"
 import { renderNotFoundPage } from "./pages/not-found"
 import { renderLoginPage } from "./pages/login"
-import { renderSettingsPage } from "./pages/settings"
 import { renderUsersPage } from "./pages/users"
 import { renderIntegrationsPage } from "./pages/integrations"
 import {
@@ -56,7 +55,6 @@ window.onload = async () => {
 	routes({
 		"/": renderOverviewPage,
 		"/login": renderLoginPage,
-		"/settings": renderSettingsPage,
 		"/users": renderUsersPage,
 		"/integrations": renderIntegrationsPage,
 		"/import-schedules/:id": (_main, params) =>

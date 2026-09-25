@@ -106,6 +106,14 @@ function matchRoute(
 }
 
 const handleRoute = async (path: string) => {
+	if (path === "/settings" || path === "/settings/") {
+		window.location.replace(`/settings${window.location.search}${window.location.hash}`)
+		return
+	}
+	if (path === "/react" || path.startsWith("/react/")) {
+		window.location.assign(`${path}${window.location.search}${window.location.hash}`)
+		return
+	}
 	if (!matcher) {
 		return
 	}

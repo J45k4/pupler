@@ -109,6 +109,8 @@ const instance = Bun.serve({
 			headers: { "Content-Type": "image/png" },
 		}),
 		"/api/*": Response.json({ error: "Route not found" }, { status: 404 }),
+		"/settings": reactIndex,
+		"/react/settings": (request) => Response.redirect(new URL(`/settings${new URL(request.url).search}`, request.url), 302),
 		"/react": reactIndex,
 		"/react/*": reactIndex,
 		"/*": index,

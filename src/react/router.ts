@@ -66,6 +66,7 @@ if (typeof window !== "undefined") {
 
 export const navigate = (path: string) => {
 	const url = new URL(path, window.location.href)
+	if (url.pathname === "/react/settings" || url.pathname === "/react/settings/") url.pathname = "/settings"
 	const destination = `${url.pathname}${url.search}${url.hash}`
 	const current = `${window.location.pathname}${window.location.search}${window.location.hash}`
 	if (current !== destination) {

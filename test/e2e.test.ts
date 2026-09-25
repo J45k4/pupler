@@ -209,7 +209,14 @@ describe("Pupler API e2e", () => {
 		)
 		expect(loginPage.body).toContain("<title>Pupler</title>")
 
+		const settingsRedirect = await server.call("/react/settings?tab=server", { redirect: "manual" })
+		expect(settingsRedirect.response.status).toBe(302)
+		expect(new URL(settingsRedirect.response.headers.get("location")!, server.baseUrl).pathname).toBe("/settings")
+		expect(new URL(settingsRedirect.response.headers.get("location")!, server.baseUrl).search).toBe("?tab=server")
+
 		const settingsPage = await server.call<string>("/settings")
+		expect(new URL(settingsPage.response.url).pathname).toBe("/settings")
+		expect(settingsPage.body).toContain('<div id="root">')
 		expect(settingsPage.response.status).toBe(200)
 		expect(settingsPage.response.headers.get("content-type")).toContain(
 			"text/html",
