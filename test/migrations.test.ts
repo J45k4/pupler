@@ -39,7 +39,7 @@ test("binary migrations reuse Prisma deploy history and remain compatible with P
 	await deploy()
 	const previous = new Database(path)
 	previous.exec("DROP TABLE user_api_keys")
-	previous.query("DELETE FROM _prisma_migrations WHERE migration_name = ?").run(migrations.at(-1)!.name)
+	previous.query("DELETE FROM _prisma_migrations WHERE migration_name = ?").run("20260905000000_add_user_api_keys")
 	previous.close()
 	migrateDatabase(path)
 	await deploy()

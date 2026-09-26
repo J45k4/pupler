@@ -288,6 +288,7 @@ model User {
 	time_entries  TimeEntry[]
 	sessions      UserSession[]
 	api_keys      UserApiKey[]
+	oauth_grants  OAuthGrant[]
 
 	@@map("users")
 }
@@ -310,6 +311,88 @@ model ExternalIntegration {
 	@@index([provider], map: "idx_external_integrations_provider")
 	@@index([status], map: "idx_external_integrations_status")
 	@@map("external_integrations")
+}
+
+model OAuthClient {
+	id            String @id
+	name          String
+	redirect_uris String
+	created_at    String
+	grants        OAuthGrant[]
+	@@map("oauth_clients")
+}
+
+model OAuthGrant {
+	id           String @id
+	client_id    String
+	user_id      Int
+	scope        String
+	resource     String
+	created_at   String
+	last_used_at String?
+	revoked_at   String?
+	client       OAuthClient @relation(fields: [client_id], references: [id], onDelete: Cascade)
+	user         User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+	tokens       OAuthToken[]
+	uploads      McpUpload[]
+	imports      McpImport[]
+	@@index([user_id])
+	@@map("oauth_grants")
+}
+
+model OAuthAuthorization {
+	id           String @id
+	client_id    String
+	redirect_uri String
+	scope        String
+	resource     String
+	state        String
+	challenge    String
+	expires_at   String
+	user_id      Int?
+	session_hash String?
+	csrf_hash    String?
+	code_hash    String? @unique
+	grant_id     String?
+	consumed     Boolean @default(false)
+	@@index([expires_at])
+	@@map("oauth_authorizations")
+}
+
+model OAuthToken {
+	hash       String @id
+	grant_id   String
+	kind       String
+	expires_at String
+	used_at    String?
+	grant      OAuthGrant @relation(fields: [grant_id], references: [id], onDelete: Cascade)
+	@@index([grant_id])
+	@@map("oauth_tokens")
+}
+
+model McpUpload {
+	id           String @id
+	grant_id     String?
+	token_hash   String @unique
+	filename     String
+	content_type String
+	expires_at   String
+	path         String?
+	size_bytes   Int?
+	consumed     Boolean @default(false)
+	grant        OAuthGrant? @relation(fields: [grant_id], references: [id], onDelete: SetNull)
+	@@index([expires_at])
+	@@map("mcp_uploads")
+}
+
+model McpImport {
+	grant_id     String
+	key          String
+	payload_hash String
+	result_json  String
+	grant        OAuthGrant @relation(fields: [grant_id], references: [id], onDelete: Cascade)
+	@@id([grant_id, key])
+	@@map("mcp_imports")
 }
 
 model UserApiKey {

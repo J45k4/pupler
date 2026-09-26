@@ -24,6 +24,7 @@ export const navigationEntries: NavEntry[] = [
 	{ href: "/receipts", label: "Receipts", group: "Spending", keywords: "purchases receipt" },
 	{ href: "/recipes", label: "Recipes", group: "Cooking", keywords: "meals" },
 	{ href: "/settings", label: "Settings", group: "Settings", keywords: "password account" },
+	{ href: "/mcp/connections", label: "MCP", group: "Settings", keywords: "connected apps codex oauth receipts access disconnect" },
 	{ href: "/integrations", label: "Integrations", group: "Settings", keywords: "clockify imports external" },
 	{ href: "/import-schedules", label: "Import Schedules", group: "Settings", keywords: "clockify schedules imports cadence" },
 	{ href: "/jobs", label: "Jobs", group: "Settings", keywords: "background jobs imports history" },

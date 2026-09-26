@@ -2,6 +2,9 @@ import * as routes from "./api"
 import { createApiRoutes } from "./api/route-map"
 import { resolvePuplerVersion, versionPayload } from "./config"
 import { dbPath, filesPath, initializeDatabase } from "./db"
+import { oauthRoute, connectionsRoute } from "./oauth/routes"
+import { mcpRoute } from "./mcp/server"
+import { cleanupUploads, uploadRoute } from "./mcp/uploads"
 
 import index from "./web/index.html"
 import reactIndex from "./react/index.html"
@@ -15,6 +18,7 @@ const envPort = process.env.PORT
 	: undefined
 const port = Number.isFinite(envPort) ? envPort : 5995
 const database = initializeDatabase()
+setInterval(() => { void cleanupUploads().catch(() => console.error("MCP upload cleanup failed")) }, 60_000).unref()
 
 if (process.env.PUPLER_DISABLE_JOB_WORKER !== "true") {
 	void routes.startJobWorker(database)
@@ -27,6 +31,8 @@ const apiRoutes = createApiRoutes({
 		"/api/auth/session": routes.authSessionRoute,
 	},
 	authenticated: {
+		"/api/auth/connections": connectionsRoute,
+		"/api/auth/connections/:id": connectionsRoute,
 		"/api/auth/api-keys": routes.apiKeysCollectionRoute,
 		"/api/auth/api-keys/:id": routes.apiKeyDetailRoute,
 		"/api/auth/password": routes.authPasswordRoute,
@@ -104,6 +110,15 @@ const instance = Bun.serve({
 	},
 	routes: {
 		...apiRoutes,
+		"/.well-known/oauth-protected-resource": oauthRoute,
+		"/.well-known/oauth-protected-resource/mcp": oauthRoute,
+		"/.well-known/oauth-authorization-server": oauthRoute,
+		"/oauth/authorize": oauthRoute,
+		"/oauth/register": oauthRoute,
+		"/oauth/token": oauthRoute,
+		"/oauth/revoke": oauthRoute,
+		"/mcp": mcpRoute,
+		"/mcp/uploads/:token": uploadRoute,
 		"/health": new Response("ok"),
 		"/favicon.png": new Response(favicon, {
 			headers: { "Content-Type": "image/png" },
@@ -114,10 +129,13 @@ const instance = Bun.serve({
 		"/time/weekly": reactIndex,
 		"/time/monthly": reactIndex,
 		"/settings": reactIndex,
+		"/mcp/connections": reactIndex,
 		"/react/time": new Response("Not found", { status: 404 }),
 		"/react/time/*": new Response("Not found", { status: 404 }),
 		"/react/settings": new Response("Not found", { status: 404 }),
 		"/react/settings/*": new Response("Not found", { status: 404 }),
+		"/react/mcp/connections": new Response("Not found", { status: 404 }),
+		"/react/mcp/connections/*": new Response("Not found", { status: 404 }),
 		"/react": reactIndex,
 		"/react/*": reactIndex,
 		"/*": index,

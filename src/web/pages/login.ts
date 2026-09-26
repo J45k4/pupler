@@ -30,6 +30,10 @@ const attachLoginEvents = () => {
 			const redirect = new URL(window.location.href).searchParams.get(
 				"redirect",
 			)
+			if (redirect?.startsWith("/oauth/authorize?request=")) {
+				window.location.assign(redirect)
+				return
+			}
 			navigate(redirect && redirect.startsWith("/") ? redirect : "/")
 		} catch (error) {
 			setStatus(

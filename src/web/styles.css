@@ -4959,3 +4959,12 @@ body.modal-open {
 .api-key-card > button {
 	flex-shrink: 0;
 }
+
+.mcp-page {
+	width: min(960px, 100%);
+	margin: 0 auto;
+}
+
+.mcp-page .page-heading {
+	margin-bottom: 0;
+}

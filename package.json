@@ -34,9 +34,11 @@
 		"typescript": "^5"
 	},
 	"dependencies": {
+		"@modelcontextprotocol/sdk": "^1.30.0",
 		"@prisma/adapter-libsql": "^7.7.0",
 		"@prisma/client": "^7.7.0",
 		"react": "^19.3.0",
-		"react-dom": "^19.3.0"
+		"react-dom": "^19.3.0",
+		"zod": "^4.6.5"
 	}
 }

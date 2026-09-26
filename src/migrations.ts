@@ -9,6 +9,7 @@ import sql7 from "../prisma/migrations/20260702000000_add_clients_projects/migra
 import sql8 from "../prisma/migrations/20260705000000_add_jobs_and_clockify_links/migration.sql" with { type: "text" }
 import sql9 from "../prisma/migrations/20260725000000_add_user_is_admin/migration.sql" with { type: "text" }
 import sql10 from "../prisma/migrations/20260905000000_add_user_api_keys/migration.sql" with { type: "text" }
+import sql11 from "../prisma/migrations/20260926000000_add_mcp_oauth/migration.sql" with { type: "text" }
 import { Database } from "bun:sqlite"
 import { createHash, randomUUID } from "node:crypto"
 import { mkdirSync } from "node:fs"
@@ -26,6 +27,7 @@ export const migrations = [
 	{ name: "20260705000000_add_jobs_and_clockify_links", sql: sql8 },
 	{ name: "20260725000000_add_user_is_admin", sql: sql9 },
 	{ name: "20260905000000_add_user_api_keys", sql: sql10 },
+	{ name: "20260926000000_add_mcp_oauth", sql: sql11 },
 ]
 
 // Keep Prisma's ledger so source and binary installations can share a database.

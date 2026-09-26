@@ -6,6 +6,7 @@ import { LoginPage } from "./pages/Login"
 import { TodosPage } from "./pages/Todos"
 import { OverviewPage } from "./pages/Overview"
 import { SettingsPage } from "./pages/Settings"
+import { McpPage } from "./pages/Mcp"
 import { ProductsPage } from "./pages/Products"
 import { ProductDetailPage } from "./pages/ProductDetail"
 import { ProductStatsPage } from "./pages/ProductStats"
@@ -29,10 +30,10 @@ import { JobsPage } from "./pages/Jobs"
 
 const BASE = "/react"
 
-const link = (path: string) => (path === "/settings" || path === "/time" || path.startsWith("/time/") ? path : path === "/" ? BASE : `${BASE}${path}`)
+const link = (path: string) => (path === "/settings" || path === "/mcp/connections" || path === "/time" || path.startsWith("/time/") ? path : path === "/" ? BASE : `${BASE}${path}`)
 
 const stripBase = (path: string) =>
-	/^\/react\/(settings|time)(\/|$)/.test(path)
+	/^\/react\/(settings|mcp\/connections|time)(\/|$)/.test(path)
 		? path
 		: path === BASE || path === `${BASE}/`
 		? "/"
@@ -40,7 +41,7 @@ const stripBase = (path: string) =>
 			? path.slice(BASE.length)
 			: path
 
-const ROUTES = ["/login", "/todos", "/settings", "/users", "/integrations", "/import-schedules/:id", "/import-schedules", "/jobs", "/products/stats", "/products/:id", "/products", "/groups/:id", "/inventory", "/inventory/expirations", "/inventory/containers/:id", "/inventory/items/:id", "/receipts/:id", "/receipts", "/spending/overview", "/spending/monthly", "/spending/items", "/spending", "/shoppinglist", "/recipes/new", "/recipes/:id", "/recipes", "/clients/:id", "/clients", "/projects", "/time/overview", "/time/weekly", "/time/monthly", "/time", "/"]
+const ROUTES = ["/login", "/todos", "/settings", "/mcp/connections", "/users", "/integrations", "/import-schedules/:id", "/import-schedules", "/jobs", "/products/stats", "/products/:id", "/products", "/groups/:id", "/inventory", "/inventory/expirations", "/inventory/containers/:id", "/inventory/items/:id", "/receipts/:id", "/receipts", "/spending/overview", "/spending/monthly", "/spending/items", "/spending", "/shoppinglist", "/recipes/new", "/recipes/:id", "/recipes", "/clients/:id", "/clients", "/projects", "/time/overview", "/time/weekly", "/time/monthly", "/time", "/"]
 
 export const App = () => {
 	const rawPath = usePath()
@@ -77,6 +78,7 @@ export const App = () => {
 				{match?.pattern === "/login" ? <LoginPage link={link} navigate={navigate} /> : null}
 				{match?.pattern === "/todos" ? <TodosPage /> : null}
 				{match?.pattern === "/settings" ? <SettingsPage /> : null}
+				{match?.pattern === "/mcp/connections" ? <McpPage /> : null}
 				{match?.pattern === "/products" ? <ProductsPage link={link} /> : null}
 				{match?.pattern === "/products/stats" ? <ProductStatsPage link={link} /> : null}
 				{match?.pattern === "/products/:id" ? <ProductDetailPage id={match.params.id ?? ""} link={link} /> : null}
