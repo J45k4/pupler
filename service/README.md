@@ -94,11 +94,16 @@ For a user service, run `systemctl --user edit pupler` and add:
 ```ini
 [Service]
 Environment=PUBLIC_ORIGIN=https://pupler.example.com
+Environment=TRUSTED_PROXY_IPS=127.0.0.1
 ```
 
 Then run `systemctl --user restart pupler`. The override survives release updates.
 Set this on the server process; the installer's `~/.pupler/.env` is not loaded
 as application environment. Invalid origins cause startup to fail.
+Set `TRUSTED_PROXY_IPS` to the address Pupler sees for your reverse proxy; omit
+it for direct access. The proxy must set or append the connecting client IP in
+`X-Forwarded-For`. Pupler trusts that header only from listed proxies when
+limiting public OAuth client registration to 20 requests per minute per IP.
 
 ## Update
 

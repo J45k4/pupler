@@ -2,7 +2,7 @@ import * as routes from "./api"
 import { createApiRoutes } from "./api/route-map"
 import { resolvePuplerVersion, versionPayload } from "./config"
 import { dbPath, filesPath, initializeDatabase } from "./db"
-import { oauthRoute, connectionsRoute } from "./oauth/routes"
+import { oauthRoute, oauthRegistrationRoute, connectionsRoute } from "./oauth/routes"
 import { mcpRoute } from "./mcp/server"
 import { cleanupUploads, uploadRoute } from "./mcp/uploads"
 
@@ -114,7 +114,7 @@ const instance = Bun.serve({
 		"/.well-known/oauth-protected-resource/mcp": oauthRoute,
 		"/.well-known/oauth-authorization-server": oauthRoute,
 		"/oauth/authorize": oauthRoute,
-		"/oauth/register": oauthRoute,
+		"/oauth/register": (req, server) => oauthRegistrationRoute(req, server.requestIP(req)?.address ?? null),
 		"/oauth/token": oauthRoute,
 		"/oauth/revoke": oauthRoute,
 		"/mcp": mcpRoute,

@@ -86,7 +86,7 @@ export class TestServer {
 		this.tempDir = server.tempDir
 	}
 
-	static async start(options: { publicOrigin?: string } = {}) {
+	static async start(options: { publicOrigin?: string; trustedProxyIps?: string } = {}) {
 		const port = await getFreePort()
 		const tempDir = mkdtempSync(join(tmpdir(), "pupler-e2e-"))
 		const dbPath = join(tempDir, "pupler.sqlite")
@@ -111,6 +111,7 @@ export class TestServer {
 			env: {
 				...process.env,
 				PUBLIC_ORIGIN: options.publicOrigin,
+				TRUSTED_PROXY_IPS: options.trustedProxyIps,
 				PORT: String(port),
 				BIND_ADDRESS: "127.0.0.1",
 				DB_PATH: dbPath,

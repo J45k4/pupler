@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto"
+import { isIP } from "node:net"
 import type { BunRequest } from "bun"
 import { z } from "zod"
 import { db } from "../db"
@@ -13,11 +14,25 @@ class OAuthError extends HttpError {
 
 const reply = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "no-store" } })
 const redirect = (url: string) => new Response(null, { status: 303, headers: { Location: url, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } })
+const trustedProxyIps = new Set((process.env.TRUSTED_PROXY_IPS ?? "").split(",").map(ip => ip.trim()).filter(Boolean))
+if ([...trustedProxyIps].some(ip => !isIP(ip))) throw new Error("TRUSTED_PROXY_IPS must contain comma-separated IP addresses")
 const rates = new Map<string, { count: number; until: number }>()
 const rateLimit = (key: string, maximum: number) => {
+	if (rates.size > 256) for (const [source, rate] of rates) if (rate.until <= Date.now()) rates.delete(source)
 	let rate = rates.get(key)
-	if (!rate || rate.until < Date.now()) { rate = { count: 0, until: Date.now() + 60_000 }; rates.set(key, rate) }
+	if (!rate || rate.until <= Date.now()) { rate = { count: 0, until: Date.now() + 60_000 }; rates.set(key, rate) }
 	if (++rate.count > maximum) throw new OAuthError("temporarily_unavailable", "Too many requests. Try again shortly.", 429)
+}
+const registrationSource = (req: Request, peerAddress: string | null) => {
+	if (!peerAddress) return "unknown"
+	if (!trustedProxyIps.has(peerAddress)) return peerAddress
+	const forwarded = req.headers.get("x-forwarded-for")
+	if (!forwarded) return peerAddress
+	for (const candidate of forwarded.split(",").map(ip => ip.trim()).reverse()) {
+		if (!isIP(candidate)) return peerAddress
+		if (!trustedProxyIps.has(candidate)) return candidate
+	}
+	return peerAddress
 }
 const form = async (req: Request) => {
 	if (!req.headers.get("content-type")?.startsWith("application/x-www-form-urlencoded")) throw new OAuthError("invalid_request", "Use application/x-www-form-urlencoded")
@@ -36,9 +51,9 @@ const callback = (authorization: { redirect_uri: string; state: string }, values
 	return redirect(url.href)
 }
 
-const register = async (req: Request) => {
+const register = async (req: Request, peerAddress: string | null) => {
 	if (req.method !== "POST") throw new HttpError(405, "Method not allowed")
-	rateLimit("register", 20)
+	rateLimit(`register:${registrationSource(req, peerAddress)}`, 20)
 	const input = z.object({
 		client_name: z.string().trim().min(1).max(100).default("MCP client"),
 		redirect_uris: z.array(z.string().max(2048).url()).min(1).max(10),
@@ -169,7 +184,7 @@ export const connectionsRoute = async (req: BunRequest<string>) => {
 	return new Response(null, { status: 204 })
 }
 
-export const oauthRoute = async (req: Request) => {
+const oauthRouteWithPeer = async (req: Request, peerAddress: string | null) => {
 	try {
 		const origin = oauthOrigin(req)
 		trustedOrigin(req)
@@ -179,7 +194,7 @@ export const oauthRoute = async (req: Request) => {
 			if (path.includes("oauth-protected-resource")) return reply({ resource: `${origin}/mcp`, authorization_servers: [origin], scopes_supported: Object.keys(scopes) })
 			return reply({ issuer: origin, authorization_endpoint: `${origin}/oauth/authorize`, token_endpoint: `${origin}/oauth/token`, registration_endpoint: `${origin}/oauth/register`, revocation_endpoint: `${origin}/oauth/revoke`, response_types_supported: ["code"], grant_types_supported: ["authorization_code", "refresh_token"], token_endpoint_auth_methods_supported: ["none"], revocation_endpoint_auth_methods_supported: ["none"], code_challenge_methods_supported: ["S256"], scopes_supported: Object.keys(scopes), authorization_response_iss_parameter_supported: true })
 		}
-		if (path === "/oauth/register") return await register(req)
+		if (path === "/oauth/register") return await register(req, peerAddress)
 		if (path === "/oauth/authorize") return await authorize(req)
 		if (path === "/oauth/token") return await token(req)
 		if (path === "/oauth/revoke") return await revoke(req)
@@ -189,3 +204,6 @@ export const oauthRoute = async (req: Request) => {
 		return reply({ error: error instanceof OAuthError ? error.code : status === 500 ? "server_error" : "invalid_request", error_description: status === 500 ? "Unable to complete OAuth request" : error instanceof z.ZodError ? "Invalid client metadata" : (error as Error).message }, status)
 	}
 }
+
+export const oauthRoute = (req: Request) => oauthRouteWithPeer(req, null)
+export const oauthRegistrationRoute = (req: Request, peerAddress: string | null) => oauthRouteWithPeer(req, peerAddress)

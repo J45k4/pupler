@@ -16,6 +16,10 @@ The reverse proxy must forward `/mcp`, `/oauth/*`, `/.well-known/*`, and the
 normal login, settings, and `/mcp/connections` routes to Pupler. Permit
 image uploads up to 10 MiB.
 Loopback HTTP works for local development; production requires an explicit origin.
+OAuth client registration is limited to 20 requests per minute per source IP.
+Behind a reverse proxy, set `TRUSTED_PROXY_IPS` to the proxy's IP address so
+Pupler can use the client IP from `X-Forwarded-For`. Only list proxies that set
+or append the real connecting address in that header.
 
 Connect from Codex:
 

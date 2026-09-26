@@ -22,6 +22,7 @@ const client = async () => {
 	expect(response.status).toBe(201)
 	return response.json() as Promise<{ client_id: string; redirect_uris: string[] }>
 }
+const registerClient = (forwardedFor: string) => fetch(`${server.baseUrl}/oauth/register`, { method: "POST", headers: { "Content-Type": "application/json", "X-Forwarded-For": forwardedFor }, body: JSON.stringify({ client_name: "Rate test", redirect_uris: ["http://127.0.0.1:43123/callback"] }) })
 const pendingAuthorization = async (scope = "receipts:read receipts:write products:read products:write", cookie = server.sessionCookie) => {
 	const registered = await client()
 	const verifier = "v".repeat(43)
@@ -61,6 +62,21 @@ const rpc = async (token: string, method: string, params: unknown) => {
 }
 const tool = (token: string, name: string, args: unknown = {}) => rpc(token, "tools/call", { name, arguments: args })
 const receiptInput = (key: string = crypto.randomUUID()) => ({ store_name: "Test shop", purchased_at: "2026-09-26T12:30:00Z", currency: "EUR", total_amount: 5, idempotency_key: key, lines: [{ new_product: { name: "Milk", category: "food", default_unit: "pcs", is_perishable: true }, quantity: 2, unit: "pcs", unit_price: 2.5, line_total: 5 }] })
+
+test("registration limits each trusted proxy client separately", async () => {
+	server = await TestServer.start({ trustedProxyIps: "127.0.0.1" })
+	for (let index = 0; index < 20; index++) expect((await registerClient("198.51.100.10")).status).toBe(201)
+	expect((await registerClient("198.51.100.99, 198.51.100.10")).status).toBe(429)
+	expect((await registerClient("198.51.100.11")).status).toBe(201)
+	expect(sql(db => db.query("SELECT COUNT(*) AS count FROM oauth_clients").get() as { count: number })).toEqual({ count: 21 })
+}, 20000)
+
+test("registration ignores forwarded addresses from untrusted peers", async () => {
+	server = await TestServer.start()
+	for (let index = 0; index < 20; index++) expect((await registerClient(`198.51.100.${index + 1}`)).status).toBe(201)
+	expect((await registerClient("198.51.100.99")).status).toBe(429)
+	expect(sql(db => db.query("SELECT COUNT(*) AS count FROM oauth_clients").get() as { count: number })).toEqual({ count: 20 })
+}, 20000)
 
 test("OAuth discovery, SDK initialization, browser authorization, PKCE, refresh and replay revocation", async () => {
 	server = await TestServer.start()
