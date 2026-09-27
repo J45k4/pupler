@@ -269,6 +269,7 @@ const RESOURCES: ResourceConfig[] = [
 		command: "shopping-list-items",
 		path: "/api/shopping-list-items",
 		fields: {
+			shopping_list_id: { type: "integer" },
 			name: { type: "string" },
 			ingredient_id: { type: "integer", nullable: true },
 			product_id: { type: "integer", nullable: true },
@@ -280,6 +281,7 @@ const RESOURCES: ResourceConfig[] = [
 		},
 		queryFields: {
 			id: { type: "integer", nullable: true },
+			shopping_list_id: { type: "integer" },
 			name: { type: "string", nullable: true },
 			ingredient_id: { type: "integer", nullable: true },
 			product_id: { type: "integer", nullable: true },

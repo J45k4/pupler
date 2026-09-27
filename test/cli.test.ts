@@ -525,11 +525,18 @@ describe("Pupler CLI", () => {
 
 	test("creates and lists shopping list items with human-readable output", async () => {
 		const server = await startServer()
+		const list = await server.call<{ id: number }>("/api/shopping-lists", {
+			method: "POST",
+			body: { name: "Household" },
+		})
+		expect(list.response.status).toBe(201)
 
 		const created = await runCli(
 			[
 				"shopping-list-items",
 				"create",
+				"--shopping-list-id",
+				String(list.body.id),
 				"--name",
 				"Light bulb",
 				"--quantity",
@@ -549,7 +556,7 @@ describe("Pupler CLI", () => {
 		expect(created.stdout).toContain("hall closet")
 
 		const listed = await runCli(
-			["shopping-list-items", "list", "--done", "false"],
+			["shopping-list-items", "list", "--shopping-list-id", String(list.body.id), "--done", "false"],
 			{ baseUrl: server.baseUrl },
 		)
 		expect(listed.exitCode).toBe(0)
