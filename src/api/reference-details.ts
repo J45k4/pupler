@@ -123,12 +123,14 @@ export const recipeIngredientDetailSelect = {
 
 export const shoppingListItemDetailSelect = {
 	id: true,
+	shopping_list_id: true,
 	name: true,
 	ingredient_id: true,
 	product_id: true,
 	quantity: true,
 	unit: true,
 	done: true,
+	removed_at: true,
 	source_recipe_id: true,
 	notes: true,
 	created_at: true,

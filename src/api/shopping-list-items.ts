@@ -1,6 +1,8 @@
 import type { BunRequest } from "bun"
 
 import { db } from "../db"
+import { requireAuthenticatedUser } from "./auth"
+import { requireShoppingListMember } from "./shopping-lists"
 import {
 	assertKnownFields,
 	empty,
@@ -29,7 +31,7 @@ import {
 	validateIngredientProductRefs,
 } from "./reference-details"
 
-const DEFAULT_SORT = [{ created_at: "desc" }, { id: "desc" }] as const
+const DEFAULT_SORT = [{ created_at: "desc" as const }, { id: "desc" as const }]
 const SORT_FIELDS = new Set([
 	"id",
 	"ingredient_id",
@@ -44,6 +46,7 @@ const SORT_FIELDS = new Set([
 	"updated_at",
 ])
 const WRITABLE_FIELDS = [
+	"removed",
 	"name",
 	"ingredient_id",
 	"product_id",
@@ -73,11 +76,12 @@ const parseSort = (url: URL) => {
 }
 
 const parseFilters = (url: URL) => {
-	const where: Record<string, unknown> = {}
+	const where: Record<string, unknown> = { removed_at: null }
 	for (const [key, value] of url.searchParams.entries()) {
 		if (key === "sort" || key === "order") continue
 		switch (key) {
 			case "id":
+			case "shopping_list_id":
 			case "ingredient_id":
 			case "product_id":
 			case "source_recipe_id":
@@ -96,6 +100,10 @@ const parseFilters = (url: URL) => {
 			case "updated_at":
 				where[key] = value === "null" ? null : value
 				break
+			case "removed":
+				if (value === "all") delete where.removed_at
+				else where.removed_at = parseBooleanQuery(key, value) ? { not: null } : null
+				break
 			case "done":
 				where.done = parseBooleanQuery(key, value)
 				break
@@ -106,10 +114,20 @@ const parseFilters = (url: URL) => {
 	return where
 }
 
+const removalValues = (body: JsonObject, existing?: { done: boolean; removed_at: string | null } | null) => {
+	const removed = readOptionalBodyField(body, "removed", expectBoolean)
+	const done = readOptionalBodyField(body, "done", expectBoolean)
+	if (removed === true && done === true) throw new HttpError(400, "An item cannot be both done and removed")
+	if (removed === true) return { removed_at: existing?.removed_at ?? utcNow(), done: false }
+	if (removed === false || done === true) return { removed_at: null }
+	return {}
+}
+
 const parseCreateValues = (body: JsonObject) => {
-	assertKnownFields(body, WRITABLE_FIELDS)
+	assertKnownFields(body, [...WRITABLE_FIELDS, "shopping_list_id"])
 	const now = utcNow()
 	return {
+		shopping_list_id: readOptionalBodyField(body, "shopping_list_id", expectInteger) ?? 1,
 		name: requireBodyField(body, "name", expectString),
 		ingredient_id:
 			readOptionalBodyField(
@@ -201,7 +219,7 @@ const parsePatchValues = (body: JsonObject) => {
 	if (sourceRecipeId !== undefined) values.source_recipe_id = sourceRecipeId
 	if (notes !== undefined) values.notes = notes
 
-	if (Object.keys(values).length === 0) {
+	if (Object.keys(values).length === 0 && body.removed === undefined) {
 		throw new HttpError(
 			400,
 			"PATCH request must contain at least one writable field",
@@ -213,22 +231,26 @@ const parsePatchValues = (body: JsonObject) => {
 }
 
 export const shoppingListItemsCollectionRoute = async (req: Request) => {
+	const user = await requireAuthenticatedUser(req)
 	if (req.method === "GET") {
 		const url = new URL(req.url)
+		const where = { ...parseFilters(url), shopping_list: { members: { some: { user_id: user.id } } } }
 		return json(
 			200,
 			await db.client.shoppingListItem.findMany({
-				where: parseFilters(url),
+				where,
 				orderBy: parseSort(url),
 				select: shoppingListItemDetailSelect,
 			}),
 		)
 	}
 	if (req.method === "POST") {
-		const values = parseCreateValues(await readJsonObject(req))
+		const body = await readJsonObject(req)
+		const values = parseCreateValues(body)
+		await requireShoppingListMember(db, user.id, values.shopping_list_id, true)
 		await validateIngredientProductRefs(db, values)
 		const created = await db.client.shoppingListItem.create({
-			data: values,
+			data: { ...values, ...removalValues(body) },
 		})
 		return json(201, await fetchShoppingListItemDetail(db, created.id))
 	}
@@ -236,27 +258,31 @@ export const shoppingListItemsCollectionRoute = async (req: Request) => {
 }
 
 export const shoppingListItemDetailRoute = async (req: BunRequest<string>) => {
-	const id = parseIdParam(req.params.id)
+	const user = await requireAuthenticatedUser(req)
+	const id = parseIdParam(req.params.id ?? "")
 	const existingRow = await fetchShoppingListItem(db, id)
 	if (!existingRow) throw new HttpError(404, "Resource not found")
+	await requireShoppingListMember(db, user.id, existingRow.shopping_list_id, req.method !== "GET")
 
 	if (req.method === "GET") {
 		return json(200, await fetchShoppingListItemDetail(db, id))
 	}
 	if (req.method === "PUT") {
+		const body = await readJsonObject(req)
 		const values = parseReplaceValues(
-			await readJsonObject(req),
+			body,
 			existingRow,
 		)
 		await validateIngredientProductRefs(db, values)
 		await db.client.shoppingListItem.update({
 			where: { id },
-			data: values,
+			data: { ...values, ...removalValues(body, existingRow) },
 		})
 		return json(200, await fetchShoppingListItemDetail(db, id))
 	}
 	if (req.method === "PATCH") {
-		const values = parsePatchValues(await readJsonObject(req))
+		const body = await readJsonObject(req)
+		const values = parsePatchValues(body)
 		await validateIngredientProductRefs(db, {
 			ingredient_id:
 				(values.ingredient_id as number | null | undefined) ??
@@ -267,12 +293,12 @@ export const shoppingListItemDetailRoute = async (req: BunRequest<string>) => {
 		})
 		await db.client.shoppingListItem.update({
 			where: { id },
-			data: values,
+			data: { ...values, ...removalValues(body, existingRow) },
 		})
 		return json(200, await fetchShoppingListItemDetail(db, id))
 	}
 	if (req.method === "DELETE") {
-		await db.client.shoppingListItem.delete({ where: { id } })
+		await db.client.shoppingListItem.update({ where: { id }, data: { removed_at: existingRow.removed_at ?? utcNow(), done: false, updated_at: utcNow() } })
 		return empty(204)
 	}
 	throw new HttpError(405, "Method not allowed for this route")

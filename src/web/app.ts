@@ -153,12 +153,14 @@ export type InventoryContainer = {
 }
 
 export type ShoppingListItem = {
+	shopping_list_id: number
 	id: number
 	name: string
 	ingredient_id: number | null
 	product_id: number | null
 	quantity: number
 	unit: string
+	removed_at: string | null
 	done: boolean
 	source_recipe_id: number | null
 	notes: string | null

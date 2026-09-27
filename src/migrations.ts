@@ -9,7 +9,8 @@ import sql7 from "../prisma/migrations/20260702000000_add_clients_projects/migra
 import sql8 from "../prisma/migrations/20260705000000_add_jobs_and_clockify_links/migration.sql" with { type: "text" }
 import sql9 from "../prisma/migrations/20260725000000_add_user_is_admin/migration.sql" with { type: "text" }
 import sql10 from "../prisma/migrations/20260905000000_add_user_api_keys/migration.sql" with { type: "text" }
-import sql11 from "../prisma/migrations/20260926000000_add_mcp_oauth/migration.sql" with { type: "text" }
+import sql11 from "../prisma/migrations/20260925000000_add_shopping_item_removal/migration.sql" with { type: "text" }
+import sql12 from "../prisma/migrations/20260926000000_add_mcp_oauth/migration.sql" with { type: "text" }
 import { Database } from "bun:sqlite"
 import { createHash, randomUUID } from "node:crypto"
 import { mkdirSync } from "node:fs"
@@ -27,8 +28,12 @@ export const migrations = [
 	{ name: "20260705000000_add_jobs_and_clockify_links", sql: sql8 },
 	{ name: "20260725000000_add_user_is_admin", sql: sql9 },
 	{ name: "20260905000000_add_user_api_keys", sql: sql10 },
-	{ name: "20260926000000_add_mcp_oauth", sql: sql11 },
+	{ name: "20260925000000_add_shopping_item_removal", sql: sql11 },
+	{ name: "20260926000000_add_mcp_oauth", sql: sql12 },
 ]
+
+const legacyShoppingItemRemovalSql = 'ALTER TABLE "shopping_list_items" ADD COLUMN "removed_at" TEXT;\n'
+const legacyShoppingItemRemovalChecksum = createHash("sha256").update(legacyShoppingItemRemovalSql).digest("hex")
 
 // Keep Prisma's ledger so source and binary installations can share a database.
 export const migrateDatabase = (path: string) => {
@@ -53,13 +58,15 @@ export const migrateDatabase = (path: string) => {
 			db.exec("BEGIN IMMEDIATE")
 			try {
 				const records = db.query("SELECT checksum, finished_at FROM _prisma_migrations WHERE migration_name = ? AND rolled_back_at IS NULL").all(migration.name) as { checksum: string, finished_at: string | null }[]
-				if (records.some(record => !record.finished_at || record.checksum !== checksum)) {
+				const upgradeLegacyShoppingItemRemoval = migration.name === "20260925000000_add_shopping_item_removal" && migration.sql.startsWith(legacyShoppingItemRemovalSql) && records.length === 1 && Boolean(records[0]?.finished_at) && records[0]?.checksum === legacyShoppingItemRemovalChecksum
+				if (records.some(record => !record.finished_at || (record.checksum !== checksum && !upgradeLegacyShoppingItemRemoval))) {
 					throw new Error(`Failed or modified migration: ${migration.name}`)
 				}
-				if (!records.length) {
-					db.exec(migration.sql)
+				if (!records.length || upgradeLegacyShoppingItemRemoval) {
+					db.exec(upgradeLegacyShoppingItemRemoval ? migration.sql.slice(legacyShoppingItemRemovalSql.length) : migration.sql)
 					if (db.query("PRAGMA foreign_key_check").all().length) throw new Error(`Foreign key violation in ${migration.name}`)
-					db.query("INSERT INTO _prisma_migrations (id, checksum, migration_name, finished_at, applied_steps_count) VALUES (?, ?, ?, ?, 1)").run(randomUUID(), checksum, migration.name, new Date().toISOString())
+					if (upgradeLegacyShoppingItemRemoval) db.query("UPDATE _prisma_migrations SET checksum = ?, applied_steps_count = applied_steps_count + 1 WHERE migration_name = ? AND checksum = ? AND rolled_back_at IS NULL").run(checksum, migration.name, legacyShoppingItemRemovalChecksum)
+					else db.query("INSERT INTO _prisma_migrations (id, checksum, migration_name, finished_at, applied_steps_count) VALUES (?, ?, ?, ?, 1)").run(randomUUID(), checksum, migration.name, new Date().toISOString())
 					console.log(`Applied ${migration.name}`)
 				}
 				db.exec("COMMIT")

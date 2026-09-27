@@ -106,8 +106,16 @@ function matchRoute(
 }
 
 const handleRoute = async (path: string) => {
+	if (path === "/shoppinglist" || path === "/shoppinglist/") {
+		window.location.replace(`/shoppinglist${window.location.search}${window.location.hash}`)
+		return
+	}
 	if (path === "/settings" || path === "/settings/") {
 		window.location.replace(`/settings${window.location.search}${window.location.hash}`)
+		return
+	}
+	if (path === "/users" || path === "/users/") {
+		window.location.replace(`/users${window.location.search}${window.location.hash}`)
 		return
 	}
 	if (["/time", "/time/overview", "/time/weekly", "/time/monthly"].includes(path.replace(/\/$/, ""))) {

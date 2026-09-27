@@ -66,6 +66,7 @@ export {
 	shoppingListItemDetailRoute,
 	shoppingListItemsCollectionRoute,
 } from "./shopping-list-items"
+export { shoppingListDetailRoute, shoppingListMemberDetailRoute, shoppingListMembersCollectionRoute, shoppingListsCollectionRoute } from "./shopping-lists"
 export { todoDetailRoute, todosCollectionRoute } from "./todos"
 export { userDetailRoute, usersCollectionRoute } from "./users"
 export { clientDetailRoute, clientsCollectionRoute } from "./clients"

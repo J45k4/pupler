@@ -22,13 +22,11 @@ import { renderInventoryPage } from "./pages/inventory"
 import { renderInventoryItemDetailPage } from "./pages/inventory-item-detail"
 import { renderInventoryContainerDetailPage } from "./pages/inventory-container-detail"
 import { renderReceiptsPage } from "./pages/receipts"
-import { renderShoppingListsPage } from "./pages/shopping-lists"
 import { renderTodosPage } from "./pages/todos"
 import { renderGroupDetailPage } from "./pages/group-detail"
 import { renderReceiptDetailPage } from "./pages/receipt-detail"
 import { renderNotFoundPage } from "./pages/not-found"
 import { renderLoginPage } from "./pages/login"
-import { renderUsersPage } from "./pages/users"
 import { renderIntegrationsPage } from "./pages/integrations"
 import {
 	renderImportScheduleDetailPage,
@@ -49,7 +47,6 @@ window.onload = async () => {
 	routes({
 		"/": renderOverviewPage,
 		"/login": renderLoginPage,
-		"/users": renderUsersPage,
 		"/integrations": renderIntegrationsPage,
 		"/import-schedules/:id": (_main, params) =>
 			renderImportScheduleDetailPage(params),
@@ -75,7 +72,6 @@ window.onload = async () => {
 		"/spending": renderSpendingPage,
 		"/spending/monthly": renderSpendingMonthlyPage,
 		"/spending/items": renderSpendingItemsPage,
-		"/shoppinglist": renderShoppingListsPage,
 		"/todos": renderTodosPage,
 		"/recipes/new": renderRecipeCreatePage,
 		"/recipes/:id": (_main, params) => renderRecipeDetailPage(params),

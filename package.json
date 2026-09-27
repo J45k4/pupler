@@ -12,7 +12,7 @@
 		"postinstall": "bun run prisma:generate",
 		"prisma:db:push": "bunx --bun prisma db push --schema prisma/schema.prisma",
 		"prisma:generate": "bunx --bun prisma generate",
-		"prisma:migrate:deploy": "bunx --bun prisma migrate deploy --schema prisma/schema.prisma",
+		"prisma:migrate:deploy": "bun scripts/migrate.ts && bunx --bun prisma migrate deploy --schema prisma/schema.prisma",
 		"prisma:migrate:dev": "bunx --bun prisma migrate dev --schema prisma/schema.prisma",
 		"seed": "bun scripts/seed.ts",
 		"create-user": "bun scripts/create-user.ts",

@@ -52,7 +52,7 @@ export const Combobox = ({
 			document.removeEventListener("click", onClick)
 			document.removeEventListener("keydown", onKey)
 		}
-	}, [open ])
+	}, [open])
 
 	const pick = (label: string) => {
 		onChange(label)
@@ -92,7 +92,7 @@ export const Combobox = ({
 					className="search-select__input"
 					role="combobox"
 					aria-autocomplete="list"
-					aria-expanded={String(open)}
+					aria-expanded={open}
 					aria-controls={listId}
 					placeholder={placeholder}
 					autoComplete={autoComplete}

@@ -47,6 +47,10 @@ import {
 	recipesCollectionRoute,
 	shoppingListItemDetailRoute,
 	shoppingListItemsCollectionRoute,
+	shoppingListDetailRoute,
+	shoppingListMemberDetailRoute,
+	shoppingListMembersCollectionRoute,
+	shoppingListsCollectionRoute,
 	spendingRoute,
 	jobDetailRoute,
 	jobEventsRoute,
@@ -154,6 +158,10 @@ const createRoutes = () => {
 				"/api/inventory-items/:id": inventoryItemDetailRoute,
 				"/api/shopping-list-items": shoppingListItemsCollectionRoute,
 				"/api/shopping-list-items/:id": shoppingListItemDetailRoute,
+				"/api/shopping-lists": shoppingListsCollectionRoute,
+				"/api/shopping-lists/:id": shoppingListDetailRoute,
+				"/api/shopping-lists/:id/members": shoppingListMembersCollectionRoute,
+				"/api/shopping-lists/:id/members/:userId": shoppingListMemberDetailRoute,
 				"/api/todos": todosCollectionRoute,
 				"/api/todos/:id": todoDetailRoute,
 				"/api/users": usersCollectionRoute,
@@ -183,7 +191,11 @@ const request = async (
 ) => {
 	const url = new URL(`http://localhost${path}`)
 	const pathname = url.pathname
-	const routeKey = pathname.match(/^\/api\/products\/\d+\/picture$/)
+	const routeKey = pathname.match(/^\/api\/shopping-lists\/\d+\/members\/\d+$/)
+		? "/api/shopping-lists/:id/members/:userId"
+		: pathname.match(/^\/api\/shopping-lists\/\d+\/members$/)
+			? "/api/shopping-lists/:id/members"
+			: pathname.match(/^\/api\/products\/\d+\/picture$/)
 		? "/api/products/:id/picture"
 		: pathname.match(/^\/api\/receipts\/\d+\/picture$/)
 			? "/api/receipts/:id/picture"
@@ -241,11 +253,12 @@ const request = async (
 		return handler.clone()
 	}
 	const headers = new Headers(options.headers)
-	if (pathname.startsWith("/api/time-") && !headers.has("Cookie")) {
-		const username = "time-test-admin"
+	if ((pathname.startsWith("/api/time-") || pathname.startsWith("/api/shopping-")) && !headers.has("Cookie") && !headers.has("Authorization")) {
+		const username = pathname.startsWith("/api/time-") ? "time-test-admin" : "shopping-test-admin"
 		if (!await routes.db.client.user.findUnique({ where: { username } })) {
 			const now = new Date().toISOString()
-			await routes.db.client.user.create({ data: { name: "Time test admin", username, password_hash: await Bun.password.hash("time-test-password"), is_admin: true, created_at: now, updated_at: now } })
+			const created = await routes.db.client.user.create({ data: { name: "Test admin", username, password_hash: await Bun.password.hash("time-test-password"), is_admin: true, created_at: now, updated_at: now } })
+			if (pathname.startsWith("/api/shopping-")) await routes.db.client.shoppingListMember.create({ data: { shopping_list_id: 1, user_id: created.id, role: "editor", created_at: now } })
 		}
 		const login = await authLoginRoute(new Request("http://localhost/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password: "time-test-password" }) }))
 		headers.set("Cookie", login.headers.get("set-cookie")!.split(";")[0]!)
@@ -442,6 +455,22 @@ describe("Pupler API", () => {
 			{ id: String(created.id) },
 		)
 		expect(missingResponse.status).toBe(404)
+	})
+
+	test("creates a user with a one-character password", async () => {
+		const routes = createRoutes()
+		const created = await request(routes, "/api/users", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ name: "Short password", username: "short-password", password: "x" }),
+		})
+		expect(created.status).toBe(201)
+		const login = await request(routes, "/api/auth/login", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ username: "short-password", password: "x" }),
+		})
+		expect(login.status).toBe(200)
 	})
 
 	test("authenticates users with server-managed cookie sessions", async () => {
@@ -3809,7 +3838,7 @@ describe("Pupler API", () => {
 		expect(mismatchResponse.status).toBe(400)
 	})
 
-	test("creates shoppinglist items without a parent shopping list", async () => {
+	test("creates shoppinglist items in the default shopping list", async () => {
 		const routes = createRoutes()
 
 		const createItemResponse = await request(
@@ -3834,6 +3863,7 @@ describe("Pupler API", () => {
 		expect(createItemResponse.status).toBe(201)
 		const createdItem = await createItemResponse.json()
 		expect(createdItem.name).toBe("Light bulb")
+		expect(createdItem.shopping_list_id).toBe(1)
 		expect(createdItem.done).toBe(false)
 
 		const listResponse = await request(routes, "/api/shopping-list-items")
@@ -3841,6 +3871,87 @@ describe("Pupler API", () => {
 		const items = await listResponse.json()
 		expect(items).toHaveLength(1)
 		expect(items[0].notes).toBe("for breakfast")
+	})
+
+	test("shares a shopping list with viewer and editor roles", async () => {
+		const routes = createRoutes()
+		const password = "shopping-share-password"
+		const passwordHash = await Bun.password.hash(password)
+		const createUser = async (username: string) => {
+			const now = new Date().toISOString()
+			const user = await routes.db.client.user.create({ data: { name: username, username, password_hash: passwordHash, is_admin: false, created_at: now, updated_at: now } })
+			const response = await request(routes, "/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password }) })
+			expect(response.status).toBe(200)
+			return { id: user.id, cookie: response.headers.get("set-cookie")!.split(";")[0]! }
+		}
+		const alice = await createUser("shopping-alice")
+		const bob = await createUser("shopping-bob")
+		const carol = await createUser("shopping-carol")
+		const asUser = (cookie: string, path: string, method = "GET", body?: object) => {
+			const segments = new URL(`http://localhost${path}`).pathname.split("/")
+			return request(routes, path, { method, headers: { Cookie: cookie, ...(body ? { "Content-Type": "application/json" } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) }, { id: segments[3] ?? "", userId: segments[5] ?? "" })
+		}
+
+		const created = await asUser(alice.cookie, "/api/shopping-lists", "POST", { name: "Hardware" })
+		expect(created.status).toBe(201)
+		const list = await created.json()
+		const listPath = `/api/shopping-lists/${list.id}`
+		expect((await (await asUser(bob.cookie, "/api/shopping-lists")).json())).toEqual([])
+		expect((await asUser(carol.cookie, listPath)).status).toBe(404)
+		const candidatesResponse = await asUser(alice.cookie, `${listPath}/members`)
+		expect(candidatesResponse.status).toBe(200)
+		const candidates = await candidatesResponse.json()
+		expect(candidates.list_id).toBe(list.id)
+		expect(candidates.users).toEqual(expect.arrayContaining([{ id: bob.id, name: "shopping-bob", username: "shopping-bob" }, { id: carol.id, name: "shopping-carol", username: "shopping-carol" }]))
+		expect(candidates.users.some((candidate: { id: number }) => candidate.id === alice.id)).toBe(false)
+		expect((await asUser(carol.cookie, `${listPath}/members`)).status).toBe(404)
+		expect((await asUser(alice.cookie, `${listPath}/members`, "POST", { username: "shopping-bob", role: "wrong" })).status).toBe(400)
+		expect((await asUser(alice.cookie, `${listPath}/members`, "POST", { username: "shopping-bob", role: "viewer" })).status).toBe(201)
+		expect((await asUser(alice.cookie, `${listPath}/members`, "POST", { username: "shopping-bob", role: "viewer" })).status).toBe(409)
+		expect((await asUser(bob.cookie, `${listPath}/members`)).status).toBe(403)
+		expect((await (await asUser(alice.cookie, `${listPath}/members`)).json()).users.some((candidate: { id: number }) => candidate.id === bob.id)).toBe(false)
+		expect((await (await asUser(bob.cookie, "/api/shopping-lists")).json())[0].role).toBe("viewer")
+
+		const itemResponse = await asUser(alice.cookie, "/api/shopping-list-items", "POST", { shopping_list_id: list.id, name: "Hammer", quantity: 1, unit: "pcs", done: false })
+		expect(itemResponse.status).toBe(201)
+		const item = await itemResponse.json()
+		expect((await (await asUser(bob.cookie, `/api/shopping-list-items?shopping_list_id=${list.id}`)).json())).toHaveLength(1)
+		expect((await asUser(bob.cookie, `/api/shopping-list-items/${item.id}`)).status).toBe(200)
+		expect((await asUser(bob.cookie, `/api/shopping-list-items/${item.id}`, "PATCH", { done: true })).status).toBe(403)
+		expect((await asUser(bob.cookie, `/api/shopping-list-items/${item.id}`, "PUT", { name: "Changed" })).status).toBe(403)
+		expect((await asUser(bob.cookie, `/api/shopping-list-items/${item.id}`, "DELETE")).status).toBe(403)
+		expect((await asUser(bob.cookie, "/api/shopping-list-items", "POST", { shopping_list_id: list.id, name: "Nails", quantity: 1, unit: "pcs", done: false })).status).toBe(403)
+		expect((await asUser(bob.cookie, listPath, "PATCH", { name: "Changed" })).status).toBe(403)
+		expect((await asUser(carol.cookie, `/api/shopping-list-items/${item.id}`)).status).toBe(404)
+		expect((await asUser(carol.cookie, "/api/shopping-list-items?shopping_list_id=" + list.id)).status).toBe(200)
+		expect((await (await asUser(carol.cookie, "/api/shopping-list-items?shopping_list_id=" + list.id)).json())).toEqual([])
+		expect((await asUser(bob.cookie, `${listPath}/members`, "POST", { username: "shopping-carol", role: "viewer" })).status).toBe(403)
+		expect((await asUser(bob.cookie, `${listPath}/members/${alice.id}`, "PATCH", { role: "viewer" })).status).toBe(403)
+		expect((await asUser(bob.cookie, `${listPath}/members/${alice.id}`, "DELETE")).status).toBe(403)
+
+		expect((await asUser(alice.cookie, `${listPath}/members/${bob.id}`, "PATCH", { role: "editor" })).status).toBe(200)
+		expect((await asUser(bob.cookie, `/api/shopping-list-items/${item.id}`, "PATCH", { done: true })).status).toBe(200)
+		expect((await asUser(alice.cookie, `${listPath}/members/${alice.id}`, "DELETE")).status).toBe(400)
+		expect((await asUser(alice.cookie, `${listPath}/members/${bob.id}`, "DELETE")).status).toBe(204)
+		expect((await asUser(bob.cookie, `/api/shopping-list-items/${item.id}`)).status).toBe(404)
+		expect((await asUser(bob.cookie, listPath)).status).toBe(404)
+
+		const removableResponse = await asUser(alice.cookie, "/api/shopping-lists", "POST", { name: "Temporary" })
+		const removable = await removableResponse.json()
+		const removablePath = `/api/shopping-lists/${removable.id}`
+		const removableItemResponse = await asUser(alice.cookie, "/api/shopping-list-items", "POST", { shopping_list_id: removable.id, name: "Tape", quantity: 1, unit: "pcs", done: false })
+		const removableItem = await removableItemResponse.json()
+		expect((await asUser(alice.cookie, `${removablePath}/members`, "POST", { username: "shopping-bob", role: "viewer" })).status).toBe(201)
+		expect((await asUser(bob.cookie, removablePath, "DELETE")).status).toBe(403)
+		expect((await asUser(carol.cookie, removablePath, "DELETE")).status).toBe(404)
+		expect((await asUser(alice.cookie, removablePath, "DELETE")).status).toBe(204)
+		expect((await asUser(alice.cookie, removablePath)).status).toBe(404)
+		expect((await asUser(bob.cookie, removablePath)).status).toBe(404)
+		expect((await asUser(alice.cookie, `/api/shopping-list-items/${removableItem.id}`)).status).toBe(404)
+		expect(await routes.db.client.shoppingListMember.count({ where: { shopping_list_id: removable.id } })).toBe(0)
+		expect((await asUser(alice.cookie, listPath)).status).toBe(200)
+		expect((await asUser("pupler_session=invalid", listPath)).status).toBe(401)
+		expect((await asUser("pupler_session=invalid", "/api/shopping-list-items")).status).toBe(401)
 	})
 
 	test("creates shoppinglist items with ingredient and product links", async () => {
@@ -3982,4 +4093,34 @@ describe("Pupler API", () => {
 		)
 		expect(deleteResponse.status).toBe(204)
 	})
+})
+
+test("shopping removal preserves history, filters active items and allows restoration", async () => {
+	const routes = createRoutes()
+	const created = await request(routes, "/api/shopping-list-items", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "Milk", quantity: 1, unit: "pcs", done: false }) })
+	const item = await created.json()
+	const path = `/api/shopping-list-items/${item.id}`
+	const patch = (body: object) => request(routes, path, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }, { id: String(item.id) })
+	const removed = await (await patch({ removed: true })).json()
+	expect(removed.done).toBe(false)
+	expect(Number.isFinite(Date.parse(removed.removed_at))).toBe(true)
+	expect(await (await request(routes, "/api/shopping-list-items?done=false")).json()).toHaveLength(0)
+	expect(await (await request(routes, "/api/shopping-list-items?done=true")).json()).toHaveLength(0)
+	expect(await (await request(routes, "/api/shopping-list-items?removed=true")).json()).toHaveLength(1)
+	expect(await (await request(routes, "/api/shopping-list-items?removed=all")).json()).toHaveLength(1)
+	expect((await (await patch({ notes: "Keep history" })).json()).removed_at).toBe(removed.removed_at)
+	expect((await patch({ removed: true, done: true })).status).toBe(400)
+	expect((await patch({ removed: "yes" })).status).toBe(400)
+	const restored = await (await patch({ removed: false })).json()
+	expect(restored.removed_at).toBeNull()
+	expect(restored.done).toBe(false)
+	await patch({ done: true })
+	expect((await request(routes, path, { method: "DELETE" }, { id: String(item.id) })).status).toBe(204)
+	const retained = await (await request(routes, path, {}, { id: String(item.id) })).json()
+	expect(retained.id).toBe(item.id)
+	expect(retained.done).toBe(false)
+	expect(retained.removed_at).not.toBeNull()
+	const completed = await (await patch({ done: true })).json()
+	expect(completed.done).toBe(true)
+	expect(completed.removed_at).toBeNull()
 })

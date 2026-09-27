@@ -44,10 +44,6 @@ export const UsersPage = () => {
 			setCreateStatus("User name is required.")
 			return
 		}
-		if (cPassword.length < 8) {
-			setCreateStatus("Password must be at least 8 characters.")
-			return
-		}
 		try {
 			await apiFetch("/api/users", {
 				method: "POST",
@@ -194,7 +190,7 @@ export const UsersPage = () => {
 					</label>
 					<label>
 						Password
-						<input name="password" type="password" minLength={8} required value={cPassword} onChange={(e) => setCPassword(e.target.value)} />
+						<input name="password" type="password" required value={cPassword} onChange={(e) => setCPassword(e.target.value)} />
 					</label>
 					<label className="checkbox-line">
 						<input name="is_admin" type="checkbox" checked={cAdmin} onChange={(e) => setCAdmin(e.target.checked)} />

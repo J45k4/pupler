@@ -116,7 +116,7 @@ const parseFilters = (url: URL) => {
 	return where
 }
 
-const passwordHashFromBody = async (body: JsonObject) => {
+const passwordHashFromBody = async (body: JsonObject, minimumLength = 8) => {
 	const passwordHash = readOptionalBodyField(
 		body,
 		"password_hash",
@@ -135,9 +135,9 @@ const passwordHashFromBody = async (body: JsonObject) => {
 	}
 	if (password === undefined)
 		return normalizeNullableString(passwordHash ?? null)
-	if (password === null || !password.trim()) return null
-	if (password.length < 8) {
-		throw new HttpError(400, "Password must be at least 8 characters")
+	if (password === null || password === "") return null
+	if (password.length < minimumLength) {
+		throw new HttpError(400, `Password must be at least ${minimumLength} characters`)
 	}
 	return Bun.password.hash(password)
 }
@@ -154,7 +154,7 @@ const parseCreateValues = async (body: JsonObject) => {
 		email: normalizeNullableString(
 			readOptionalBodyField(body, "email", expectNullableString) ?? null,
 		),
-		password_hash: await passwordHashFromBody(body),
+		password_hash: await passwordHashFromBody(body, 1),
 		is_admin:
 			readOptionalBodyField(body, "is_admin", expectBoolean) ?? false,
 		created_at: now,

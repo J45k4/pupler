@@ -10,6 +10,7 @@ COPY prisma ./prisma
 RUN bun install --frozen-lockfile
 
 COPY src ./src
+COPY scripts/migrate.ts ./scripts/migrate.ts
 COPY run.sh ./run.sh
 
 RUN bun run prisma:generate

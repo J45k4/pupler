@@ -114,17 +114,21 @@ export type Recipe = {
 }
 
 export type ShoppingListItem = {
+	shopping_list_id: number
 	id: number
 	name: string
 	ingredient_id: number | null
 	product_id: number | null
 	quantity: number
 	unit: string
+	removed_at: string | null
 	done: boolean
 	source_recipe_id: number | null
 	notes: string | null
 	created_at: string
 	updated_at: string
+	ingredient?: IngredientSummary | null
+	product?: (IngredientSummary & { ingredient_id: number | null; picture_file_id?: number | null; picture_file?: StoredFile | null }) | null
 }
 
 export type Client = {

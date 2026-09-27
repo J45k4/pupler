@@ -30,10 +30,10 @@ import { JobsPage } from "./pages/Jobs"
 
 const BASE = "/react"
 
-const link = (path: string) => (path === "/settings" || path === "/mcp/connections" || path === "/time" || path.startsWith("/time/") ? path : path === "/" ? BASE : `${BASE}${path}`)
+const link = (path: string) => (path === "/shoppinglist" || path === "/settings" || path === "/users" || path === "/mcp/connections" || path === "/time" || path.startsWith("/time/") ? path : path === "/" ? BASE : `${BASE}${path}`)
 
 const stripBase = (path: string) =>
-	/^\/react\/(settings|mcp\/connections|time)(\/|$)/.test(path)
+	/^\/react\/(settings|mcp\/connections|time|shoppinglist|users)(\/|$)/.test(path)
 		? path
 		: path === BASE || path === `${BASE}/`
 		? "/"

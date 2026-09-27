@@ -233,10 +233,12 @@ describe("Pupler API e2e", () => {
 
 		const usersPage = await server.call<string>("/users")
 		expect(usersPage.response.status).toBe(200)
+		expect(new URL(usersPage.response.url).pathname).toBe("/users")
 		expect(usersPage.response.headers.get("content-type")).toContain(
 			"text/html",
 		)
-		expect(usersPage.body).toContain("<title>Pupler</title>")
+		const retiredUsers = await server.call("/react/users", { redirect: "manual" })
+		expect(retiredUsers.response.status).toBe(404)
 
 		const integrationsPage = await server.call<string>("/integrations")
 		expect(integrationsPage.response.status).toBe(200)
@@ -294,8 +296,7 @@ describe("Pupler API e2e", () => {
 		const page = await server.call<string>("/shoppinglist")
 		expect(page.response.status).toBe(200)
 		expect(page.response.headers.get("content-type")).toContain("text/html")
-		expect(page.body).toContain("<title>Pupler</title>")
-		expect(page.body).toContain("<body></body>")
+		expect(new URL(page.response.url).pathname).toBe("/shoppinglist")
 
 		const todosPage = await server.call<string>("/todos")
 		expect(todosPage.response.status).toBe(200)
@@ -1105,8 +1106,10 @@ describe("Pupler API e2e", () => {
 		expect(invalid.body.error).toContain("cycle")
 	})
 
-	test("creates shoppinglist items over HTTP without a parent list", async () => {
+	test("creates shoppinglist items over HTTP in an accessible list", async () => {
 		const server = await startServer()
+		const createdList = await server.call<{ id: number }>("/api/shopping-lists", { method: "POST", body: { name: "Hardware" } })
+		expect(createdList.response.status).toBe(201)
 
 		const createdItem = await server.call<{
 			id: number
@@ -1117,6 +1120,7 @@ describe("Pupler API e2e", () => {
 		}>("/api/shopping-list-items", {
 			method: "POST",
 			body: {
+				shopping_list_id: createdList.body.id,
 				name: "Light bulb",
 				ingredient_id: null,
 				product_id: null,

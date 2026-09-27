@@ -240,22 +240,50 @@ model MealPlanItem {
 	@@map("meal_plan_items")
 }
 
+model ShoppingList {
+	id         Int                @id @default(autoincrement())
+	name       String
+	created_at String             @map("created_at")
+	updated_at String             @map("updated_at")
+	items      ShoppingListItem[]
+	members    ShoppingListMember[]
+
+	@@map("shoppinglists")
+}
+
+model ShoppingListMember {
+	shopping_list_id Int          @map("shopping_list_id")
+	user_id          Int          @map("user_id")
+	role             String
+	created_at       String       @map("created_at")
+	shopping_list    ShoppingList @relation(fields: [shopping_list_id], references: [id], onDelete: Cascade)
+	user             User         @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+	@@id([shopping_list_id, user_id])
+	@@index([user_id], map: "idx_shopping_list_members_user_id")
+	@@map("shopping_list_members")
+}
+
 model ShoppingListItem {
-	id               Int         @id @default(autoincrement())
+	id               Int          @id @default(autoincrement())
+	shopping_list_id Int          @default(1) @map("shopping_list_id")
 	name             String
-	ingredient_id    Int?        @map("ingredient_id")
-	product_id       Int?        @map("product_id")
+	ingredient_id    Int?         @map("ingredient_id")
+	product_id       Int?         @map("product_id")
 	quantity         Float
 	unit             String
+	removed_at       String?      @map("removed_at")
 	done             Boolean
-	source_recipe_id Int?        @map("source_recipe_id")
+	source_recipe_id Int?         @map("source_recipe_id")
 	notes            String?
 	created_at       String      @map("created_at")
 	updated_at       String      @map("updated_at")
 	ingredient       Ingredient? @relation(fields: [ingredient_id], references: [id])
 	product          Product?    @relation(fields: [product_id], references: [id])
-	source_recipe    Recipe?     @relation(fields: [source_recipe_id], references: [id])
+	source_recipe    Recipe?      @relation(fields: [source_recipe_id], references: [id])
+	shopping_list    ShoppingList @relation(fields: [shopping_list_id], references: [id])
 
+	@@index([shopping_list_id], map: "idx_shopping_list_items_shopping_list_id")
 	@@index([ingredient_id], map: "idx_shopping_list_items_ingredient_id")
 	@@index([product_id], map: "idx_shopping_list_items_product_id")
 	@@map("shopping_list_items")
@@ -289,6 +317,7 @@ model User {
 	sessions      UserSession[]
 	api_keys      UserApiKey[]
 	oauth_grants  OAuthGrant[]
+	shopping_list_members ShoppingListMember[]
 
 	@@map("users")
 }

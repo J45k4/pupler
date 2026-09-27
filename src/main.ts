@@ -12,6 +12,12 @@ import reactIndex from "./react/index.html"
 import faviconPath from "./web/favicon.png" with { type: "file" }
 const favicon = Bun.file(faviconPath)
 
+for (const bundle of [index, reactIndex]) {
+	for (const file of bundle.files ?? []) {
+		if (file.loader === "html") file.headers["cache-control"] = "no-store"
+	}
+}
+
 const version = resolvePuplerVersion()
 const envPort = process.env.PORT
 	? Number.parseInt(process.env.PORT, 10)
@@ -79,6 +85,10 @@ const apiRoutes = createApiRoutes({
 		"/api/meal-plan-items/:id": routes.mealPlanItemDetailRoute,
 		"/api/shopping-list-items": routes.shoppingListItemsCollectionRoute,
 		"/api/shopping-list-items/:id": routes.shoppingListItemDetailRoute,
+		"/api/shopping-lists": routes.shoppingListsCollectionRoute,
+		"/api/shopping-lists/:id": routes.shoppingListDetailRoute,
+		"/api/shopping-lists/:id/members": routes.shoppingListMembersCollectionRoute,
+		"/api/shopping-lists/:id/members/:userId": routes.shoppingListMemberDetailRoute,
 		"/api/todos": routes.todosCollectionRoute,
 		"/api/todos/:id": routes.todoDetailRoute,
 		"/api/clients": routes.clientsCollectionRoute,
@@ -130,6 +140,12 @@ const instance = Bun.serve({
 		"/time/monthly": reactIndex,
 		"/settings": reactIndex,
 		"/mcp/connections": reactIndex,
+		"/users": reactIndex,
+		"/shoppinglist": reactIndex,
+		"/react/users": new Response("Not found", { status: 404 }),
+		"/react/users/*": new Response("Not found", { status: 404 }),
+		"/react/shoppinglist": new Response("Not found", { status: 404 }),
+		"/react/shoppinglist/*": new Response("Not found", { status: 404 }),
 		"/react/time": new Response("Not found", { status: 404 }),
 		"/react/time/*": new Response("Not found", { status: 404 }),
 		"/react/settings": new Response("Not found", { status: 404 }),

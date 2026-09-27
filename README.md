@@ -115,8 +115,10 @@ and provides a menu action to stop it using a personal API key.
 
 The container listens on port `5995` and stores its SQLite database at
 `/data/pupler.db` inside the container, with uploaded files stored under
-`/data/files`. The image uses `DATA_PATH=/data` and runs `prisma migrate deploy`
-automatically from `run.sh` before starting the server.
+`/data/files`. The image uses `DATA_PATH=/data` and runs the embedded migration
+upgrade followed by `prisma migrate deploy` from `run.sh` before starting the server.
+For a checkout, run `bun run prisma:migrate:deploy`; the embedded step also upgrades
+databases that previously applied the shorter shopping-item removal migration.
 
 Build locally:
 
