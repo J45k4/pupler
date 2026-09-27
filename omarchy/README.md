@@ -8,7 +8,8 @@ or **Before clock** (in the center section, immediately left of the clock).
 Omarchy saves the placement immediately, preserving the other widgets and
 Puplerbar settings. The highlighted option reflects the current bar layout.
 
-Shows the current user's running timer and a locally updated elapsed time.
+Shows the current user's running timer, its project name, and a locally updated
+elapsed time in the bar. The menu continues to show the timer description.
 When no timer is running, click to open the menu, choose an active project
 from the searchable selector, optionally enter a description, then click
 **Start timer** (or press Enter in the description field). Projects belonging
@@ -30,7 +31,10 @@ Requires Omarchy's Quickshell plugin system and Bun on the shell's PATH.
 2. After installing, click **Set up Pupler** in the toolbar. Enter the server
    URL and paste the API key, then choose **Save and connect**. The key is
    checked before saving to `~/.config/pupler/omarchy.json` with permissions
-   `600`. Right-click the widget to change the connection later. Revoked or
+   `600`. Right-click the widget to change the connection later. To remove the
+   locally stored key, choose **Clear API key and set up again** in the menu,
+   then confirm. Setup opens with the server URL retained. This does not revoke
+   the key; revoke it separately in Pupler Settings if needed. Revoked or
    invalid keys also open setup. You can alternatively create the file yourself:
 
    ```json

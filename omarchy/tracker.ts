@@ -71,10 +71,24 @@ export class Tracker {
 export class TrackerController {
 	constructor(private path: string) {}
 
+	private async save(config: Partial<Config>) {
+		await mkdir(dirname(this.path), { recursive: true, mode: 0o700 })
+		const temporary = `${this.path}.${randomUUID()}.tmp`
+		try {
+			await writeFile(temporary, JSON.stringify(config, null, 4) + "\n", { mode: 0o600, flag: "wx" })
+			await rename(temporary, this.path)
+		} finally { await rm(temporary, { force: true }) }
+	}
+
 	async handle(command: { action: string, id?: number, baseUrl?: string, apiKey?: string, projectId?: number, projectName?: string, description?: string, includeProjects?: boolean }) {
-		let config = await Bun.file(this.path).json().catch(() => null) as Config | null
+		let config = await Bun.file(this.path).json().catch(() => null) as Partial<Config> | null
 		let needsConfig = !config?.baseUrl || !config?.apiKey
 		try {
+			if (command.action === "clear-key") {
+				const next = { baseUrl: config?.baseUrl || "http://localhost:5995", ...(config?.userId !== undefined ? { userId: config.userId } : {}) }
+				await this.save(next)
+				return { entry: null, error: "", needsConfig: true, baseUrl: next.baseUrl }
+			}
 			if (command.action === "configure") {
 				needsConfig = true
 				const baseUrl = new URL(command.baseUrl?.trim() || "http://localhost:5995")
@@ -83,17 +97,12 @@ export class TrackerController {
 				if (!/^pupler_[A-Za-z0-9_-]{43}$/.test(apiKey)) throw new Error("Paste a Pupler API key from Settings → API keys.")
 				const next: Config = { baseUrl: baseUrl.origin, apiKey, ...(config?.userId !== undefined ? { userId: config.userId } : {}) }
 				const entry = await new Tracker(next).current()
-				await mkdir(dirname(this.path), { recursive: true, mode: 0o700 })
-				const temporary = `${this.path}.${randomUUID()}.tmp`
-				try {
-					await writeFile(temporary, JSON.stringify(next, null, 4) + "\n", { mode: 0o600, flag: "wx" })
-					await rename(temporary, this.path)
-				} finally { await rm(temporary, { force: true }) }
+				await this.save(next)
 				return { entry, error: "", needsConfig: false, baseUrl: next.baseUrl, saved: true }
 			}
 			if (needsConfig) return { entry: null, error: "", needsConfig: true, baseUrl: config?.baseUrl || "http://localhost:5995" }
 			if (config!.userId !== undefined && config!.userId !== null && (!Number.isSafeInteger(config!.userId) || config!.userId <= 0)) throw new Error("userId must be a positive integer or null.")
-			const tracker = new Tracker(config!)
+			const tracker = new Tracker(config as Config)
 			if (command.action === "create-project") {
 				const createdProject = await tracker.createProject(command.projectName!)
 				return { createdProject, error: "", needsConfig: false, baseUrl: config!.baseUrl }

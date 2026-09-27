@@ -13,6 +13,7 @@ BarWidget {
     property bool busy: false
     property bool needsConfig: false
     property bool editingConfig: false
+    property bool confirmingClearKey: false
     property var projects: []
     property string selectedProject: ""
     property bool creatingProject: false
@@ -44,6 +45,7 @@ BarWidget {
     readonly property bool opened: menu.opened
     readonly property bool popoutSwitchClosing: menu.popoutSwitchClosing
     readonly property string title: entry ? (entry.description || (entry.project ? entry.project.name : "Timer")) : "No active timer"
+    readonly property string projectName: entry && entry.project ? entry.project.name : "No project"
     readonly property string elapsed: {
         var seconds = entry ? Math.max(0, Math.floor((now - Date.parse(entry.started_at)) / 1000)) : 0
         return Math.floor(seconds / 3600) + ":" + String(Math.floor(seconds / 60) % 60).padStart(2, "0") + ":" + String(seconds % 60).padStart(2, "0")
@@ -75,7 +77,7 @@ BarWidget {
         var moveError = registry.moveBarWidget(moduleName, placement)
         if (moveError) positionError = String(moveError)
     }
-    function close() { projectPicker.close(); menu.close(); apiKeyField.text = "" }
+    function close() { projectPicker.close(); menu.close(); apiKeyField.text = ""; confirmingClearKey = false }
     function closeForPopoutSwitch() { menu.closeForPopoutSwitch() }
     function send(command) {
         if (busy || !helper.running) return
@@ -98,6 +100,11 @@ BarWidget {
         if (busy || !helper.running || !apiKeyField.text.trim()) return
         send({action: "configure", baseUrl: urlField.text, apiKey: apiKeyField.text})
         apiKeyField.text = ""
+    }
+    function clearKey() {
+        if (busy || !helper.running) return
+        confirmingClearKey = false
+        send({action: "clear-key"})
     }
 
     IpcHandler {
@@ -162,7 +169,7 @@ BarWidget {
     WidgetButton {
         id: button
         bar: root.bar
-        text: root.needsConfig ? "◷ Set up Pupler" : root.error ? "◷ Pupler !" : root.entry ? "◷ " + root.elapsed + (root.vertical ? "" : " · " + root.title.slice(0, 32)) : "◷ Pupler"
+        text: root.needsConfig ? "◷ Set up Pupler" : root.error ? "◷ Pupler !" : root.entry ? "◷ " + root.elapsed + (root.vertical ? "" : " · " + root.projectName.slice(0, 32)) : "◷ Pupler"
         tooltipText: root.needsConfig ? "Click to configure your Pupler API key" : root.error || (root.title + (root.entry ? " · " + root.elapsed : ""))
         onPressed: function(button) {
             if (button === Qt.RightButton) { root.editingConfig = true; root.open() }
@@ -176,7 +183,7 @@ BarWidget {
         bar: root.bar
         moduleName: root.moduleName
         manageIpc: false
-        onOpenedChanged: if (!opened) root.creatingProject = false
+        onOpenedChanged: if (!opened) { root.creatingProject = false; root.confirmingClearKey = false }
 
         KeyboardPanel {
             id: popup
@@ -213,6 +220,16 @@ BarWidget {
                         id: openPuplerButton
                         text: "Open Pupler"
                         onClicked: root.openPupler()
+                        Keys.onEscapePressed: root.close()
+                    }
+                    Button {
+                        visible: !root.configuring
+                        text: root.confirmingClearKey ? "Confirm clear API key" : "Clear API key and set up again"
+                        enabled: !root.busy
+                        onClicked: {
+                            if (root.confirmingClearKey) root.clearKey()
+                            else root.confirmingClearKey = true
+                        }
                         Keys.onEscapePressed: root.close()
                     }
                     Column {
