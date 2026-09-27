@@ -26,6 +26,9 @@ release_init() {
 	if [[ -f $INSTALL_DIR/.env ]]; then source "$INSTALL_DIR/.env"; fi
 	SERVICE_NAME="${PUPLER_SERVICE_NAME:-pupler}"
 	DATA_DIR="${PUPLER_DATA_DIR:-$INSTALL_DIR/data}"
+	BACKUP_DIR="${PUPLER_BACKUP_DIR:-$DATA_DIR/backups}"
+	BACKUP_KEEP="${PUPLER_BACKUP_KEEP:-14}"
+	case "$BACKUP_KEEP" in ""|*[!0-9]*) fail "PUPLER_BACKUP_KEEP must be a non-negative integer" ;; esac
 	PORT="${PUPLER_PORT:-5995}"
 	BIND_ADDRESS="${PUPLER_BIND_ADDRESS:-127.0.0.1}"
 	REPOSITORY="${PUPLER_RELEASE_REPOSITORY:-J45k4/pupler}"
@@ -34,7 +37,43 @@ release_init() {
 	[[ $PORT =~ ^[0-9]+$ && $PORT -ge 1 && $PORT -le 65535 ]] || fail "Invalid port"
 	[[ $BIND_ADDRESS =~ ^[a-zA-Z0-9.:_-]+$ ]] || fail "Invalid bind address"
 	[[ $REPOSITORY =~ ^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$ ]] || fail "Invalid release repository"
-	mkdir -p "$INSTALL_DIR/releases" "$DATA_DIR"
+	mkdir -p "$INSTALL_DIR/releases" "$DATA_DIR" "$BACKUP_DIR"
+}
+
+# Snapshot database, uploads, saved configuration, and unit into a staging dir.
+# Args: staging_dir migrate_binary installed_version_file trigger(manual|auto) [target_version]
+snapshot_full_backup() {
+	local staging="$1" migrate="$2" version_file="$3" trigger="$4" target_version="${5:-}"
+	local version
+	mkdir -p "$staging/data" "$staging/settings" || return 1
+	env -u DB_PATH DATA_PATH="$DATA_DIR" "$migrate" --backup-only "$staging/data/pupler.db" || return 1
+	[[ -s "$staging/data/pupler.db" ]] || { echo "Database snapshot is missing or empty" >&2; return 1; }
+	if [[ -d $DATA_DIR/files ]]; then cp -aL "$DATA_DIR/files" "$staging/data/files" || return 1; fi
+	cp "$INSTALL_DIR/.env" "$staging/settings/install.env" || return 1
+	if [[ -n $version_file ]]; then cp "$version_file" "$staging/VERSION" || return 1; else printf 'unversioned\n' > "$staging/VERSION" || return 1; fi
+	systemctl --user cat "$SERVICE_NAME" > "$staging/settings/pupler.service" || return 1
+	version=$(cat "$staging/VERSION") || return 1
+	cat > "$staging/manifest.txt" <<MANIFEST || return 1
+created_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+trigger=$trigger
+version=$version
+service_name=$SERVICE_NAME
+data_dir=$DATA_DIR
+install_dir=$INSTALL_DIR
+MANIFEST
+	if [[ -n $target_version ]]; then printf 'target_version=%s\n' "$target_version" >> "$staging/manifest.txt" || return 1; fi
+}
+
+# Keep only the newest $BACKUP_KEEP pupler-full-*.tar.gz archives.
+prune_full_backups() {
+	[[ $BACKUP_KEEP -gt 0 ]] || return 0
+	local backups=()
+	while IFS= read -r line; do backups+=("$line"); done < <(find "$BACKUP_DIR" -maxdepth 1 -type f -name "pupler-full-*.tar.gz" | sort)
+	local count=${#backups[@]}
+	if [[ $count -gt $BACKUP_KEEP ]]; then
+		local remove=$((count - BACKUP_KEEP))
+		for ((i = 0; i < remove; i++)); do rm -f "${backups[$i]}"; done
+	fi
 }
 
 fetch_release() {
@@ -94,12 +133,36 @@ fetch_release() {
 }
 
 activate_release() {
-	BACKUP="$DATA_DIR/backups/before-$TAG-$(date +%s).db"
-	update_stage backing_up 65 "Backing up database"
+	[[ ! -L $INSTALL_DIR/current || -f $DATA_DIR/pupler.db ]] || fail "Current release database is missing: $DATA_DIR/pupler.db"
+	local previous_active=0 staging="" archive="" tmp="" safe_tag="" installed_version_file=""
+	if [[ -L $INSTALL_DIR/current ]] && systemctl --user is-active --quiet "$SERVICE_NAME"; then previous_active=1; fi
+	update_stage backing_up 65 "Backing up Pupler"
 	systemctl --user stop "$SERVICE_NAME"
+	if [[ -f $DATA_DIR/pupler.db ]]; then
+		staging=$(mktemp -d "${TMPDIR:-/tmp}/pupler-full-backup-XXXXXX")
+		safe_tag="${TAG:-unknown}"
+		safe_tag="${safe_tag//[^a-zA-Z0-9._-]/_}"
+		archive="$BACKUP_DIR/pupler-full-$(date -u +%Y%m%dT%H%M%SZ)-before-${safe_tag}-${staging##*-}.tar.gz"
+		tmp="$archive.tmp"
+		if [[ -L $INSTALL_DIR/current ]]; then installed_version_file="$INSTALL_DIR/current/VERSION"; fi
+		if ! snapshot_full_backup "$staging" "$RELEASE_DIR/pupler-migrate" "$installed_version_file" "auto" "$TAG" || ! tar -czf "$tmp" -C "$staging" . || ! tar -tzf "$tmp" >/dev/null || ! mv -f "$tmp" "$archive"; then
+			rm -rf "$staging" "$tmp"
+			if [[ $previous_active == 1 ]]; then systemctl --user start "$SERVICE_NAME" || echo "Could not restart $SERVICE_NAME; run systemctl --user start $SERVICE_NAME" >&2; fi
+			fail "Pre-update backup failed; migration was not started. Current release is unchanged."
+		fi
+		rm -rf "$staging"
+		prune_full_backups
+		if [[ ! -s "$archive" ]]; then
+			if [[ $previous_active == 1 ]]; then systemctl --user start "$SERVICE_NAME" || echo "Could not restart $SERVICE_NAME; run systemctl --user start $SERVICE_NAME" >&2; fi
+			fail "Pre-update backup is missing after retention; migration was not started. Current release is unchanged."
+		fi
+		echo "Full pre-update backup created: $archive"
+	else
+		echo "No existing database; skipping pre-install backup."
+	fi
 	update_stage migrating 75 "Applying migrations"
-	if ! env -u DB_PATH DATA_PATH="$DATA_DIR" "$RELEASE_DIR/pupler-migrate" --backup "$BACKUP"; then
-		fail "Migration failed; service remains stopped. Inspect the error. Database backup (if created): $BACKUP"
+	if ! env -u DB_PATH DATA_PATH="$DATA_DIR" "$RELEASE_DIR/pupler-migrate"; then
+		fail "Migration failed; service remains stopped. Inspect the error. Full backup: ${archive:-none (fresh install)}"
 	fi
 	ln -s "$RELEASE_DIR" "$INSTALL_DIR/.current-$$"
 	mv -Tf "$INSTALL_DIR/.current-$$" "$INSTALL_DIR/current"
@@ -117,5 +180,5 @@ activate_release() {
 		fi
 		sleep 1
 	done
-	fail "Release installed but health check failed. Inspect journalctl --user -u $SERVICE_NAME. Previous releases and database backup are retained."
+	fail "Release installed but health check failed. Inspect journalctl --user -u $SERVICE_NAME. Previous releases and full backup are retained."
 }

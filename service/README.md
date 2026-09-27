@@ -124,17 +124,21 @@ PUPLER_RELEASE_VERSION=v1.1.0 ~/.pupler/update.sh
 
 The updater downloads the latest published release, verifies the checksum, checks
 archive contents, and runs a binary preflight before stopping the service. It
-backs up SQLite consistently under `DATA_PATH/backups`, applies pending
-migrations, switches `current` to the new release, restarts, and checks HTTP
-health. An already-installed version is a no-op. Configuration, database and
+stops the service, takes a full backup (SQLite snapshot with integrity check,
+uploads, saved installation settings, and unit) under `PUPLER_BACKUP_DIR` or
+`DATA_PATH/backups` as `pupler-full-TIMESTAMP-before-TAG-ID.tar.gz`, applies
+pending migrations, switches `current` to the new release, restarts, and checks
+HTTP health. An already-installed version is a no-op. Configuration, database and
 uploads remain outside the release directory. Previous releases are retained.
-Checksums detect corrupted downloads; they are fetched from the same HTTPS
+Only the newest 14 `pupler-full-*.tar.gz` archives are kept
+(`PUPLER_BACKUP_KEEP`, `0` keeps all); manual and pre-update backups share this
+pool. Checksums detect corrupted downloads; they are fetched from the same HTTPS
 release and are not independent signatures.
 
 If migration fails, the service remains stopped and the error identifies the
-backup. If startup/health fails, inspect `journalctl --user -u pupler`. There is
+full backup. If startup/health fails, inspect `journalctl --user -u pupler`. There is
 no automatic database downgrade: restoring an older binary may also require
-restoring its database backup while stopped. Backups and old releases are not
+restoring its database backup while stopped. Old releases are not
 automatically pruned.
 
 These scripts replace only the `service/` user-service flow. `deploy/` retains
@@ -146,8 +150,8 @@ After installing the release service, run:
 
 ```sh
 ~/.pupler/backup.sh
-# Optional destination (no automatic pruning):
-PUPLER_BACKUP_DIR=/path/to/backups ~/.pupler/backup.sh
+# Optional destination and retention (defaults: data/backups, keep 14, 0 keeps all):
+PUPLER_BACKUP_DIR=/path/to/backups PUPLER_BACKUP_KEEP=30 ~/.pupler/backup.sh
 ```
 
 The command creates `DATA_PATH/backups/pupler-full-TIMESTAMP-ID.tar.gz` containing:
@@ -156,13 +160,15 @@ The command creates `DATA_PATH/backups/pupler-full-TIMESTAMP-ID.tar.gz` containi
 - `data/files/`: uploaded files, when present
 - `settings/install.env`: saved installation settings
 - `settings/pupler.service`: the unit and drop-ins reported by systemd
-- `VERSION` and `manifest.txt`: release version and original paths
+- `VERSION` and `manifest.txt`: installed version (or `unversioned` when moving
+  from a source install), update target, and original paths
 
 It shares the install/update lock, stops an active service while taking the
 snapshot, then starts it again before compressing. It also attempts to restart
 on failure. An already-stopped service stays stopped. Backup-only mode never
 runs database migrations. Archives are owner-readable/writable only, do not
-include older backups or downloaded binaries, and are not automatically deleted.
+include older backups or downloaded binaries, and only the newest
+`PUPLER_BACKUP_KEEP` (default 14) `pupler-full-*.tar.gz` archives are kept.
 The command does not require a checkout, Bun, or the sqlite3 command-line tool.
 
 To recover, extract the archive into a separate directory first and inspect it.
