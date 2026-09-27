@@ -22,6 +22,17 @@ export const ReceiptDetailPage = ({ id, link }: { id: string; link: (p: string) 
 	const [pictureBroken, setPictureBroken] = useState(false)
 
 	useEffect(() => {
+		if (!pictureOpen) return
+		const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setPictureOpen(false) }
+		document.body.classList.add("modal-open")
+		window.addEventListener("keydown", closeOnEscape)
+		return () => {
+			document.body.classList.remove("modal-open")
+			window.removeEventListener("keydown", closeOnEscape)
+		}
+	}, [pictureOpen])
+
+	useEffect(() => {
 		if (receipt) setGroupName(receipt.group?.name ?? "")
 	}, [receipt?.id])
 
@@ -163,13 +174,13 @@ export const ReceiptDetailPage = ({ id, link }: { id: string; link: (p: string) 
 				</div>
 			</section>
 			{pictureOpen && !pictureBroken ? (
-				<div className="app-modal" id="receipt-picture-modal">
-					<div className="app-modal__backdrop" onClick={() => setPictureOpen(false)} />
-					<div className="receipt-modal__viewport">
-						<img className="receipt-modal__image" src={pictureUrl} alt={receipt.store_name} />
-						<button className="secondary" type="button" aria-label="Close receipt picture" onClick={() => setPictureOpen(false)}>
-							Close
-						</button>
+				<div className="receipt-picture-viewer" id="receipt-picture-modal">
+					<div className="receipt-picture-viewer__backdrop" onClick={() => setPictureOpen(false)} />
+					<div className="receipt-picture-viewer__dialog" role="dialog" aria-modal="true" aria-label="Receipt picture">
+						<button className="secondary receipt-picture-viewer__close" type="button" aria-label="Close receipt picture" onClick={() => setPictureOpen(false)}>Close</button>
+						<div className="receipt-picture-viewer__viewport">
+							<img className="receipt-picture-viewer__image" src={pictureUrl} alt={receipt.store_name} />
+						</div>
 					</div>
 				</div>
 			) : null}
