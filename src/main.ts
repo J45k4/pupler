@@ -134,8 +134,6 @@ const instance = Bun.serve({
 		"/react/time/*": new Response("Not found", { status: 404 }),
 		"/react/settings": new Response("Not found", { status: 404 }),
 		"/react/settings/*": new Response("Not found", { status: 404 }),
-		"/react/mcp/connections": new Response("Not found", { status: 404 }),
-		"/react/mcp/connections/*": new Response("Not found", { status: 404 }),
 		"/react": reactIndex,
 		"/react/*": reactIndex,
 		"/*": index,
