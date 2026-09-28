@@ -212,6 +212,159 @@ test("OAuth scope and connection ownership checks prevent privilege escalation a
 	expect((await postForm("/oauth/token", { grant_type: "refresh_token", refresh_token: all.refresh_token, client_id: all.client_id })).status).toBe(400)
 }, 20000)
 
+test("shopping list MCP tools list accessible lists and manage items", async () => {
+	server = await TestServer.start()
+	const connection = await connect("shopping_lists:read shopping_lists:write")
+	const token = connection.access_token
+	expect((await tool(token, "get_account")).body.result.structuredContent.user.username).toBe("test")
+	expect((await tool(token, "list_shopping_lists")).body.result.structuredContent.shopping_lists).toEqual([])
+	const created = (await tool(token, "create_shopping_list", { name: "Groceries" })).body.result.structuredContent
+	expect(created.role).toBe("editor")
+	const listId = created.id
+	expect((await tool(token, "list_shopping_lists", { limit: 1 })).body.result.structuredContent.shopping_lists).toMatchObject([{ id: listId, name: "Groceries", role: "editor" }])
+	expect((await tool(token, "get_shopping_list", { list_id: listId })).body.result.structuredContent.members).toHaveLength(1)
+	const ids: number[] = []
+	for (const name of ["Milk", "Bread", "Apples"]) {
+		const item = (await tool(token, "create_shopping_list_item", { list_id: listId, name })).body.result.structuredContent
+		expect(item).toMatchObject({ shopping_list_id: listId, name, quantity: 1, unit: "pcs", done: false })
+		ids.push(item.id)
+	}
+	const firstPage = (await tool(token, "list_shopping_list_items", { list_id: listId, limit: 2 })).body.result.structuredContent
+	expect(firstPage.items.map((item: any) => item.name)).toEqual(["Apples", "Bread"])
+	expect(firstPage.next_before_id).toBe(ids[1])
+	expect((await tool(token, "list_shopping_list_items", { list_id: listId, limit: 2, before_id: firstPage.next_before_id })).body.result.structuredContent.items.map((item: any) => item.name)).toEqual(["Milk"])
+	expect((await tool(token, "update_shopping_list_item", { item_id: ids[0], changes: { done: true, notes: "Bought" } })).body.result.structuredContent).toMatchObject({ done: true, notes: "Bought" })
+	expect((await tool(token, "list_shopping_list_items", { list_id: listId, done: true })).body.result.structuredContent.items.map((item: any) => item.id)).toEqual([ids[0]])
+	expect((await tool(token, "remove_shopping_list_item", { item_id: ids[0] })).body.result.structuredContent).toMatchObject({ done: false })
+	expect((await tool(token, "list_shopping_list_items", { list_id: listId })).body.result.structuredContent.items).toHaveLength(2)
+	expect((await tool(token, "list_shopping_list_items", { list_id: listId, removed: "removed" })).body.result.structuredContent.items.map((item: any) => item.id)).toEqual([ids[0]])
+	expect((await tool(token, "list_shopping_list_items", { list_id: listId, removed: "all" })).body.result.structuredContent.items).toHaveLength(3)
+	expect((await tool(token, "restore_shopping_list_item", { item_id: ids[0] })).body.result.structuredContent.removed_at).toBeNull()
+	expect((await tool(token, "get_shopping_list_item", { item_id: ids[0] })).body.result.structuredContent.name).toBe("Milk")
+	expect((await tool(token, "rename_shopping_list", { list_id: listId, name: "Weekly groceries" })).body.result.structuredContent.name).toBe("Weekly groceries")
+	expect((await tool(token, "delete_shopping_list", { list_id: listId })).body.result.structuredContent.success).toBe(true)
+	expect((await tool(token, "get_shopping_list", { list_id: listId })).body.result.isError).toBe(true)
+}, 20000)
+
+test("shopping list MCP scopes and membership keep private lists private", async () => {
+	server = await TestServer.start()
+	const owner = await connect("shopping_lists:read shopping_lists:write")
+	const listId = (await tool(owner.access_token, "create_shopping_list", { name: "Shared" })).body.result.structuredContent.id
+	const privateId = (await tool(owner.access_token, "create_shopping_list", { name: "Private" })).body.result.structuredContent.id
+	const firstPage = (await tool(owner.access_token, "list_shopping_lists", { limit: 1 })).body.result.structuredContent
+	expect(firstPage.shopping_lists.map((list: any) => list.id)).toEqual([privateId])
+	expect((await tool(owner.access_token, "list_shopping_lists", { limit: 1, before_id: firstPage.next_before_id })).body.result.structuredContent.shopping_lists.map((list: any) => list.id)).toEqual([listId])
+	const itemId = (await tool(owner.access_token, "create_shopping_list_item", { list_id: listId, name: "Eggs" })).body.result.structuredContent.id
+	const createdUser = await server.call<any>("/api/users", { method: "POST", body: { name: "Guest", username: "guest", password: "guest" } })
+	expect(createdUser.response.status).toBe(201)
+	const guestId = createdUser.body.id
+	const login = await server.call("/api/auth/login", { method: "POST", body: { username: "guest", password: "guest" } })
+	const cookie = login.response.headers.get("set-cookie")!.split(";")[0]!
+	const guest = await connect("shopping_lists:read shopping_lists:write", cookie)
+	expect((await tool(guest.access_token, "list_shopping_lists")).body.result.structuredContent.shopping_lists).toEqual([])
+	expect((await tool(guest.access_token, "get_shopping_list", { list_id: listId })).body.result.isError).toBe(true)
+	expect((await tool(guest.access_token, "list_shopping_list_items", { list_id: listId })).body.result.isError).toBe(true)
+	expect((await tool(guest.access_token, "get_shopping_list_item", { item_id: itemId })).body.result.isError).toBe(true)
+	expect((await tool(owner.access_token, "share_shopping_list", { list_id: listId, username: "guest", role: "viewer" })).body.result.structuredContent.members).toHaveLength(2)
+	expect((await tool(guest.access_token, "list_shopping_lists")).body.result.structuredContent.shopping_lists).toMatchObject([{ id: listId, role: "viewer" }])
+	expect((await tool(guest.access_token, "list_shopping_list_items", { list_id: listId })).body.result.structuredContent.items).toHaveLength(1)
+	expect((await tool(guest.access_token, "get_shopping_list", { list_id: privateId })).body.result.isError).toBe(true)
+	expect((await tool(guest.access_token, "create_shopping_list_item", { list_id: listId, name: "No" })).body.result.isError).toBe(true)
+	expect((await tool(guest.access_token, "share_shopping_list", { list_id: listId, username: "test", role: "editor" })).body.result.isError).toBe(true)
+	const readOnly = await connect("shopping_lists:read", cookie)
+	expect((await tool(readOnly.access_token, "create_shopping_list", { name: "No" })).response.status).toBe(403)
+	expect((await tool(owner.access_token, "set_shopping_list_member_role", { list_id: listId, user_id: guestId, role: "editor" })).body.result.structuredContent.members).toHaveLength(2)
+	expect((await tool(guest.access_token, "create_shopping_list_item", { list_id: listId, name: "Allowed" })).body.result.structuredContent.name).toBe("Allowed")
+	expect((await tool(owner.access_token, "list_shopping_list_members", { list_id: listId })).body.result.structuredContent.members).toHaveLength(2)
+	expect((await tool(owner.access_token, "remove_shopping_list_member", { list_id: listId, user_id: guestId })).body.result.structuredContent.success).toBe(true)
+	expect((await tool(guest.access_token, "list_shopping_lists")).body.result.structuredContent.shopping_lists).toEqual([])
+	expect((await tool(owner.access_token, "remove_shopping_list_member", { list_id: listId, user_id: 1 })).body.result.isError).toBe(true)
+}, 20000)
+
+test("shopping list MCP denies every mutation to viewers and read-only OAuth grants", async () => {
+	server = await TestServer.start()
+	const owner = await connect("shopping_lists:read shopping_lists:write")
+	const listId = (await tool(owner.access_token, "create_shopping_list", { name: "Shared" })).body.result.structuredContent.id
+	const itemId = (await tool(owner.access_token, "create_shopping_list_item", { list_id: listId, name: "Milk" })).body.result.structuredContent.id
+	const created = await server.call<{ id: number }>("/api/users", { method: "POST", body: { name: "Guest", username: "guest", password: "guest" } })
+	expect(created.response.status).toBe(201)
+	const login = await server.call("/api/auth/login", { method: "POST", body: { username: "guest", password: "guest" } })
+	const cookie = login.response.headers.get("set-cookie")!.split(";")[0]!
+	await tool(owner.access_token, "share_shopping_list", { list_id: listId, username: "guest", role: "viewer" })
+	const viewer = await connect("shopping_lists:read shopping_lists:write", cookie)
+	const readOnly = await connect("shopping_lists:read", cookie)
+	const writes = [
+		{ name: "rename_shopping_list", args: { list_id: listId, name: "Changed" } },
+		{ name: "delete_shopping_list", args: { list_id: listId } },
+		{ name: "create_shopping_list_item", args: { list_id: listId, name: "Bread" } },
+		{ name: "update_shopping_list_item", args: { item_id: itemId, changes: { name: "Changed" } } },
+		{ name: "remove_shopping_list_item", args: { item_id: itemId } },
+		{ name: "restore_shopping_list_item", args: { item_id: itemId } },
+		{ name: "share_shopping_list", args: { list_id: listId, username: "test", role: "editor" } },
+		{ name: "set_shopping_list_member_role", args: { list_id: listId, user_id: created.body.id, role: "editor" } },
+		{ name: "remove_shopping_list_member", args: { list_id: listId, user_id: created.body.id } }
+	]
+	for (const { name, args } of writes) {
+		const denied = await tool(viewer.access_token, name, args)
+		expect(denied.response.status).toBe(200)
+		expect(denied.body.result.isError).toBe(true)
+		expect((await tool(readOnly.access_token, name, args)).response.status).toBe(403)
+	}
+	expect((await tool(readOnly.access_token, "create_shopping_list", { name: "No" })).response.status).toBe(403)
+	expect((await tool(owner.access_token, "get_shopping_list", { list_id: listId })).body.result.structuredContent).toMatchObject({ name: "Shared", members: [{ role: "editor" }, { role: "viewer" }] })
+	expect((await tool(owner.access_token, "get_shopping_list_item", { item_id: itemId })).body.result.structuredContent).toMatchObject({ name: "Milk", done: false, removed_at: null })
+	expect(sql(db => db.query("SELECT COUNT(*) AS count FROM shopping_list_items WHERE shopping_list_id = ?").get(listId))).toEqual({ count: 1 })
+}, 20000)
+
+test("shopping list MCP rejects invalid items, duplicate sharing and missing resources without changing data", async () => {
+	server = await TestServer.start()
+	const { access_token: token } = await connect("shopping_lists:read shopping_lists:write")
+	const ownerId = (await tool(token, "get_account")).body.result.structuredContent.user.id
+	const listId = (await tool(token, "create_shopping_list", { name: "Shared" })).body.result.structuredContent.id
+	const refs = sql(db => {
+		const now = "2026-09-28T00:00:00Z"
+		const ingredientId = Number(db.query("INSERT INTO ingredients (name, created_at, updated_at) VALUES (?, ?, ?)").run("Flour", now, now).lastInsertRowid)
+		const otherIngredientId = Number(db.query("INSERT INTO ingredients (name, created_at, updated_at) VALUES (?, ?, ?)").run("Milk", now, now).lastInsertRowid)
+		const productId = Number(db.query("INSERT INTO products (ingredient_id, name, category, is_perishable, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)").run(ingredientId, "Wheat flour", "food", 0, now, now).lastInsertRowid)
+		return { ingredientId, otherIngredientId, productId }
+	})
+	const created = await server.call<{ id: number }>("/api/users", { method: "POST", body: { name: "Guest", username: "guest", password: "guest" } })
+	expect(created.response.status).toBe(201)
+	const invalidItems = [
+		{ list_id: listId, name: " " },
+		{ list_id: listId, name: "Milk", quantity: 0 },
+		{ list_id: listId, name: "Milk", product_id: 999999 },
+		{ list_id: listId, name: "Milk", ingredient_id: 999999 },
+		{ list_id: listId, name: "Milk", ingredient_id: refs.otherIngredientId, product_id: refs.productId }
+	]
+	for (const args of invalidItems) expect((await tool(token, "create_shopping_list_item", args)).body.result.isError).toBe(true)
+	expect(sql(db => db.query("SELECT COUNT(*) AS count FROM shopping_list_items WHERE shopping_list_id = ?").get(listId))).toEqual({ count: 0 })
+	const itemId = (await tool(token, "create_shopping_list_item", { list_id: listId, name: "Milk" })).body.result.structuredContent.id
+	for (const changes of [{ quantity: -1 }, { product_id: 999999 }, { ingredient_id: 999999 }, {}]) expect((await tool(token, "update_shopping_list_item", { item_id: itemId, changes })).body.result.isError).toBe(true)
+	expect((await tool(token, "get_shopping_list_item", { item_id: itemId })).body.result.structuredContent).toMatchObject({ name: "Milk", quantity: 1, product_id: null, ingredient_id: null })
+	const linkedId = (await tool(token, "create_shopping_list_item", { list_id: listId, name: "Flour", ingredient_id: refs.ingredientId, product_id: refs.productId })).body.result.structuredContent.id
+	expect((await tool(token, "update_shopping_list_item", { item_id: linkedId, changes: { ingredient_id: refs.otherIngredientId } })).body.result.isError).toBe(true)
+	expect((await tool(token, "get_shopping_list_item", { item_id: linkedId })).body.result.structuredContent).toMatchObject({ ingredient_id: refs.ingredientId, product_id: refs.productId })
+	const shared = await tool(token, "share_shopping_list", { list_id: listId, username: "guest", role: "viewer" })
+	expect(shared.body.result.structuredContent.members).toHaveLength(2)
+	for (const args of [{ list_id: listId, username: "guest", role: "editor" }, { list_id: listId, username: "missing", role: "viewer" }, { list_id: listId, username: "test", role: "invalid" }]) expect((await tool(token, "share_shopping_list", args)).body.result.isError).toBe(true)
+	for (const args of [{ list_id: listId, user_id: ownerId, role: "viewer" }, { list_id: listId, user_id: 999999, role: "editor" }, { list_id: listId, user_id: created.body.id, role: "invalid" }]) expect((await tool(token, "set_shopping_list_member_role", args)).body.result.isError).toBe(true)
+	expect((await tool(token, "remove_shopping_list_member", { list_id: listId, user_id: 999999 })).body.result.isError).toBe(true)
+	expect((await tool(token, "list_shopping_list_members", { list_id: listId })).body.result.structuredContent.members).toMatchObject([{ role: "editor" }, { role: "viewer" }])
+	for (const { name, args } of [
+		{ name: "get_shopping_list", args: { list_id: 999999 } },
+		{ name: "list_shopping_list_items", args: { list_id: 999999 } },
+		{ name: "rename_shopping_list", args: { list_id: 999999, name: "No" } },
+		{ name: "delete_shopping_list", args: { list_id: 999999 } },
+		{ name: "get_shopping_list_item", args: { item_id: 999999 } },
+		{ name: "update_shopping_list_item", args: { item_id: 999999, changes: { name: "No" } } },
+		{ name: "remove_shopping_list_item", args: { item_id: 999999 } },
+		{ name: "restore_shopping_list_item", args: { item_id: 999999 } }
+	]) expect((await tool(token, name, args)).body.result.isError).toBe(true)
+	expect((await tool(token, "remove_shopping_list_item", { item_id: itemId })).body.result.structuredContent.removed_at).not.toBeNull()
+	expect((await tool(token, "update_shopping_list_item", { item_id: itemId, changes: { done: true } })).body.result.structuredContent).toMatchObject({ done: true, removed_at: null })
+}, 20000)
+
 test("receipt totals use currency rounding and preserve the printed total", () => {
 	expect(receiptTotals("EUR", 0.3, [{ quantity: 1, unit_price: 0.1, line_total: null }, { quantity: 1, unit_price: 0.2, line_total: null }]).difference).toBe(0)
 	expect(receiptTotals("EUR", 5, [{ quantity: 1, unit_price: 4, line_total: null }])).toMatchObject({ reported_total: 5, calculated_total: 4, difference: 1 })

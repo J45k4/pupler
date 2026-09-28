@@ -6,6 +6,7 @@ import { projectRoot, TestServer } from "./support/test-server"
 import { compareReleaseVersions } from "../src/api/update"
 import { resolvePublicOrigin } from "../src/config"
 
+// Security regression checks focus on authentication and authorization boundaries.
 let server: TestServer | null = null
 
 test("time ownership isolates cookies and API keys while preserving administrator access", async () => {
@@ -55,13 +56,14 @@ afterEach(async () => {
 	server = null
 })
 
-const protectedPaths = [...readFileSync(join(projectRoot, "src/main.ts"), "utf8").matchAll(/"(\/(?:api\/[^"\s]+|version))":/g)]
+const protectedPaths = [...readFileSync(join(projectRoot, "src/main.ts"), "utf8").matchAll(/"(\/(?:api\/[^"\s]+|mcp|version))":/g)]
 	.map((match) => match[1]!)
 	.filter((path) => !["/api/auth/login", "/api/auth/logout", "/api/auth/session", "/api/*"].includes(path))
 	.map((path) => path.replaceAll(":id", "1").replaceAll(":pictureId", "1"))
 
 test("every protected HTTP route rejects unauthenticated requests before method or input handling", async () => {
 	server = await TestServer.start()
+	expect(protectedPaths).toContain("/mcp")
 	const credentials: Record<string, string>[] = [
 		{},
 		{ Cookie: "pupler_session=invalid" },
@@ -76,6 +78,15 @@ test("every protected HTTP route rejects unauthenticated requests before method 
 			}
 		}
 	}
+})
+
+test("MCP rejects a browser session without an OAuth token and invalid upload links", async () => {
+	server = await TestServer.start()
+	const request = { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }
+	const mcp = await fetch(`${server.baseUrl}/mcp`, { method: "POST", headers: { Cookie: server.sessionCookie, "Content-Type": "application/json" }, body: JSON.stringify(request) })
+	expect(mcp.status).toBe(401)
+	const upload = await fetch(`${server.baseUrl}/mcp/uploads/invalid`, { method: "PUT", headers: { Cookie: server.sessionCookie, "Content-Type": "image/png" }, body: new Uint8Array([137, 80, 78, 71]) })
+	expect(upload.status).toBe(401)
 })
 
 test("cookie-authenticated mutations reject cross-origin browser requests", async () => {

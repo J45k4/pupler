@@ -10,6 +10,8 @@ export const scopes = {
 	"receipts:write": "Create, edit and delete receipts, lines and images",
 	"products:read": "Search products and receipt groups",
 	"products:write": "Create products for receipt lines",
+	"shopping_lists:read": "View shopping lists and their items",
+	"shopping_lists:write": "Create and edit shopping lists, items and sharing",
 } as const
 export type Scope = keyof typeof scopes
 export const secret = () => randomBytes(32).toString("base64url")

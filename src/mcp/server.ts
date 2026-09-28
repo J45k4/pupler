@@ -11,6 +11,7 @@ import { receiptDetailSelect } from "../api/reference-details"
 import { authenticateMcp, challenge, oauthOrigin, readLimited, requireScope, trustedOrigin, type McpIdentity, type Scope } from "../oauth/core"
 import { amount, appendLines, createReceipt, createReceiptSchema, idSchema, lineSchema, receiptFields, receiptResult } from "./receipts"
 import { imageTypes, prepareUpload, replaceImage, uploadedImage } from "./uploads"
+import { registerShoppingListTools } from "./shopping-lists"
 
 const toolsScopes = new Map<string, Scope>()
 const requestFor = (id: number, method: string, body?: unknown) => Object.assign(new Request(`http://pupler.internal/resource/${id}`, { method, ...(body === undefined ? {} : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }) }), { params: { id: String(id) } }) as unknown as BunRequest<string>
@@ -18,12 +19,12 @@ const bodyOf = async (response: Response) => response.status === 204 ? { success
 const page = { limit: z.number().int().min(1).max(100).default(30), before_id: idSchema.optional() }
 
 const createServer = (identity: McpIdentity, origin: string) => {
-	const server = new McpServer({ name: "pupler", version: "1.0.0" }, { instructions: "Manage Pupler receipts and their product-linked lines. Search products before matching; ask about ambiguous products or unreadable receipt amounts. Upload original image bytes using prepare_receipt_image_upload, then create_receipt with all lines and image_id. Reuse the same idempotency_key when retrying an import. Receipts and products are shared across this Pupler instance." })
-	const register = <S extends z.ZodType>(name: string, description: string, scope: Scope, schema: S, handler: (args: z.output<S>) => Promise<unknown>, image = false, destructive = false) => {
-		toolsScopes.set(name, scope)
-		server.registerTool(name, { description, inputSchema: schema as z.ZodType, annotations: { readOnlyHint: /^(get_|list_|search_)/.test(name), destructiveHint: destructive, openWorldHint: false }, _meta: { securitySchemes: [{ type: "oauth2", scopes: [scope] }] } }, async args => {
+	const server = new McpServer({ name: "pupler", version: "1.0.0" }, { instructions: "Manage Pupler receipts and shopping lists. Search products before matching receipt lines; ask about ambiguous products or unreadable amounts. Upload original image bytes using prepare_receipt_image_upload, then create_receipt with all lines and image_id. Reuse the same idempotency_key when retrying an import. Shopping lists are private to their members; viewers can read, editors can change items and sharing." })
+	const register = <S extends z.ZodType>(name: string, description: string, scope: Scope | null, schema: S, handler: (args: z.output<S>) => Promise<unknown>, image = false, destructive = false) => {
+		if (scope) toolsScopes.set(name, scope)
+		server.registerTool(name, { description, inputSchema: schema as z.ZodType, annotations: { readOnlyHint: /^(get_|list_|search_)/.test(name), destructiveHint: destructive, openWorldHint: false }, _meta: { securitySchemes: [{ type: "oauth2", scopes: scope ? [scope] : [] }] } }, async args => {
 			try {
-				requireScope(identity, scope)
+				if (scope) requireScope(identity, scope)
 				const result = await handler(args as z.output<S>)
 				if (image) return { content: [result as ImageContent] }
 				const object = result as Record<string, unknown>
@@ -34,7 +35,7 @@ const createServer = (identity: McpIdentity, origin: string) => {
 			}
 		})
 	}
-	register("get_account", "Show the connected Pupler account and granted permissions.", "receipts:read", z.object({}), async () => ({ user: identity.user, scopes: identity.scope.split(" "), shared_receipts: true }))
+	register("get_account", "Show the connected Pupler account and granted permissions.", null, z.object({}), async () => ({ user: identity.user, scopes: identity.scope.split(" "), shared_receipts: true }))
 	register("list_receipts", "Find receipts by store, purchase date, or group. Returns a bounded page; use next_before_id for the next page.", "receipts:read", z.object({ ...page, store_name: z.string().max(300).optional(), group_id: idSchema.nullable().optional(), from: z.iso.datetime({ offset: true }).optional(), to: z.iso.datetime({ offset: true }).optional() }).strict(), async input => {
 		const rows = await db.client.receipt.findMany({ where: { ...(input.before_id ? { id: { lt: input.before_id } } : {}), ...(input.store_name ? { store_name: { contains: input.store_name } } : {}), ...(input.group_id !== undefined ? { group_id: input.group_id } : {}), ...((input.from || input.to) ? { purchased_at: { gte: input.from, lte: input.to } } : {}) }, orderBy: { id: "desc" }, take: input.limit + 1, select: receiptDetailSelect })
 		return { receipts: rows.slice(0, input.limit), next_before_id: rows.length > input.limit ? rows[input.limit - 1]!.id : null }
@@ -65,6 +66,7 @@ const createServer = (identity: McpIdentity, origin: string) => {
 	}, true)
 	register("replace_receipt_image", "Attach an uploaded image_id to a receipt, replacing any previous image.", "receipts:write", z.object({ receipt_id: idSchema, image_id: z.string().max(100) }).strict(), async ({ receipt_id, image_id }) => replaceImage(identity, receipt_id, image_id), false, true)
 	register("remove_receipt_image", "Remove the saved receipt image while keeping its header and lines.", "receipts:write", z.object({ receipt_id: idSchema }).strict(), async ({ receipt_id }) => bodyOf(await receiptPictureRoute(requestFor(receipt_id, "DELETE"))), false, true)
+	registerShoppingListTools(register, identity)
 	return server
 }
 
