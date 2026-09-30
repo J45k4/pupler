@@ -3,7 +3,8 @@
 Pupler exposes a Streamable HTTP MCP server at `/mcp`. It supports OAuth browser
 login and receipt management: product/group lookup, receipt creation with multiple
 lines and an image, editing and deleting receipts/lines, and viewing or replacing
-receipt images. Shopping list tools list accessible lists and items, add and edit
+receipt images. Inventory tools find, add, edit, consume and delete inventory items
+and organize them in containers. Shopping list tools list accessible lists and items, add and edit
 items, remove or restore items, create or rename lists, and manage sharing.
 
 Apply migrations (`bun run prisma:migrate:deploy`) and restart the source server.
@@ -34,9 +35,10 @@ access, refresh tokens, and pending upload links. Normal browser logout ends the
 browser session; connected apps stay connected until revoked or expired.
 
 Permissions are `receipts:read`, `receipts:write`, `products:read`,
-`products:write`, `shopping_lists:read`, and `shopping_lists:write`. Product
+`products:write`, `inventory:read`, `inventory:write`, `shopping_lists:read`, and
+`shopping_lists:write`. Product
 creation is optional; importing lines that use existing product IDs needs no
-product-write permission. Receipts and products retain
+product-write permission. Receipts, products and inventory retain
 Pupler's existing shared access model across users. Shopping lists are visible
 only to their members; viewers can read, while editors can change lists, items,
 and sharing. Existing MCP connections must be reauthorized to gain the new scopes.
@@ -116,5 +118,22 @@ Reading requires `shopping_lists:read` and membership in the list. Changes
 require `shopping_lists:write` and the `editor` role for an existing list.
 `remove_shopping_list_item` hides an item but preserves it for restoration;
 `delete_shopping_list` permanently deletes the list and its items.
+
+## Inventory tools
+
+- Items: `list_inventory_items`, `get_inventory_item`, `create_inventory_item`,
+  `update_inventory_item`, `consume_inventory_item`, `delete_inventory_item`.
+- Containers: `list_inventory_containers`, `get_inventory_container`,
+  `create_inventory_container`, `update_inventory_container`,
+  `delete_inventory_container`.
+
+Reading requires `inventory:read`; changes require `inventory:write`.
+`list_inventory_items` shows unconsumed items by default; set `status` to
+`consumed` or `all` to include used items. Filter by `query`, `container_id`
+(`null` for unassigned items), `product_id`, or `ingredient_id`.
+`consume_inventory_item` marks an item consumed, or reduces its quantity when a
+smaller `quantity` is given. Deleting a container keeps its items and child
+containers, which become unassigned or top-level. Container moves that would
+create a cycle are rejected. Timestamps use ISO 8601 with an offset.
 
 Security and integration test coverage is described in [Testing](testing.md).

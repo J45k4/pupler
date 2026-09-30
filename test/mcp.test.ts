@@ -365,6 +365,133 @@ test("shopping list MCP rejects invalid items, duplicate sharing and missing res
 	expect((await tool(token, "update_shopping_list_item", { item_id: itemId, changes: { done: true } })).body.result.structuredContent).toMatchObject({ done: true, removed_at: null })
 }, 20000)
 
+test("inventory MCP tools manage containers and items", async () => {
+	server = await TestServer.start()
+	const { access_token: token } = await connect("inventory:read inventory:write")
+	const fridge = (await tool(token, "create_inventory_container", { name: "Fridge" })).body.result.structuredContent
+	const shelf = (await tool(token, "create_inventory_container", { name: "Top shelf", parent_container_id: fridge.id })).body.result.structuredContent
+	expect(shelf.parent_container_id).toBe(fridge.id)
+	expect((await tool(token, "update_inventory_container", { container_id: fridge.id, changes: { parent_container_id: shelf.id } })).body.result.isError).toBe(true)
+	expect((await tool(token, "create_inventory_container", { name: "Box", parent_container_id: 999999 })).body.result.isError).toBe(true)
+	const milk = (await tool(token, "create_inventory_item", { name: "Milk", quantity: 2, unit: "l", container_id: shelf.id, expires_at: "2026-10-05T00:00:00Z" })).body.result.structuredContent
+	expect(milk).toMatchObject({ name: "Milk", quantity: 2, unit: "l", container_id: shelf.id, consumed_at: null })
+	const eggs = (await tool(token, "create_inventory_item", { name: "Eggs", quantity: 6 })).body.result.structuredContent
+	expect(eggs).toMatchObject({ unit: "pcs", container_id: null })
+	for (const args of [{ name: " " }, { name: "Milk", quantity: 0 }, { name: "Milk", container_id: 999999 }, { name: "Milk", product_id: 999999 }, { name: "Milk", receipt_item_id: 999999 }, { name: "Milk", expires_at: "soon" }]) expect((await tool(token, "create_inventory_item", args)).body.result.isError).toBe(true)
+	expect(sql(db => db.query("SELECT COUNT(*) AS count FROM inventory_items").get())).toEqual({ count: 2 })
+	const firstPage = (await tool(token, "list_inventory_items", { limit: 1 })).body.result.structuredContent
+	expect(firstPage.items.map((item: any) => item.name)).toEqual(["Eggs"])
+	expect((await tool(token, "list_inventory_items", { before_id: firstPage.next_before_id })).body.result.structuredContent.items.map((item: any) => item.name)).toEqual(["Milk"])
+	expect((await tool(token, "list_inventory_items", { container_id: shelf.id })).body.result.structuredContent.items.map((item: any) => item.id)).toEqual([milk.id])
+	expect((await tool(token, "list_inventory_items", { container_id: null })).body.result.structuredContent.items.map((item: any) => item.id)).toEqual([eggs.id])
+	expect((await tool(token, "consume_inventory_item", { item_id: eggs.id, quantity: 2 })).body.result.structuredContent).toMatchObject({ quantity: 4, consumed_at: null })
+	expect((await tool(token, "consume_inventory_item", { item_id: eggs.id, quantity: 4 })).body.result.structuredContent.consumed_at).not.toBeNull()
+	expect((await tool(token, "consume_inventory_item", { item_id: eggs.id })).body.result.isError).toBe(true)
+	expect((await tool(token, "list_inventory_items", { status: "consumed" })).body.result.structuredContent.items.map((item: any) => item.id)).toEqual([eggs.id])
+	expect((await tool(token, "list_inventory_items", { query: "Mil" })).body.result.structuredContent.items).toHaveLength(1)
+	expect((await tool(token, "update_inventory_item", { item_id: milk.id, changes: { container_id: fridge.id, notes: "Opened" } })).body.result.structuredContent).toMatchObject({ container_id: fridge.id, notes: "Opened" })
+	expect((await tool(token, "update_inventory_item", { item_id: milk.id, changes: {} })).body.result.isError).toBe(true)
+	expect((await tool(token, "get_inventory_container", { container_id: fridge.id })).body.result.structuredContent.child_containers.map((child: any) => child.id)).toEqual([shelf.id])
+	expect((await tool(token, "list_inventory_containers", { parent_container_id: null })).body.result.structuredContent.containers).toMatchObject([{ id: fridge.id, available_item_count: 1, child_container_count: 1 }])
+	expect((await tool(token, "delete_inventory_container", { container_id: fridge.id })).body.result.structuredContent.success).toBe(true)
+	expect((await tool(token, "get_inventory_item", { item_id: milk.id })).body.result.structuredContent.container_id).toBeNull()
+	expect((await tool(token, "delete_inventory_item", { item_id: milk.id })).body.result.structuredContent.success).toBe(true)
+	expect((await tool(token, "get_inventory_item", { item_id: milk.id })).body.result.isError).toBe(true)
+}, 20000)
+
+test("concurrent inventory consumption preserves quantities and rejects double consumption", async () => {
+	server = await TestServer.start()
+	const { access_token: token } = await connect("inventory:read inventory:write")
+	const item = (await tool(token, "create_inventory_item", { name: "Eggs", quantity: 6 })).body.result.structuredContent
+	const partial = await Promise.all([tool(token, "consume_inventory_item", { item_id: item.id, quantity: 2 }), tool(token, "consume_inventory_item", { item_id: item.id, quantity: 2 })])
+	for (const result of partial) expect(result.body.result.isError).not.toBe(true)
+	expect((await tool(token, "get_inventory_item", { item_id: item.id })).body.result.structuredContent).toMatchObject({ quantity: 2, consumed_at: null })
+	const final = await Promise.all([tool(token, "consume_inventory_item", { item_id: item.id, quantity: 2 }), tool(token, "consume_inventory_item", { item_id: item.id, quantity: 2 })])
+	expect(final.filter(result => result.body.result.isError === true)).toHaveLength(1)
+	expect(final.find(result => result.body.result.isError === true)!.body.result.content[0].text).toBe("Inventory item is already consumed")
+	expect((await tool(token, "get_inventory_item", { item_id: item.id })).body.result.structuredContent.consumed_at).not.toBeNull()
+}, 20000)
+
+test("inventory MCP writes require the inventory write scope", async () => {
+	server = await TestServer.start()
+	const { access_token: token } = await connect("inventory:read")
+	expect((await tool(token, "list_inventory_items")).body.result.structuredContent.items).toEqual([])
+	for (const [name, args] of [["create_inventory_item", { name: "Milk" }], ["update_inventory_item", { item_id: 1, changes: { name: "No" } }], ["consume_inventory_item", { item_id: 1 }], ["delete_inventory_item", { item_id: 1 }], ["create_inventory_container", { name: "Fridge" }], ["update_inventory_container", { container_id: 1, changes: { name: "No" } }], ["delete_inventory_container", { container_id: 1 }]] as const) expect((await tool(token, name, args)).response.status).toBe(403)
+	const { access_token: other } = await connect("receipts:read")
+	expect((await tool(other, "list_inventory_items")).response.status).toBe(403)
+}, 20000)
+
+test("inventory MCP links references, filters, removes images and handles edge cases", async () => {
+	server = await TestServer.start()
+	const { access_token: token } = await connect("inventory:read inventory:write receipts:read receipts:write products:read products:write")
+	const tools = (await rpc(token, "tools/list", {})).body.result.tools as any[]
+	const annotations = (name: string) => tools.find(item => item.name === name)!.annotations
+	for (const name of ["list_inventory_items", "get_inventory_item", "list_inventory_containers", "get_inventory_container"]) expect(annotations(name)).toMatchObject({ readOnlyHint: true, destructiveHint: false })
+	for (const name of ["create_inventory_item", "update_inventory_item", "consume_inventory_item", "create_inventory_container", "update_inventory_container"]) expect(annotations(name)).toMatchObject({ readOnlyHint: false, destructiveHint: false })
+	for (const name of ["delete_inventory_item", "delete_inventory_container"]) expect(annotations(name)).toMatchObject({ readOnlyHint: false, destructiveHint: true })
+	await tool(token, "create_receipt", receiptInput())
+	const refs = sql(db => {
+		const now = "2026-09-30T00:00:00Z"
+		const ingredientId = Number(db.query("INSERT INTO ingredients (name, created_at, updated_at) VALUES (?, ?, ?)").run("Flour", now, now).lastInsertRowid)
+		const otherIngredientId = Number(db.query("INSERT INTO ingredients (name, created_at, updated_at) VALUES (?, ?, ?)").run("Sugar", now, now).lastInsertRowid)
+		const productId = Number(db.query("INSERT INTO products (ingredient_id, name, category, is_perishable, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)").run(ingredientId, "Wheat flour", "food", 0, now, now).lastInsertRowid)
+		const receiptItemId = (db.query("SELECT id FROM receipt_items").get() as { id: number }).id
+		return { ingredientId, otherIngredientId, productId, receiptItemId }
+	})
+	const flour = (await tool(token, "create_inventory_item", { name: "Flour", quantity: 1, unit: "kg", ingredient_id: refs.ingredientId, product_id: refs.productId, receipt_item_id: refs.receiptItemId, purchased_at: "2026-09-26T12:30:00+03:00", expires_at: "2027-01-01T00:00:00Z" })).body.result.structuredContent
+	expect(flour).toMatchObject({ ingredient_id: refs.ingredientId, product_id: refs.productId, receipt_item_id: refs.receiptItemId, purchased_at: "2026-09-26T12:30:00+03:00", expires_at: "2027-01-01T00:00:00Z", product: { id: refs.productId }, ingredient: { id: refs.ingredientId } })
+	const sugar = (await tool(token, "create_inventory_item", { name: "Sugar", ingredient_id: refs.otherIngredientId })).body.result.structuredContent
+	expect((await tool(token, "create_inventory_item", { name: "Mismatch", ingredient_id: refs.otherIngredientId, product_id: refs.productId })).body.result.isError).toBe(true)
+	expect((await tool(token, "update_inventory_item", { item_id: flour.id, changes: { ingredient_id: refs.otherIngredientId } })).body.result.isError).toBe(true)
+	expect((await tool(token, "get_inventory_item", { item_id: flour.id })).body.result.structuredContent).toMatchObject({ ingredient_id: refs.ingredientId, product_id: refs.productId })
+	expect((await tool(token, "list_inventory_items", { product_id: refs.productId })).body.result.structuredContent.items.map((item: any) => item.id)).toEqual([flour.id])
+	expect((await tool(token, "list_inventory_items", { ingredient_id: refs.otherIngredientId })).body.result.structuredContent.items.map((item: any) => item.id)).toEqual([sugar.id])
+	expect((await tool(token, "list_inventory_items", { status: "all" })).body.result.structuredContent.items).toHaveLength(2)
+	expect((await tool(token, "update_inventory_item", { item_id: flour.id, changes: { expires_at: "2027-02-01T00:00:00+02:00", consumed_at: null } })).body.result.structuredContent.expires_at).toBe("2027-02-01T00:00:00+02:00")
+	const errorText = async (name: string, args: unknown) => (await tool(token, name, args)).body.result.content[0].text
+	expect(await errorText("update_inventory_item", { item_id: flour.id, changes: { container_id: 999999 } })).toBe("Inventory container not found")
+	expect(await errorText("update_inventory_item", { item_id: flour.id, changes: { receipt_item_id: 999999 } })).toBe("Receipt line not found")
+	expect(await errorText("create_inventory_item", { name: "Milk", container_id: 999999 })).toBe("Inventory container not found")
+	expect(await errorText("create_inventory_item", { name: "Milk", receipt_item_id: 999999 })).toBe("Receipt line not found")
+	expect(await errorText("create_inventory_container", { name: "Box", parent_container_id: 999999 })).toBe("Inventory container not found")
+	expect((await tool(token, "update_inventory_item", { item_id: flour.id, changes: { unknown: 1 } })).body.result.isError).toBe(true)
+	expect((await tool(token, "consume_inventory_item", { item_id: sugar.id, quantity: 5 })).body.result.structuredContent).toMatchObject({ quantity: 1 })
+	expect((await tool(token, "get_inventory_item", { item_id: sugar.id })).body.result.structuredContent.consumed_at).not.toBeNull()
+	expect(await errorText("consume_inventory_item", { item_id: sugar.id })).toBe("Inventory item is already consumed")
+	expect((await tool(token, "consume_inventory_item", { item_id: flour.id, quantity: 0 })).body.result.isError).toBe(true)
+	const form = new FormData()
+	form.append("file", new File([png], "flour.png", { type: "image/png" }))
+	const upload = await fetch(`${server.baseUrl}/api/inventory-items/${flour.id}/pictures`, { method: "POST", headers: { Cookie: server.sessionCookie }, body: form })
+	expect(upload.status).toBe(201)
+	const stored = sql(db => db.query("SELECT path FROM files").get() as { path: string })
+	expect(existsSync(join(server.filesPath, stored.path))).toBe(true)
+	expect((await tool(token, "get_inventory_item", { item_id: flour.id })).body.result.structuredContent.inventory_item_images).toHaveLength(1)
+	expect((await tool(token, "delete_inventory_item", { item_id: flour.id })).body.result.structuredContent.success).toBe(true)
+	expect(sql(db => db.query("SELECT COUNT(*) AS count FROM files").get())).toEqual({ count: 0 })
+	expect(sql(db => db.query("SELECT COUNT(*) AS count FROM inventory_item_images").get())).toEqual({ count: 0 })
+	expect(existsSync(join(server.filesPath, stored.path))).toBe(false)
+	expect((await tool(token, "list_receipts")).body.result.structuredContent.receipts).toHaveLength(1)
+	for (const { name, args } of [
+		{ name: "get_inventory_item", args: { item_id: 999999 } },
+		{ name: "update_inventory_item", args: { item_id: 999999, changes: { name: "No" } } },
+		{ name: "consume_inventory_item", args: { item_id: 999999 } },
+		{ name: "delete_inventory_item", args: { item_id: 999999 } },
+		{ name: "get_inventory_container", args: { container_id: 999999 } },
+		{ name: "update_inventory_container", args: { container_id: 999999, changes: { name: "No" } } },
+		{ name: "delete_inventory_container", args: { container_id: 999999 } },
+		{ name: "create_inventory_container", args: { name: " " } },
+		{ name: "list_inventory_items", args: { limit: 101 } },
+		{ name: "list_inventory_items", args: { status: "eaten" } }
+	]) expect((await tool(token, name, args)).body.result.isError).toBe(true)
+	const box = (await tool(token, "create_inventory_container", { name: "Box" })).body.result.structuredContent
+	expect((await tool(token, "update_inventory_container", { container_id: box.id, changes: { parent_container_id: box.id } })).body.result.isError).toBe(true)
+	expect((await tool(token, "update_inventory_container", { container_id: box.id, changes: { parent_container_id: 999999 } })).body.result.isError).toBe(true)
+	expect((await tool(token, "update_inventory_container", { container_id: box.id, changes: {} })).body.result.isError).toBe(true)
+	expect((await tool(token, "update_inventory_container", { container_id: box.id, changes: { name: "Big box", notes: "Garage" } })).body.result.structuredContent).toMatchObject({ name: "Big box", notes: "Garage", parent_container_id: null })
+	const firstPage = (await tool(token, "list_inventory_containers", { limit: 1, query: "box" })).body.result.structuredContent
+	expect(firstPage).toMatchObject({ containers: [{ id: box.id, available_item_count: 0 }], next_before_id: null })
+}, 20000)
+
 test("receipt totals use currency rounding and preserve the printed total", () => {
 	expect(receiptTotals("EUR", 0.3, [{ quantity: 1, unit_price: 0.1, line_total: null }, { quantity: 1, unit_price: 0.2, line_total: null }]).difference).toBe(0)
 	expect(receiptTotals("EUR", 5, [{ quantity: 1, unit_price: 4, line_total: null }])).toMatchObject({ reported_total: 5, calculated_total: 4, difference: 1 })

@@ -10,6 +10,8 @@ export const scopes = {
 	"receipts:write": "Create, edit and delete receipts, lines and images",
 	"products:read": "Search products and receipt groups",
 	"products:write": "Create products for receipt lines",
+	"inventory:read": "View inventory items and containers",
+	"inventory:write": "Add, edit, consume and delete inventory items and containers",
 	"shopping_lists:read": "View shopping lists and their items",
 	"shopping_lists:write": "Create and edit shopping lists, items and sharing",
 } as const

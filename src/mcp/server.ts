@@ -1,7 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js"
 import type { ImageContent } from "@modelcontextprotocol/sdk/types.js"
-import type { BunRequest } from "bun"
 import { z } from "zod"
 import { db } from "../db"
 import { HttpError } from "../api/core"
@@ -12,14 +11,14 @@ import { authenticateMcp, challenge, oauthOrigin, readLimited, requireScope, tru
 import { amount, appendLines, createReceipt, createReceiptSchema, idSchema, lineSchema, receiptFields, receiptResult } from "./receipts"
 import { imageTypes, prepareUpload, replaceImage, uploadedImage } from "./uploads"
 import { registerShoppingListTools } from "./shopping-lists"
+import { registerInventoryTools } from "./inventory"
+import { bodyOf, requestFor } from "./requests"
 
 const toolsScopes = new Map<string, Scope>()
-const requestFor = (id: number, method: string, body?: unknown) => Object.assign(new Request(`http://pupler.internal/resource/${id}`, { method, ...(body === undefined ? {} : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }) }), { params: { id: String(id) } }) as unknown as BunRequest<string>
-const bodyOf = async (response: Response) => response.status === 204 ? { success: true } : response.json()
 const page = { limit: z.number().int().min(1).max(100).default(30), before_id: idSchema.optional() }
 
 const createServer = (identity: McpIdentity, origin: string) => {
-	const server = new McpServer({ name: "pupler", version: "1.0.0" }, { instructions: "Manage Pupler receipts and shopping lists. Search products before matching receipt lines; ask about ambiguous products or unreadable amounts. Upload original image bytes using prepare_receipt_image_upload, then create_receipt with all lines and image_id. Reuse the same idempotency_key when retrying an import. Shopping lists are private to their members; viewers can read, editors can change items and sharing." })
+	const server = new McpServer({ name: "pupler", version: "1.0.0" }, { instructions: "Manage Pupler receipts, inventory and shopping lists. Search products before matching receipt lines; ask about ambiguous products or unreadable amounts. Upload original image bytes using prepare_receipt_image_upload, then create_receipt with all lines and image_id. Reuse the same idempotency_key when retrying an import. Shopping lists are private to their members; viewers can read, editors can change items and sharing. Inventory is shared across users; search products before adding inventory items and consume items instead of deleting them when they are used up." })
 	const register = <S extends z.ZodType>(name: string, description: string, scope: Scope | null, schema: S, handler: (args: z.output<S>) => Promise<unknown>, image = false, destructive = false) => {
 		if (scope) toolsScopes.set(name, scope)
 		server.registerTool(name, { description, inputSchema: schema as z.ZodType, annotations: { readOnlyHint: /^(get_|list_|search_)/.test(name), destructiveHint: destructive, openWorldHint: false }, _meta: { securitySchemes: [{ type: "oauth2", scopes: scope ? [scope] : [] }] } }, async args => {
@@ -67,6 +66,7 @@ const createServer = (identity: McpIdentity, origin: string) => {
 	register("replace_receipt_image", "Attach an uploaded image_id to a receipt, replacing any previous image.", "receipts:write", z.object({ receipt_id: idSchema, image_id: z.string().max(100) }).strict(), async ({ receipt_id, image_id }) => replaceImage(identity, receipt_id, image_id), false, true)
 	register("remove_receipt_image", "Remove the saved receipt image while keeping its header and lines.", "receipts:write", z.object({ receipt_id: idSchema }).strict(), async ({ receipt_id }) => bodyOf(await receiptPictureRoute(requestFor(receipt_id, "DELETE"))), false, true)
 	registerShoppingListTools(register, identity)
+	registerInventoryTools(register)
 	return server
 }
 
