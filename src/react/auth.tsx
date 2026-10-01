@@ -61,8 +61,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 						: String(input)
 			if (response.status === 401 && !url.includes("/api/auth/")) {
 				if (active) setUser(null)
-				if (!window.location.pathname.startsWith("/react/login")) {
-					navigate(`/react/login?redirect=${encodeURIComponent(window.location.pathname.replace(/^\/react/, "") || "/")}`)
+				if (!window.location.pathname.startsWith("/login")) {
+					navigate(`/login?redirect=${encodeURIComponent(`${window.location.pathname || "/"}${window.location.search}${window.location.hash}`)}`)
 				}
 			}
 			return response
@@ -84,7 +84,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 	const logout = useCallback(async () => {
 		await apiFetch("/api/auth/logout", { method: "POST", body: "{}" })
 		setUser(null)
-		navigate("/react/login")
+		navigate("/login")
 	}, [])
 
 	return (

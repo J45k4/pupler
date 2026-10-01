@@ -1,14 +1,8 @@
 import { useState } from "react"
 import { useAuth } from "../auth"
-import { usePath } from "../router"
+import { returnAfterLogin, usePath } from "../router"
 
-export const LoginPage = ({
-	link,
-	navigate,
-}: {
-	link: (path: string) => string
-	navigate: (path: string) => void
-}) => {
+export const LoginPage = () => {
 	const { login } = useAuth()
 	const path = usePath()
 	const [username, setUsername] = useState("")
@@ -21,9 +15,9 @@ export const LoginPage = ({
 		setPending(true)
 		setError(null)
 		try {
+			const search = window.location.search
 			await login(username, password)
-			const redirect = new URLSearchParams(window.location.search).get("redirect")
-			navigate(redirect && redirect.startsWith("/") ? link(redirect) : link("/"))
+			returnAfterLogin(search)
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Login failed")
 		} finally {

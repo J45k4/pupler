@@ -39,8 +39,7 @@ describe("Pupler API e2e", () => {
 		expect(page.response.status).toBe(200)
 		expect(page.response.headers.get("content-type")).toContain("text/html")
 		expect(page.body).toContain("<title>Pupler</title>")
-		expect(page.body).toContain("<body></body>")
-		expect(page.body).toContain("/_bun/client/")
+		expect(page.body).toContain('<div id="root">')
 	})
 
 	test("serves the app favicon", async () => {
@@ -67,7 +66,7 @@ describe("Pupler API e2e", () => {
 		expect(page.response.status).toBe(200)
 		expect(page.response.headers.get("content-type")).toContain("text/html")
 		expect(page.body).toContain("<title>Pupler</title>")
-		expect(page.body).toContain("<body></body>")
+		expect(page.body).toContain('<div id="root">')
 
 		const productDetailPage = await server.call<string>("/products/1")
 		expect(productDetailPage.response.status).toBe(200)
@@ -185,9 +184,9 @@ describe("Pupler API e2e", () => {
 			const page = await server.call<string>(path)
 			expect(page.response.status).toBe(200)
 			expect(page.response.headers.get("content-type")).toContain("text/html")
-			const retiredPage = await server.call(`/react${path}?date=2026-09-25`, { redirect: "manual" })
-			expect(retiredPage.response.status).toBe(404)
-			expect(retiredPage.response.headers.get("location")).toBeNull()
+			const legacyPage = await server.call<string>(`/react${path}?date=2026-09-25`)
+			expect(legacyPage.response.status).toBe(200)
+			expect(legacyPage.body).toContain("<title>Pupler</title>")
 		}
 
 		const timeOverviewPage = await server.call<string>("/time/overview")
@@ -218,9 +217,9 @@ describe("Pupler API e2e", () => {
 		)
 		expect(loginPage.body).toContain("<title>Pupler</title>")
 
-		const retiredSettings = await server.call("/react/settings?tab=server", { redirect: "manual" })
-		expect(retiredSettings.response.status).toBe(404)
-		expect(retiredSettings.response.headers.get("location")).toBeNull()
+		const legacySettings = await server.call<string>("/react/settings?tab=server")
+		expect(legacySettings.response.status).toBe(200)
+		expect(legacySettings.body).toContain("<title>Pupler</title>")
 
 		const settingsPage = await server.call<string>("/settings")
 		expect(new URL(settingsPage.response.url).pathname).toBe("/settings")
@@ -237,8 +236,9 @@ describe("Pupler API e2e", () => {
 		expect(usersPage.response.headers.get("content-type")).toContain(
 			"text/html",
 		)
-		const retiredUsers = await server.call("/react/users", { redirect: "manual" })
-		expect(retiredUsers.response.status).toBe(404)
+		const legacyUsers = await server.call<string>("/react/users")
+		expect(legacyUsers.response.status).toBe(200)
+		expect(legacyUsers.body).toContain("<title>Pupler</title>")
 
 		const integrationsPage = await server.call<string>("/integrations")
 		expect(integrationsPage.response.status).toBe(200)
@@ -338,7 +338,7 @@ describe("Pupler API e2e", () => {
 		expect(page.response.status).toBe(200)
 		expect(page.response.headers.get("content-type")).toContain("text/html")
 		expect(page.body).toContain("<title>Pupler</title>")
-		expect(page.body).toContain("<body></body>")
+		expect(page.body).toContain('<div id="root">')
 	})
 
 	test("keeps JSON 404s for unknown API routes", async () => {

@@ -178,6 +178,19 @@ export const connectionsRoute = async (req: BunRequest<string>) => {
 	const user = await browserUser(req)
 	if (!user) throw new HttpError(401, "Sign in to manage connected apps")
 	if (req.method === "GET" && !req.params?.id) return reply(await db.client.oAuthGrant.findMany({ where: { user_id: user.id, revoked_at: null }, select: { id: true, scope: true, created_at: true, last_used_at: true, client: { select: { name: true } } }, orderBy: { created_at: "desc" } }))
+	if ((req.method === "PATCH" || req.method === "PUT") && req.params?.id) {
+		const body = await req.json().catch(() => null) as { scope?: unknown } | null
+		if (!body || typeof body.scope !== "string") throw new HttpError(400, "Provide permissions as a space-separated scope string")
+		let scope: string
+		try {
+			scope = validScope(body.scope)
+		} catch (error) {
+			throw new HttpError(400, error instanceof Error ? error.message : "Unsupported permissions")
+		}
+		const changed = await db.client.oAuthGrant.updateMany({ where: { id: req.params.id, user_id: user.id, revoked_at: null }, data: { scope } })
+		if (!changed.count) throw new HttpError(404, "Connection not found")
+		return reply(await db.client.oAuthGrant.findUniqueOrThrow({ where: { id: req.params.id }, select: { id: true, scope: true, created_at: true, last_used_at: true, client: { select: { name: true } } } }))
+	}
 	if (req.method !== "DELETE" || !req.params?.id) throw new HttpError(405, "Method not allowed")
 	const changed = await db.client.oAuthGrant.updateMany({ where: { id: req.params.id, user_id: user.id, revoked_at: null }, data: { revoked_at: new Date().toISOString() } })
 	if (!changed.count) throw new HttpError(404, "Connection not found")

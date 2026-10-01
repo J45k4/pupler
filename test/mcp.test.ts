@@ -499,6 +499,24 @@ test("receipt totals use currency rounding and preserve the printed total", () =
 	expect(receiptTotals("EUR", 5, [{ quantity: 1, unit_price: null, line_total: null }]).calculated_total).toBeNull()
 })
 
+test("connection permissions can be changed on the fly without reconnecting", async () => {
+	server = await TestServer.start()
+	const connection = await connect("receipts:read products:read")
+	expect((await tool(connection.access_token, "create_receipt", receiptInput())).response.status).toBe(403)
+	const grantId = (sql(db => db.query("SELECT grant_id FROM oauth_tokens WHERE hash = ?").get(hash(connection.access_token))) as { grant_id: string }).grant_id
+	const expanded = await server.call<{ scope: string }>(`/api/auth/connections/${grantId}`, { method: "PATCH", body: { scope: "receipts:read receipts:write products:read products:write" } })
+	expect(expanded.response.status).toBe(200)
+	expect(expanded.body.scope).toBe("receipts:read receipts:write products:read products:write")
+	expect((await tool(connection.access_token, "create_receipt", receiptInput())).body.result.isError).not.toBe(true)
+	expect((await server.call(`/api/auth/connections/${grantId}`, { method: "PATCH", body: { scope: "evil:scope" } })).response.status).toBe(400)
+	expect((await server.call(`/api/auth/connections/${grantId}`, { method: "PATCH", body: { scope: "" } })).response.status).toBe(400)
+	expect((await server.call(`/api/auth/connections/missing`, { method: "PATCH", body: { scope: "receipts:read" } })).response.status).toBe(404)
+	const shrunk = await server.call<{ scope: string }>(`/api/auth/connections/${grantId}`, { method: "PATCH", body: { scope: "receipts:read" } })
+	expect(shrunk.response.status).toBe(200)
+	expect((await tool(connection.access_token, "create_receipt", receiptInput())).response.status).toBe(403)
+	expect((await tool(connection.access_token, "list_receipts")).response.status).toBe(200)
+}, 20000)
+
 test("simultaneous retries commit a single receipt and product", async () => {
 	server = await TestServer.start()
 	const connection = await connect()

@@ -1,6 +1,7 @@
 import { useEffect } from "react"
 import { useAuth } from "./auth"
-import { matchAnyRoute, navigate, usePath } from "./router"
+import { matchAnyRoute, navigate, returnAfterLogin, usePath } from "./router"
+import { canonicalPath, legacyRedirect } from "./redirects"
 import { Navbar } from "./Navbar"
 import { LoginPage } from "./pages/Login"
 import { TodosPage } from "./pages/Todos"
@@ -28,35 +29,29 @@ import { IntegrationsPage } from "./pages/Integrations"
 import { ImportScheduleDetailPage, ImportSchedulesPage } from "./pages/ImportSchedules"
 import { JobsPage } from "./pages/Jobs"
 
-const BASE = "/react"
-
-const link = (path: string) => (path === "/shoppinglist" || path === "/settings" || path === "/users" || path === "/mcp/connections" || path === "/time" || path.startsWith("/time/") ? path : path === "/" ? BASE : `${BASE}${path}`)
-
-const stripBase = (path: string) =>
-	/^\/react\/(settings|mcp\/connections|time|shoppinglist|users)(\/|$)/.test(path)
-		? path
-		: path === BASE || path === `${BASE}/`
-		? "/"
-		: path.startsWith(`${BASE}/`)
-			? path.slice(BASE.length)
-			: path
+const link = (path: string) => path
 
 const ROUTES = ["/login", "/todos", "/settings", "/mcp/connections", "/users", "/integrations", "/import-schedules/:id", "/import-schedules", "/jobs", "/products/stats", "/products/:id", "/products", "/groups/:id", "/inventory", "/inventory/expirations", "/inventory/containers/:id", "/inventory/items/:id", "/receipts/:id", "/receipts", "/spending/overview", "/spending/monthly", "/spending/items", "/spending", "/shoppinglist", "/recipes/new", "/recipes/:id", "/recipes", "/clients/:id", "/clients", "/projects", "/time/overview", "/time/weekly", "/time/monthly", "/time", "/"]
 
 export const App = () => {
 	const rawPath = usePath()
-	const path = stripBase(rawPath)
+	const legacy = canonicalPath(rawPath)
+	useEffect(() => {
+		const redirect = legacyRedirect(window.location)
+		if (redirect) navigate(redirect, { replace: true })
+	}, [legacy, rawPath])
+	const path = legacy
 	const { user, loading, logout } = useAuth()
 
 	const needsLogin = !loading && path !== "/login" && !user
 	const needsHome = !loading && path === "/login" && !!user
 
 	useEffect(() => {
-		if (needsLogin) navigate(`${BASE}/login?redirect=${encodeURIComponent(path)}`)
+		if (needsLogin) navigate(`/login?redirect=${encodeURIComponent(`${path}${window.location.search}${window.location.hash}`)}`)
 	}, [needsLogin, path])
 
 	useEffect(() => {
-		if (needsHome) navigate(BASE)
+		if (needsHome) returnAfterLogin(window.location.search)
 	}, [needsHome])
 
 	useEffect(() => {
@@ -75,7 +70,7 @@ export const App = () => {
 		<>
 			<Navbar currentPath={path} user={user} link={link} onLogout={logout} />
 			<main className="page-shell page-shell--wide">
-				{match?.pattern === "/login" ? <LoginPage link={link} navigate={navigate} /> : null}
+				{match?.pattern === "/login" ? <LoginPage /> : null}
 				{match?.pattern === "/todos" ? <TodosPage /> : null}
 				{match?.pattern === "/settings" ? <SettingsPage /> : null}
 				{match?.pattern === "/mcp/connections" ? <McpPage /> : null}

@@ -45,7 +45,7 @@ try {
 		await Bun.sleep(100)
 	}
 	if (!ready) throw new Error("Standalone server did not start")
-	for (const path of ["/", "/react", "/favicon.png"]) {
+	for (const path of ["/", "/login", "/favicon.png"]) {
 		const response = await fetch(`${base}${path}`)
 		if (!response.ok) throw new Error(`Failed to serve ${path}: ${response.status}`)
 		if (path.endsWith(".png")) {

@@ -6,13 +6,12 @@ import { oauthRoute, oauthRegistrationRoute, connectionsRoute } from "./oauth/ro
 import { mcpRoute } from "./mcp/server"
 import { cleanupUploads, uploadRoute } from "./mcp/uploads"
 
-import index from "./web/index.html"
 import reactIndex from "./react/index.html"
 
 import faviconPath from "./web/favicon.png" with { type: "file" }
 const favicon = Bun.file(faviconPath)
 
-for (const bundle of [index, reactIndex]) {
+for (const bundle of [reactIndex]) {
 	for (const file of bundle.files ?? []) {
 		if (file.loader === "html") file.headers["cache-control"] = "no-store"
 	}
@@ -134,25 +133,7 @@ const instance = Bun.serve({
 			headers: { "Content-Type": "image/png" },
 		}),
 		"/api/*": Response.json({ error: "Route not found" }, { status: 404 }),
-		"/time": reactIndex,
-		"/time/overview": reactIndex,
-		"/time/weekly": reactIndex,
-		"/time/monthly": reactIndex,
-		"/settings": reactIndex,
-		"/mcp/connections": reactIndex,
-		"/users": reactIndex,
-		"/shoppinglist": reactIndex,
-		"/react/users": new Response("Not found", { status: 404 }),
-		"/react/users/*": new Response("Not found", { status: 404 }),
-		"/react/shoppinglist": new Response("Not found", { status: 404 }),
-		"/react/shoppinglist/*": new Response("Not found", { status: 404 }),
-		"/react/time": new Response("Not found", { status: 404 }),
-		"/react/time/*": new Response("Not found", { status: 404 }),
-		"/react/settings": new Response("Not found", { status: 404 }),
-		"/react/settings/*": new Response("Not found", { status: 404 }),
-		"/react": reactIndex,
-		"/react/*": reactIndex,
-		"/*": index,
+		"/*": reactIndex,
 	},
 })
 

@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react"
+import { loginDestination } from "./redirects"
 
 type RouteState = {
 	path: string
@@ -64,14 +65,21 @@ if (typeof window !== "undefined") {
 	window.addEventListener("popstate", notify)
 }
 
-export const navigate = (path: string) => {
+export const navigate = (path: string, options: { replace?: boolean } = {}) => {
 	const url = new URL(path, window.location.href)
 	const destination = `${url.pathname}${url.search}${url.hash}`
 	const current = `${window.location.pathname}${window.location.search}${window.location.hash}`
 	if (current !== destination) {
-		window.history.pushState({}, "", destination)
+		if (options.replace) window.history.replaceState({}, "", destination)
+		else window.history.pushState({}, "", destination)
 	}
 	notify()
+}
+
+export const returnAfterLogin = (search: string) => {
+	const destination = loginDestination(search)
+	if (destination.fullPage) window.location.assign(destination.path)
+	else navigate(destination.path, { replace: true })
 }
 
 export const installLinkInterceptor = (root: ParentNode = document) => {
