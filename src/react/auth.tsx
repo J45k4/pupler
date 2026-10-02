@@ -6,6 +6,7 @@ import {
 	useState,
 	type ReactNode,
 } from "react"
+import { startAuthentication, type PublicKeyCredentialRequestOptionsJSON } from "@simplewebauthn/browser"
 import { apiFetch } from "./api"
 import { navigate } from "./router"
 
@@ -23,6 +24,8 @@ type AuthState = {
 	user: AuthUser | null
 	loading: boolean
 	login: (username: string, password: string) => Promise<void>
+	loginWithPasskey: () => Promise<void>
+	setUser: (user: AuthUser) => void
 	logout: () => Promise<void>
 	refresh: () => Promise<void>
 }
@@ -81,6 +84,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 		setUser(body.user)
 	}, [])
 
+	const loginWithPasskey = useCallback(async () => {
+		const { challenge_id, options } = await apiFetch<{ challenge_id: string, options: PublicKeyCredentialRequestOptionsJSON }>("/api/auth/passkey/options", { method: "POST", body: "{}" })
+		const response = await startAuthentication({ optionsJSON: options })
+		const body = await apiFetch<{ user: AuthUser }>("/api/auth/passkey/verify", {
+			method: "POST",
+			body: JSON.stringify({ challenge_id, response }),
+		})
+		setUser(body.user)
+	}, [])
+
 	const logout = useCallback(async () => {
 		await apiFetch("/api/auth/logout", { method: "POST", body: "{}" })
 		setUser(null)
@@ -88,7 +101,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 	}, [])
 
 	return (
-		<AuthContext.Provider value={{ user, loading, login, logout, refresh }}>
+		<AuthContext.Provider value={{ user, loading, login, loginWithPasskey, setUser, logout, refresh }}>
 			{children}
 		</AuthContext.Provider>
 	)

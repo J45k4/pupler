@@ -16,7 +16,7 @@ const SESSION_COOKIE_NAME = "pupler_session"
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30
 const SESSION_TTL_MS = SESSION_TTL_SECONDS * 1000
 
-const PUBLIC_USER_SELECT = {
+export const PUBLIC_USER_SELECT = {
 	id: true,
 	name: true,
 	username: true,
@@ -26,7 +26,7 @@ const PUBLIC_USER_SELECT = {
 	updated_at: true,
 } as const
 
-const hashSessionToken = (token: string) =>
+export const hashSessionToken = (token: string) =>
 	createHash("sha256").update(token).digest("hex")
 
 const parseCookieHeader = (header: string | null) => {
@@ -95,6 +95,33 @@ const verifyPassword = async (
 	} catch {
 		return false
 	}
+}
+
+export const createSessionResponse = async (user: { id: number }, req: Request, passkeyId?: number) => {
+	const token = randomBytes(32).toString("base64url")
+	const now = utcNow()
+	const expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString()
+	await db.client.userSession.create({
+		data: {
+			user_id: user.id,
+			passkey_id: passkeyId,
+			token_hash: hashSessionToken(token),
+			expires_at: expiresAt,
+			created_at: now,
+			last_seen_at: now,
+		},
+	})
+
+	return Response.json(
+		{
+			user,
+			expires_at: expiresAt,
+		},
+		{
+			status: 200,
+			headers: { "Set-Cookie": sessionCookie(token, req) },
+		},
+	)
 }
 
 export const resolveAuthenticatedUser = async (req: Request) => {
@@ -168,30 +195,8 @@ export const authLoginRoute = async (req: Request) => {
 		throw new HttpError(401, "Invalid username or password")
 	}
 
-	const token = randomBytes(32).toString("base64url")
-	const now = utcNow()
-	const expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString()
-	await db.client.userSession.create({
-		data: {
-			user_id: user.id,
-			token_hash: hashSessionToken(token),
-			expires_at: expiresAt,
-			created_at: now,
-			last_seen_at: now,
-		},
-	})
-
 	const { password_hash: _passwordHash, ...publicUser } = user
-	return Response.json(
-		{
-			user: publicUser,
-			expires_at: expiresAt,
-		},
-		{
-			status: 200,
-			headers: { "Set-Cookie": sessionCookie(token, req) },
-		},
-	)
+	return createSessionResponse(publicUser, req)
 }
 
 export const authLogoutRoute = async (req: Request) => {

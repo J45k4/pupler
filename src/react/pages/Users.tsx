@@ -2,6 +2,7 @@ import { useState } from "react"
 import { apiFetch } from "../api"
 import { Empty, Modal, Status, useApi, type AppUser } from "../lib"
 import { useAuth } from "../auth"
+import { PasskeyList } from "../PasskeyList"
 
 export const UsersPage = () => {
 	const { user: currentUser } = useAuth()
@@ -18,6 +19,8 @@ export const UsersPage = () => {
 	const [cEmail, setCEmail] = useState("")
 	const [cPassword, setCPassword] = useState("")
 	const [cAdmin, setCAdmin] = useState(false)
+
+	const [invite, setInvite] = useState<{ user: AppUser, url: string, expires_at: string } | null>(null)
 
 	const [eName, setEName] = useState("")
 	const [eUsername, setEUsername] = useState("")
@@ -110,6 +113,16 @@ export const UsersPage = () => {
 		}
 	}
 
+	const createInvite = async (user: AppUser) => {
+		try {
+			const invite = await apiFetch<{ url: string, expires_at: string }>(`/api/users/${user.id}/invite`, { method: "POST", body: "{}" })
+			setInvite({ user, ...invite })
+		} catch (err) {
+			setStatus(err instanceof Error ? err.message : "Failed to create invite link.")
+			setStatusError(true)
+		}
+	}
+
 	const remove = async (user: AppUser) => {
 		if (!window.confirm("Delete this user? Their sessions and linked time entries will be removed or unlinked.")) return
 		try {
@@ -161,6 +174,9 @@ export const UsersPage = () => {
 													<button className="secondary" type="button" onClick={() => openEdit(user)}>
 														Edit
 													</button>
+													<button className="secondary" type="button" onClick={() => void createInvite(user)}>
+														Invite Link
+													</button>
 													<button className="secondary" type="button" onClick={() => void remove(user)}>
 														Delete
 													</button>
@@ -190,7 +206,7 @@ export const UsersPage = () => {
 					</label>
 					<label>
 						Password
-						<input name="password" type="password" required value={cPassword} onChange={(e) => setCPassword(e.target.value)} />
+						<input name="password" type="password" placeholder="Leave blank to use an invite link" value={cPassword} onChange={(e) => setCPassword(e.target.value)} />
 					</label>
 					<label className="checkbox-line">
 						<input name="is_admin" type="checkbox" checked={cAdmin} onChange={(e) => setCAdmin(e.target.checked)} />
@@ -203,6 +219,21 @@ export const UsersPage = () => {
 					</div>
 				</form>
 				<Status message={createStatus} error={!!createStatus} />
+			</Modal>
+			<Modal id="user-invite-modal" title="Passkey Invite" open={invite !== null} onClose={() => setInvite(null)}>
+				{invite ? (
+					<>
+						<p className="page-copy">
+							Send this link to {invite.user.name}. It can be used once to set up a passkey and expires {new Date(invite.expires_at).toLocaleString()}. Creating a new link invalidates the previous one.
+						</p>
+						<input readOnly value={invite.url} onFocus={(e) => e.target.select()} />
+						<div className="actions">
+							<button className="primary" type="button" onClick={() => void navigator.clipboard.writeText(invite.url)}>
+								Copy Link
+							</button>
+						</div>
+					</>
+				) : null}
 			</Modal>
 			<Modal id="user-edit-modal" title="Edit User" open={editUser !== null} onClose={() => setEditUser(null)}>
 				<form id="user-edit-form" onSubmit={saveEdit}>
@@ -233,6 +264,12 @@ export const UsersPage = () => {
 					</div>
 				</form>
 				<Status message={editStatus} error={!!editStatus} />
+				{editUser ? (
+					<>
+						<h3>Passkeys</h3>
+						<PasskeyList baseUrl={`/api/users/${editUser.id}/passkeys`} emptyMessage="No passkeys. Create an invite link to add one." />
+					</>
+				) : null}
 			</Modal>
 		</>
 	)

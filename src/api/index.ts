@@ -100,3 +100,16 @@ export { timeReportRoute } from "./time-report"
 export { spendingRoute } from "./spending"
 export { createApiRoutes } from "./route-map"
 export { updateStatusRoute } from "./update"
+export {
+	inviteDetailRoute,
+	inviteRegistrationOptionsRoute,
+	inviteRegistrationVerifyRoute,
+	passkeyLoginOptionsRoute,
+	passkeyDetailRoute,
+	passkeyLoginVerifyRoute,
+	passkeyRegistrationOptionsRoute,
+	passkeysCollectionRoute,
+	userInviteRoute,
+	userPasskeyDetailRoute,
+	userPasskeysCollectionRoute,
+} from "./passkeys"

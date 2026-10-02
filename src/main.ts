@@ -34,6 +34,11 @@ const apiRoutes = createApiRoutes({
 		"/api/auth/login": routes.authLoginRoute,
 		"/api/auth/logout": routes.authLogoutRoute,
 		"/api/auth/session": routes.authSessionRoute,
+		"/api/auth/passkey/options": routes.passkeyLoginOptionsRoute,
+		"/api/auth/passkey/verify": routes.passkeyLoginVerifyRoute,
+		"/api/auth/invites/:token": routes.inviteDetailRoute,
+		"/api/auth/invites/:token/options": routes.inviteRegistrationOptionsRoute,
+		"/api/auth/invites/:token/verify": routes.inviteRegistrationVerifyRoute,
 	},
 	authenticated: {
 		"/api/auth/connections": connectionsRoute,
@@ -41,6 +46,9 @@ const apiRoutes = createApiRoutes({
 		"/api/auth/api-keys": routes.apiKeysCollectionRoute,
 		"/api/auth/api-keys/:id": routes.apiKeyDetailRoute,
 		"/api/auth/password": routes.authPasswordRoute,
+		"/api/auth/passkeys": routes.passkeysCollectionRoute,
+		"/api/auth/passkeys/options": routes.passkeyRegistrationOptionsRoute,
+		"/api/auth/passkeys/:id": routes.passkeyDetailRoute,
 		"/api/external-integrations": routes.externalIntegrationsCollectionRoute(database),
 		"/api/external-integrations/clockify": routes.clockifyIntegrationRoute(database),
 		"/api/external-integrations/:id/clockify-options": routes.clockifyIntegrationOptionsRoute(database),
@@ -106,6 +114,9 @@ const apiRoutes = createApiRoutes({
 	admin: {
 		"/api/update": routes.updateStatusRoute,
 		"/api/users": routes.usersCollectionRoute,
+		"/api/users/:id/invite": routes.userInviteRoute,
+		"/api/users/:id/passkeys": routes.userPasskeysCollectionRoute,
+		"/api/users/:id/passkeys/:passkeyId": routes.userPasskeyDetailRoute,
 		"/api/users/:id": routes.userDetailRoute,
 	},
 })

@@ -37,6 +37,8 @@
 		"@modelcontextprotocol/sdk": "^1.30.0",
 		"@prisma/adapter-libsql": "^7.7.0",
 		"@prisma/client": "^7.7.0",
+		"@simplewebauthn/browser": "^14.0.0",
+		"@simplewebauthn/server": "^14.0.2",
 		"react": "^19.3.0",
 		"react-dom": "^19.3.0",
 		"zod": "^4.6.5"

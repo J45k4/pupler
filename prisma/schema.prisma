@@ -316,6 +316,8 @@ model User {
 	time_entries  TimeEntry[]
 	sessions      UserSession[]
 	api_keys      UserApiKey[]
+	passkeys      Passkey[]
+	invites       UserInvite[]
 	oauth_grants  OAuthGrant[]
 	shopping_list_members ShoppingListMember[]
 
@@ -438,6 +440,34 @@ model UserApiKey {
 	@@map("user_api_keys")
 }
 
+model Passkey {
+	id            Int     @id @default(autoincrement())
+	user_id       Int
+	credential_id String  @unique
+	public_key    String
+	counter       Int     @default(0)
+	transports    String?
+	created_at    String
+	last_used_at  String?
+	user          User    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+	sessions      UserSession[]
+
+	@@index([user_id], map: "idx_passkeys_user_id")
+	@@map("passkeys")
+}
+
+model UserInvite {
+	id         Int    @id @default(autoincrement())
+	user_id    Int
+	token_hash String @unique
+	expires_at String
+	created_at String
+	user       User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+	@@index([user_id], map: "idx_user_invites_user_id")
+	@@map("user_invites")
+}
+
 model UserSession {
 	id             Int    @id @default(autoincrement())
 	user_id        Int    @map("user_id")
@@ -445,10 +475,13 @@ model UserSession {
 	expires_at     String @map("expires_at")
 	created_at     String @map("created_at")
 	last_seen_at   String? @map("last_seen_at")
+	passkey_id     Int?
 	user           User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
+	passkey        Passkey? @relation(fields: [passkey_id], references: [id], onDelete: Cascade)
 
 	@@index([user_id], map: "idx_user_sessions_user_id")
 	@@index([expires_at], map: "idx_user_sessions_expires_at")
+	@@index([passkey_id], map: "idx_user_sessions_passkey_id")
 	@@map("user_sessions")
 }
 

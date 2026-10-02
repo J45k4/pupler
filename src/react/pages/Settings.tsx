@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { apiFetch } from "../api"
 import { Status, useApi } from "../lib"
 import { useAuth } from "../auth"
+import { PasskeyList } from "../PasskeyList"
 import { mountUpdateWidget, type UpdateInfo } from "../../web/update-widget"
 
 const ServerPanel = () => {
@@ -239,6 +240,11 @@ export const SettingsPage = () => {
 					</div>
 					<Status message={status} error={statusError} />
 				</form>
+			</div>
+			<div className="card panel settings-panel">
+				<h2>Passkeys</h2>
+				<p>Add a passkey to sign in from this device without a password. Remove a passkey if you lose the device it is on.</p>
+				<PasskeyList baseUrl="/api/auth/passkeys" emptyMessage="No passkeys yet." canAdd />
 			</div>
 			<ApiKeysPanel />
 		</section>

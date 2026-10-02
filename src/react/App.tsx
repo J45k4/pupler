@@ -1,9 +1,10 @@
 import { useEffect } from "react"
 import { useAuth } from "./auth"
-import { matchAnyRoute, navigate, returnAfterLogin, usePath } from "./router"
+import { matchAnyRoute, matchRoute, navigate, returnAfterLogin, usePath } from "./router"
 import { canonicalPath, legacyRedirect } from "./redirects"
 import { Navbar } from "./Navbar"
 import { LoginPage } from "./pages/Login"
+import { InvitePage } from "./pages/Invite"
 import { TodosPage } from "./pages/Todos"
 import { OverviewPage } from "./pages/Overview"
 import { SettingsPage } from "./pages/Settings"
@@ -43,7 +44,8 @@ export const App = () => {
 	const path = legacy
 	const { user, loading, logout } = useAuth()
 
-	const needsLogin = !loading && path !== "/login" && !user
+	const inviteToken = matchRoute("/invite/:token", path)?.token
+	const needsLogin = !loading && path !== "/login" && !inviteToken && !user
 	const needsHome = !loading && path === "/login" && !!user
 
 	useEffect(() => {
@@ -63,6 +65,8 @@ export const App = () => {
 	if (needsLogin || needsHome) {
 		return <main className="page-shell">Redirecting…</main>
 	}
+
+	if (inviteToken) return <main className="page-shell"><InvitePage token={inviteToken} /></main>
 
 	const match = matchAnyRoute(ROUTES, path)
 

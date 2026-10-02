@@ -3,7 +3,7 @@ import { useAuth } from "../auth"
 import { returnAfterLogin, usePath } from "../router"
 
 export const LoginPage = () => {
-	const { login } = useAuth()
+	const { login, loginWithPasskey } = useAuth()
 	const path = usePath()
 	const [username, setUsername] = useState("")
 	const [password, setPassword] = useState("")
@@ -20,6 +20,20 @@ export const LoginPage = () => {
 			returnAfterLogin(search)
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Login failed")
+		} finally {
+			setPending(false)
+		}
+	}
+
+	const onPasskey = async () => {
+		setPending(true)
+		setError(null)
+		try {
+			const search = window.location.search
+			await loginWithPasskey()
+			returnAfterLogin(search)
+		} catch (err) {
+			setError(err instanceof Error && err.name === "NotAllowedError" ? "Passkey login was cancelled or no passkey was found." : err instanceof Error ? err.message : "Passkey login failed")
 		} finally {
 			setPending(false)
 		}
@@ -51,6 +65,9 @@ export const LoginPage = () => {
 				<div className="actions">
 					<button className="primary" type="submit" disabled={pending}>
 						{pending ? "Logging in…" : "Login"}
+					</button>
+					<button className="secondary" type="button" disabled={pending} onClick={() => void onPasskey()}>
+						Login with Passkey
 					</button>
 				</div>
 			</form>

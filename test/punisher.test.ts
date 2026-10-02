@@ -58,7 +58,7 @@ afterEach(async () => {
 
 const protectedPaths = [...readFileSync(join(projectRoot, "src/main.ts"), "utf8").matchAll(/"(\/(?:api\/[^"\s]+|mcp|version))":/g)]
 	.map((match) => match[1]!)
-	.filter((path) => !["/api/auth/login", "/api/auth/logout", "/api/auth/session", "/api/*"].includes(path))
+	.filter((path) => !["/api/auth/login", "/api/auth/logout", "/api/auth/session", "/api/auth/passkey/options", "/api/auth/passkey/verify", "/api/auth/invites/:token", "/api/auth/invites/:token/options", "/api/auth/invites/:token/verify", "/api/*"].includes(path))
 	.map((path) => path.replaceAll(":id", "1").replaceAll(":pictureId", "1"))
 
 test("every protected HTTP route rejects unauthenticated requests before method or input handling", async () => {
