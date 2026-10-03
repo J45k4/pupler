@@ -28,11 +28,12 @@ import { ProjectsPage } from "./pages/Projects"
 import { UsersPage } from "./pages/Users"
 import { IntegrationsPage } from "./pages/Integrations"
 import { ImportScheduleDetailPage, ImportSchedulesPage } from "./pages/ImportSchedules"
+import { LocationsPage } from "./pages/Locations"
 import { JobsPage } from "./pages/Jobs"
 
 const link = (path: string) => path
 
-const ROUTES = ["/login", "/todos", "/settings", "/mcp/connections", "/users", "/integrations", "/import-schedules/:id", "/import-schedules", "/jobs", "/products/stats", "/products/:id", "/products", "/groups/:id", "/inventory", "/inventory/expirations", "/inventory/containers/:id", "/inventory/items/:id", "/receipts/:id", "/receipts", "/spending/overview", "/spending/monthly", "/spending/items", "/spending", "/shoppinglist", "/recipes/new", "/recipes/:id", "/recipes", "/clients/:id", "/clients", "/projects", "/time/overview", "/time/weekly", "/time/monthly", "/time", "/"]
+const ROUTES = ["/locations", "/login", "/todos", "/settings", "/mcp/connections", "/users", "/integrations", "/import-schedules/:id", "/import-schedules", "/jobs", "/products/stats", "/products/:id", "/products", "/groups/:id", "/inventory", "/inventory/expirations", "/inventory/containers/:id", "/inventory/items/:id", "/receipts/:id", "/receipts", "/spending/overview", "/spending/monthly", "/spending/items", "/spending", "/shoppinglist", "/recipes/new", "/recipes/:id", "/recipes", "/clients/:id", "/clients", "/projects", "/time/overview", "/time/weekly", "/time/monthly", "/time", "/"]
 
 export const App = () => {
 	const rawPath = usePath()
@@ -75,6 +76,7 @@ export const App = () => {
 			<Navbar currentPath={path} user={user} link={link} onLogout={logout} />
 			<main className="page-shell page-shell--wide">
 				{match?.pattern === "/login" ? <LoginPage /> : null}
+				{match?.pattern === "/locations" ? <LocationsPage /> : null}
 				{match?.pattern === "/todos" ? <TodosPage /> : null}
 				{match?.pattern === "/settings" ? <SettingsPage /> : null}
 				{match?.pattern === "/mcp/connections" ? <McpPage /> : null}

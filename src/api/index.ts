@@ -113,3 +113,8 @@ export {
 	userPasskeyDetailRoute,
 	userPasskeysCollectionRoute,
 } from "./passkeys"
+
+export { locationsCollectionRoute, locationDetailRoute } from "./locations"
+
+export { locationPointsCollectionRoute, locationPointDetailRoute } from "./location-points"
+export { tracksCollectionRoute, trackDetailRoute } from "./tracks"

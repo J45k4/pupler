@@ -320,6 +320,8 @@ model User {
 	invites       UserInvite[]
 	oauth_grants  OAuthGrant[]
 	shopping_list_members ShoppingListMember[]
+	location_points LocationPoint[]
+	tracks        Track[]
 
 	@@map("users")
 }
@@ -627,4 +629,41 @@ model ClockifyTimeEntryLink {
 	@@unique([integration_id, time_entry_id], map: "clockify_time_entry_links_time_entry_key")
 	@@index([time_entry_id], map: "idx_clockify_time_entry_links_time_entry_id")
 	@@map("clockify_time_entry_links")
+}
+
+model LocationPoint {
+    id            Int     @id @default(autoincrement())
+    name          String?
+    notes         String?
+    latitude      Float
+    longitude     Float
+    added_by      Int
+    track_id      Int?
+    sequence      Int?
+    recorded_at   String?
+    altitude      Float?
+    accuracy      Float?
+    created_at    String
+    updated_at    String
+    added_by_user User    @relation(fields: [added_by], references: [id], onDelete: Restrict)
+    track         Track?  @relation(fields: [track_id], references: [id], onDelete: SetNull)
+
+    @@unique([track_id, sequence], map: "location_points_track_sequence_key")
+    @@index([added_by], map: "idx_location_points_added_by")
+    @@map("location_points")
+}
+
+model Track {
+    id            Int     @id @default(autoincrement())
+    name          String
+    activity_type String?
+    notes         String?
+    added_by      Int
+    created_at    String
+    updated_at    String
+    added_by_user User    @relation(fields: [added_by], references: [id], onDelete: Restrict)
+    points        LocationPoint[]
+
+    @@index([added_by], map: "idx_tracks_added_by")
+    @@map("tracks")
 }

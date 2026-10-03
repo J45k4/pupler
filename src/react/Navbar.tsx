@@ -10,6 +10,7 @@ export type NavEntry = {
 }
 
 export const navigationEntries: NavEntry[] = [
+	{ href: "/locations", label: "Locations", group: "Planning", keywords: "map coordinates places pins" },
 	{ href: "/clients", label: "Clients", group: "Time", keywords: "customers" },
 	{ href: "/inventory/expirations", label: "Expirations", group: "Inventory", keywords: "expires food" },
 	{ href: "/inventory", label: "Inventory", group: "Inventory", keywords: "stock storage containers" },
