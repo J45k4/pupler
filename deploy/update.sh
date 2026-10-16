@@ -80,6 +80,10 @@ case "$MODE" in
 
 		PUPLER_BUN_DIR="$(dirname "$PUPLER_BUN_BIN")"
 		su - "$PUPLER_RUN_USER" -c "export PATH='$PUPLER_BUN_DIR':\$PATH && cd '$PUPLER_REPO_DIR' && git pull --ff-only && '$PUPLER_BUN_BIN' install"
+		# Older units started Bun without NODE_ENV, which enabled dev hot-reload in production.
+		mkdir -p "/etc/systemd/system/${SERVICE_NAME}.service.d"
+		printf '[Service]\nEnvironment=NODE_ENV=production\n' >"/etc/systemd/system/${SERVICE_NAME}.service.d/production.conf"
+		systemctl daemon-reload
 		systemctl restart "$SERVICE_NAME"
 		systemctl --no-pager --full status "$SERVICE_NAME"
 

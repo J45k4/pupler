@@ -204,6 +204,7 @@ WorkingDirectory=${PUPLER_REPO_DIR}
 Environment=PORT=${PUPLER_PORT}
 Environment=BIND_ADDRESS=${PUPLER_BIND_ADDRESS}
 Environment=DATA_PATH=${PUPLER_DATA_DIR}
+Environment=NODE_ENV=production
 ExecStart=${PUPLER_BUN_BIN} src/main.ts
 Restart=always
 RestartSec=2
