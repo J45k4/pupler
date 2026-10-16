@@ -1585,6 +1585,7 @@ button:hover,
 	}
 
 	.shoppinglist-page__controls {
+		flex-wrap: wrap;
 		width: 100%;
 		justify-content: space-between;
 	}

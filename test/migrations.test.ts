@@ -120,3 +120,19 @@ test("binary migrations refuse unknown schemas and changed or failed migration r
 	expect(() => migrateDatabase(path)).toThrow("Failed or modified migration")
 	db.close()
 })
+
+test("shopping list visibility migration preserves members and defaults existing lists to visible", () => {
+	const path = databasePath()
+	const db = new Database(path)
+	for (const migration of migrations.slice(0, -1)) db.exec(migration.sql)
+	db.exec("INSERT INTO users (id, name, created_at, updated_at) VALUES (1, 'Member', '2026-01-01', '2026-01-01')")
+	db.exec("INSERT INTO shopping_list_members (shopping_list_id, user_id, role, created_at) VALUES (1, 1, 'viewer', '2026-01-01')")
+	const previous = db.query("SELECT * FROM shopping_list_members").all() as Array<Record<string, unknown>>
+	db.exec(migrations.at(-1)!.sql)
+	const members = db.query("SELECT shopping_list_id, user_id, role, created_at, hidden FROM shopping_list_members").all() as Array<Record<string, unknown> & { hidden: number }>
+	expect(members.map(({ hidden, ...member }) => member)).toEqual(previous)
+	expect(members.map(member => member.hidden)).toEqual([0])
+	db.exec("UPDATE shopping_list_members SET hidden = 1 WHERE user_id = 1")
+	expect(db.query("SELECT hidden FROM shopping_list_members WHERE user_id = 1").get()).toEqual({ hidden: 1 })
+	db.close()
+})

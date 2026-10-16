@@ -246,6 +246,60 @@ test("shopping list MCP tools list accessible lists and manage items", async () 
 	expect((await tool(token, "get_shopping_list", { list_id: listId })).body.result.isError).toBe(true)
 }, 20000)
 
+test("shopping list MCP visibility persists per member, supports filtering and requires write scope", async () => {
+	server = await TestServer.start()
+	const owner = await connect("shopping_lists:read shopping_lists:write")
+	const token = owner.access_token
+	const created = (await tool(token, "create_shopping_list", { name: "Shared" })).body.result.structuredContent
+	const listId = created.id
+	expect(created.hidden).toBe(false)
+	const visibleId = (await tool(token, "create_shopping_list", { name: "Visible" })).body.result.structuredContent.id
+	const archiveId = (await tool(token, "create_shopping_list", { name: "Archived" })).body.result.structuredContent.id
+	const itemId = (await tool(token, "create_shopping_list_item", { list_id: listId, name: "Milk" })).body.result.structuredContent.id
+	const guestUser = await server.call<{ id: number }>("/api/users", { method: "POST", body: { name: "Guest", username: "guest", password: "guest" } })
+	expect(guestUser.response.status).toBe(201)
+	const login = await server.call("/api/auth/login", { method: "POST", body: { username: "guest", password: "guest" } })
+	const cookie = login.response.headers.get("set-cookie")!.split(";")[0]!
+	const guest = await connect("shopping_lists:read shopping_lists:write", cookie)
+	const readOnly = await connect("shopping_lists:read", cookie)
+	const visibility = (accessToken: string, id: number, hidden: boolean) => tool(accessToken, "set_shopping_list_visibility", { list_id: id, hidden })
+	expect((await visibility(guest.access_token, listId, true)).body.result.isError).toBe(true)
+	expect((await visibility(token, 999999, true)).body.result.isError).toBe(true)
+	await tool(token, "share_shopping_list", { list_id: listId, username: "guest", role: "viewer" })
+	const discovery = await rpc(guest.access_token, "tools/list", {})
+	expect(discovery.body.result.tools.some((entry: any) => entry.name === "set_shopping_list_visibility")).toBe(true)
+	expect((await visibility(readOnly.access_token, listId, true)).response.status).toBe(403)
+	for (const args of [{ list_id: listId }, { list_id: listId, hidden: "true" }, { list_id: listId, hidden: null }, { list_id: listId, hidden: true, user_id: guestUser.body.id }]) {
+		expect((await tool(guest.access_token, "set_shopping_list_visibility", args)).body.result.isError).toBe(true)
+	}
+	expect((await tool(guest.access_token, "get_shopping_list", { list_id: listId })).body.result.structuredContent.hidden).toBe(false)
+	expect((await visibility(guest.access_token, listId, true)).body.result.structuredContent).toMatchObject({ id: listId, hidden: true, role: "viewer" })
+	expect((await visibility(guest.access_token, listId, true)).body.result.structuredContent.hidden).toBe(true)
+	expect((await tool(guest.access_token, "list_shopping_lists")).body.result.structuredContent.shopping_lists).toMatchObject([{ id: listId, hidden: true }])
+	expect((await tool(guest.access_token, "list_shopping_lists", { hidden: false })).body.result.structuredContent.shopping_lists).toEqual([])
+	expect((await tool(guest.access_token, "get_shopping_list", { list_id: listId })).body.result.structuredContent.hidden).toBe(true)
+	expect((await tool(token, "get_shopping_list", { list_id: listId })).body.result.structuredContent.hidden).toBe(false)
+	expect((await server.call<{ hidden: boolean }>(`/api/shopping-lists/${listId}`, { headers: { Cookie: cookie } })).body.hidden).toBe(true)
+	expect((await tool(guest.access_token, "get_shopping_list_item", { item_id: itemId })).body.result.structuredContent.name).toBe("Milk")
+	expect((await visibility(guest.access_token, archiveId, true)).body.result.isError).toBe(true)
+	expect((await visibility(token, listId, true)).body.result.structuredContent.hidden).toBe(true)
+	expect((await visibility(token, archiveId, true)).body.result.structuredContent.hidden).toBe(true)
+	expect((await tool(token, "list_shopping_lists")).body.result.structuredContent.shopping_lists).toHaveLength(3)
+	expect((await tool(token, "list_shopping_lists", { hidden: false })).body.result.structuredContent.shopping_lists.map((list: any) => list.id)).toEqual([visibleId])
+	const firstPage = (await tool(token, "list_shopping_lists", { hidden: true, limit: 1 })).body.result.structuredContent
+	expect(firstPage.shopping_lists.map((list: any) => list.id)).toEqual([archiveId])
+	expect(firstPage.next_before_id).toBe(archiveId)
+	const secondPage = (await tool(token, "list_shopping_lists", { hidden: true, limit: 1, before_id: firstPage.next_before_id })).body.result.structuredContent
+	expect(secondPage.shopping_lists.map((list: any) => list.id)).toEqual([listId])
+	expect(secondPage.next_before_id).toBeNull()
+	expect((await tool(token, "list_shopping_lists", { hidden: "true" })).body.result.isError).toBe(true)
+	expect((await visibility(readOnly.access_token, listId, false)).response.status).toBe(403)
+	expect((await visibility(guest.access_token, listId, false)).body.result.structuredContent.hidden).toBe(false)
+	expect((await tool(guest.access_token, "list_shopping_lists", { hidden: false })).body.result.structuredContent.shopping_lists).toMatchObject([{ id: listId, hidden: false }])
+	expect((await tool(token, "get_shopping_list", { list_id: listId })).body.result.structuredContent.hidden).toBe(true)
+	expect((await tool(token, "get_shopping_list", { list_id: listId })).body.result.structuredContent.members.every((member: any) => !("hidden" in member))).toBe(true)
+}, 20000)
+
 test("shopping list MCP scopes and membership keep private lists private", async () => {
 	server = await TestServer.start()
 	const owner = await connect("shopping_lists:read shopping_lists:write")
@@ -281,7 +335,7 @@ test("shopping list MCP scopes and membership keep private lists private", async
 	expect((await tool(owner.access_token, "remove_shopping_list_member", { list_id: listId, user_id: 1 })).body.result.isError).toBe(true)
 }, 20000)
 
-test("shopping list MCP denies every mutation to viewers and read-only OAuth grants", async () => {
+test("shopping list MCP denies content and sharing mutations to viewers and read-only OAuth grants", async () => {
 	server = await TestServer.start()
 	const owner = await connect("shopping_lists:read shopping_lists:write")
 	const listId = (await tool(owner.access_token, "create_shopping_list", { name: "Shared" })).body.result.structuredContent.id

@@ -3,7 +3,7 @@ import type { BunRequest } from "bun"
 import { db } from "../db"
 import type { PrismaClient } from "../generated/prisma/client"
 import { requireAuthenticatedUser } from "./auth"
-import { assertKnownFields, empty, expectString, HttpError, json, parseIdParam, readJsonObject, requireBodyField, utcNow, type Database } from "./core"
+import { assertKnownFields, empty, expectBoolean, expectString, HttpError, json, parseIdParam, readJsonObject, requireBodyField, utcNow, type Database } from "./core"
 
 const memberSelect = {
 	user_id: true,
@@ -29,8 +29,8 @@ const listDetail = (id: number) => db.client.shoppingList.findUnique({ where: { 
 export const shoppingListsCollectionRoute = async (req: Request) => {
 	const user = await requireAuthenticatedUser(req)
 	if (req.method === "GET") {
-		const lists = await db.client.shoppingList.findMany({ where: { members: { some: { user_id: user.id } } }, orderBy: { id: "asc" }, include: { members: { where: { user_id: user.id }, select: { role: true } } } })
-		return json(200, lists.map(({ members, ...list }) => ({ ...list, role: members[0]?.role ?? "viewer" })))
+		const lists = await db.client.shoppingList.findMany({ where: { members: { some: { user_id: user.id } } }, orderBy: { id: "asc" }, include: { members: { where: { user_id: user.id }, select: { role: true, hidden: true } } } })
+		return json(200, lists.map(({ members, ...list }) => ({ ...list, role: members[0]?.role ?? "viewer", hidden: members[0]?.hidden ?? false })))
 	}
 	if (req.method === "POST") {
 		const body = await readJsonObject(req)
@@ -39,7 +39,7 @@ export const shoppingListsCollectionRoute = async (req: Request) => {
 		if (!name) throw new HttpError(400, "List name is required")
 		const now = utcNow()
 		const list = await db.client.shoppingList.create({ data: { name, created_at: now, updated_at: now, members: { create: { user_id: user.id, role: "editor", created_at: now } } } })
-		return json(201, { ...list, role: "editor" })
+		return json(201, { ...list, role: "editor", hidden: false })
 	}
 	throw new HttpError(405, "Method not allowed for this route")
 }
@@ -47,15 +47,21 @@ export const shoppingListsCollectionRoute = async (req: Request) => {
 export const shoppingListDetailRoute = async (req: BunRequest<string>) => {
 	const user = await requireAuthenticatedUser(req)
 	const id = parseIdParam(req.params.id ?? "")
-	if (req.method !== "DELETE") await requireShoppingListMember(db, user.id, id, req.method !== "GET")
-	if (req.method === "GET") return json(200, await listDetail(id))
+	const member = req.method === "DELETE" ? null : await requireShoppingListMember(db, user.id, id, req.method !== "GET" && req.method !== "PATCH")
+	if (req.method === "GET") return json(200, { ...await listDetail(id), hidden: member!.hidden })
 	if (req.method === "PATCH") {
 		const body = await readJsonObject(req)
-		assertKnownFields(body, ["name"])
-		const name = requireBodyField(body, "name", expectString).trim()
-		if (!name) throw new HttpError(400, "List name is required")
-		await db.client.shoppingList.update({ where: { id }, data: { name, updated_at: utcNow() } })
-		return json(200, await listDetail(id))
+		assertKnownFields(body, ["name", "hidden"])
+		if (Object.keys(body).length === 0) throw new HttpError(400, "Provide changes")
+		const member = await requireShoppingListMember(db, user.id, id, "name" in body)
+		const name = "name" in body ? requireBodyField(body, "name", expectString).trim() : undefined
+		const hidden = "hidden" in body ? requireBodyField(body, "hidden", expectBoolean) : undefined
+		if (name !== undefined && !name) throw new HttpError(400, "List name is required")
+		await (db.client as PrismaClient).$transaction(async (tx) => {
+			if (name !== undefined) await tx.shoppingList.update({ where: { id }, data: { name, updated_at: utcNow() } })
+			if (hidden !== undefined) await tx.shoppingListMember.update({ where: { shopping_list_id_user_id: { shopping_list_id: id, user_id: user.id } }, data: { hidden } })
+		})
+		return json(200, { ...await listDetail(id), hidden: hidden ?? member.hidden })
 	}
 	if (req.method === "DELETE") {
 		await (db.client as PrismaClient).$transaction(async (tx) => {

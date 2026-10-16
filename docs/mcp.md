@@ -102,12 +102,15 @@ unlinks their inventory references while preserving inventory items.
 ## Shopping list tools
 
 `list_shopping_lists` returns only lists that include the connected user. It and
-`list_shopping_list_items` return pages with `next_before_id`. Item listing shows
+`list_shopping_list_items` return pages with `next_before_id`. List creation, listing,
+and detail responses include the connected user's `hidden` status. List listing
+includes hidden lists by default; pass `hidden: false` for visible lists or
+`hidden: true` for hidden lists. Item listing shows
 active items by default; set `removed` to `removed` or `all` to see hidden items.
 The optional `done` filter selects bought or unbought items.
 
 - Lists: `list_shopping_lists`, `get_shopping_list`, `create_shopping_list`,
-  `rename_shopping_list`, `delete_shopping_list`.
+  `rename_shopping_list`, `set_shopping_list_visibility`, `delete_shopping_list`.
 - Items: `list_shopping_list_items`, `get_shopping_list_item`,
   `create_shopping_list_item`, `update_shopping_list_item`,
   `remove_shopping_list_item`, `restore_shopping_list_item`.
@@ -115,7 +118,11 @@ The optional `done` filter selects bought or unbought items.
   `set_shopping_list_member_role`, `remove_shopping_list_member`.
 
 Reading requires `shopping_lists:read` and membership in the list. Changes
-require `shopping_lists:write` and the `editor` role for an existing list.
+require `shopping_lists:write` and the `editor` role for an existing list, except
+`set_shopping_list_visibility`, which allows viewers and editors to change their
+own preference. Pass `{ list_id, hidden: true }` to hide a list or
+`{ list_id, hidden: false }` to show it again. This preference is saved across
+devices and does not affect other members, access permissions, or list items.
 `remove_shopping_list_item` hides an item but preserves it for restoration;
 `delete_shopping_list` permanently deletes the list and its items.
 

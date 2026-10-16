@@ -4,7 +4,7 @@ import { useAuth } from "../auth"
 import { Combobox } from "../Combobox"
 import { Empty, Status, useApi, type ShoppingListItem } from "../lib"
 
-type ShoppingList = { id: number; name: string; role: "viewer" | "editor" }
+type ShoppingList = { id: number; name: string; role: "viewer" | "editor"; hidden: boolean }
 type ListMember = { user_id: number; role: "viewer" | "editor"; user: { name: string; username: string | null } }
 type ShoppingListDetail = { id: number; name: string; members: ListMember[] }
 type ShareCandidate = { id: number; name: string; username: string }
@@ -32,6 +32,9 @@ export const ShoppingListsPage = ({ link }: { link: (path: string) => string }) 
 	const shareTriggerRef = useRef<HTMLButtonElement>(null)
 	const [creatingList, setCreatingList] = useState(false)
 	const [showBought, setShowBought] = useState(false)
+	const [showHidden, setShowHidden] = useState(false)
+	const [hiddenOverrides, setHiddenOverrides] = useState<Record<number, boolean>>({})
+	const [visibilityPending, setVisibilityPending] = useState<Record<number, boolean>>({})
 	const [listName, setListName] = useState("")
 	const [cardNames, setCardNames] = useState<Record<number, string>>({})
 	const [sharingId, setSharingId] = useState<number | null>(null)
@@ -48,7 +51,9 @@ export const ShoppingListsPage = ({ link }: { link: (path: string) => string }) 
 	const { data: listsData, loading: listsLoading, error: listsError, reload: reloadLists } = useApi<ShoppingList[]>("/api/shopping-lists")
 	const { data, loading, error, reload } = useApi<ShoppingListItem[]>("/api/shopping-list-items?removed=all")
 	const { data: detail, loading: detailLoading, error: detailError, reload: reloadDetail } = useApi<ShoppingListDetail>(sharingId === null ? null : `/api/shopping-lists/${sharingId}`)
-	const lists = (listsData ?? []).filter((list) => !deletedListIds.includes(list.id))
+	const lists = (listsData ?? []).filter((list) => !deletedListIds.includes(list.id)).map((list) => ({ ...list, hidden: hiddenOverrides[list.id] ?? list.hidden }))
+	const visibleLists = lists.filter((list) => showHidden || !list.hidden)
+	const hiddenCount = lists.filter((list) => list.hidden).length
 	const sharingList = lists.find((list) => list.id === sharingId) ?? null
 	const { data: candidates, loading: candidatesLoading, error: candidatesError, reload: reloadCandidates } = useApi<ShareCandidates>(sharingList?.role === "editor" ? `/api/shopping-lists/${sharingList.id}/members` : null)
 	const availableUsers = candidates?.list_id === sharingId ? candidates.users : []
@@ -187,6 +192,31 @@ export const ShoppingListsPage = ({ link }: { link: (path: string) => string }) 
 		}
 	}
 
+	useEffect(() => {
+		if (!listsData) return
+		setHiddenOverrides((current) => {
+			const next = { ...current }
+			for (const list of listsData) if (next[list.id] === list.hidden) delete next[list.id]
+			return next
+		})
+	}, [listsData])
+
+	const setListHidden = async (list: ShoppingList, hidden: boolean) => {
+		setVisibilityPending((current) => ({ ...current, [list.id]: true }))
+		try {
+			await apiFetch(`/api/shopping-lists/${list.id}`, { method: "PATCH", body: JSON.stringify({ hidden }) })
+			setHiddenOverrides((current) => ({ ...current, [list.id]: hidden }))
+			setStatus(`${hidden ? "Hidden" : "Shown"} ${list.name}.`)
+			setStatusError(false)
+			reloadLists()
+		} catch (err) {
+			setStatus(err instanceof Error ? err.message : "Failed to update list visibility")
+			setStatusError(true)
+		} finally {
+			setVisibilityPending((current) => ({ ...current, [list.id]: false }))
+		}
+	}
+
 	const removeList = async (list: ShoppingList) => {
 		if (list.role !== "editor" || !window.confirm(`Remove "${list.name}" and all its items? Everyone with access will lose this list.`)) return
 		try {
@@ -210,8 +240,9 @@ export const ShoppingListsPage = ({ link }: { link: (path: string) => string }) 
 
 	return <section className="shoppinglist-page shoppinglist-page--board">
 		<header className="shoppinglist-page__header">
-			<p>{listsLoading ? "Loading lists…" : `${lists.length} ${lists.length === 1 ? "list" : "lists"}`}</p>
+			<p>{listsLoading ? "Loading lists…" : `${visibleLists.length} ${visibleLists.length === 1 ? "list" : "lists"}`}</p>
 			<div className="shoppinglist-page__controls">
+				<label className="shoppinglist-page__filter"><input type="checkbox" checked={showHidden} onChange={(event) => setShowHidden(event.target.checked)} />Show hidden ({hiddenCount})</label>
 				<label className="shoppinglist-page__filter"><input type="checkbox" checked={showBought} onChange={(event) => setShowBought(event.target.checked)} />Show bought</label>
 				<button className="primary shoppinglist-page__new" type="button" onClick={() => setCreatingList((current) => !current)}>+ New list</button>
 			</div>
@@ -223,8 +254,8 @@ export const ShoppingListsPage = ({ link }: { link: (path: string) => string }) 
 		</form> : null}
 		{listsError || error || (sharingId === null && status) ? <Status message={listsError ?? error ?? status} error={!!listsError || !!error || statusError} /> : null}
 		<div className="shoppinglist-board">
-			{!loading && !listsLoading && !error && lists.length === 0 ? <Empty message="Create a list to get started." /> : null}
-			{data !== null ? lists.map((list) => {
+			{!loading && !listsLoading && !error && visibleLists.length === 0 ? <Empty message={hiddenCount ? "All lists are hidden. Turn on Show hidden to show them again." : "Create a list to get started."} /> : null}
+			{data !== null ? visibleLists.map((list) => {
 				const listItems = data.filter((item) => item.shopping_list_id === list.id).map((item) => ({ ...item, done: doneOverrides[item.id] ?? item.done }))
 				const activeItems = listItems.filter((item) => !item.removed_at)
 				const uncheckedItems = activeItems.filter((item) => !item.done)
@@ -238,6 +269,7 @@ export const ShoppingListsPage = ({ link }: { link: (path: string) => string }) 
 						<div className="shoppinglist-board-card__actions">
 							<button type="button" aria-label={`Share ${list.name}`} title={`Share ${list.name}`} onClick={(event) => { shareTriggerRef.current = event.currentTarget; setSharingId(list.id); setRecipientLabel(""); setStatus("") }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="m8.3 10.8 7.4-4.5m-7.4 6.9 7.4 4.5"/></svg></button>
 							<details className="shoppinglist-board-card__menu"><summary aria-label={`More options for ${list.name}`} title="More options">⋯</summary><div onClick={(event) => { if ((event.target as HTMLElement).closest("button")) event.currentTarget.closest("details")!.open = false }}>
+								<button type="button" disabled={visibilityPending[list.id]} onClick={() => void setListHidden(list, !list.hidden)}>{list.hidden ? "Show list" : "Hide list"}</button>
 								{canEdit ? <button type="button" onClick={() => { setCollapsedLists((current) => ({ ...current, [list.id]: false })); setEditingItems((current) => ({ ...current, [list.id]: !current[list.id] })) }}>{editingItems[list.id] ? "Done editing" : "Remove items"}</button> : null}
 								<button type="button" onClick={() => { setCollapsedLists((current) => ({ ...current, [list.id]: false })); setShowRemoved((current) => ({ ...current, [list.id]: !current[list.id] })) }}>{showRemoved[list.id] ? "Hide" : "Show"} removed items ({removedItems.length})</button>
 								{canEdit ? <button className="shoppinglist-board-card__delete" type="button" onClick={() => void removeList(list)}>Remove list</button> : null}
@@ -245,7 +277,7 @@ export const ShoppingListsPage = ({ link }: { link: (path: string) => string }) 
 						</div>
 					</div>
 					<div id={`shopping-list-${list.id}-content`} className="shoppinglist-board-card__content" hidden={!!collapsedLists[list.id]}>
-					<p className="shoppinglist-board-card__progress">{canEdit ? "" : "Viewer · "}{bought} of {activeItems.length} bought{activeItems.length > 0 && bought === activeItems.length ? " · All bought" : ""}</p>
+					<p className="shoppinglist-board-card__progress">{list.hidden ? "Hidden · " : ""}{canEdit ? "" : "Viewer · "}{bought} of {activeItems.length} bought{activeItems.length > 0 && bought === activeItems.length ? " · All bought" : ""}</p>
 					{visibleItems.length ? <ul className="shoppinglist-board-card__items">{visibleItems.map((item) => <li key={item.id} className={item.done ? "shoppinglist-board-card__item shoppinglist-board-card__item--done" : "shoppinglist-board-card__item"}>
 						<input type="checkbox" checked={item.done} disabled={!canEdit} aria-label={`Mark ${item.name} bought in ${list.name}`} onChange={(event) => void updateItem(item, { done: event.target.checked })} />
 						<span>{item.name}{item.product ? <a href={link(`/products/${item.product.id}`)} data-link="">Product: {item.product.name}</a> : null}</span>

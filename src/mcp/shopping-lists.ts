@@ -24,13 +24,13 @@ export const registerShoppingListTools = (register: Register, identity: McpIdent
 		return item
 	}
 
-	register("list_shopping_lists", "List the connected user's shopping lists, including their role in each list. Use next_before_id for the next page.", "shopping_lists:read", z.object(page).strict(), async input => {
-		const rows = await db.client.shoppingList.findMany({ where: { members: { some: { user_id: userId } }, ...(input.before_id ? { id: { lt: input.before_id } } : {}) }, orderBy: { id: "desc" }, take: input.limit + 1, include: { members: { where: { user_id: userId }, select: { role: true } } } })
-		return { shopping_lists: rows.slice(0, input.limit).map(({ members, ...list }) => ({ ...list, role: members[0]?.role })), next_before_id: rows.length > input.limit ? rows[input.limit - 1]!.id : null }
+	register("list_shopping_lists", "List the connected user's shopping lists, including their role and personal hidden status. Includes hidden lists by default; set hidden to filter visible or hidden lists. Use next_before_id for the next page.", "shopping_lists:read", z.object({ ...page, hidden: z.boolean().optional() }).strict(), async input => {
+		const rows = await db.client.shoppingList.findMany({ where: { members: { some: { user_id: userId, ...(input.hidden === undefined ? {} : { hidden: input.hidden }) } }, ...(input.before_id ? { id: { lt: input.before_id } } : {}) }, orderBy: { id: "desc" }, take: input.limit + 1, include: { members: { where: { user_id: userId }, select: { role: true, hidden: true } } } })
+		return { shopping_lists: rows.slice(0, input.limit).map(({ members, ...list }) => ({ ...list, role: members[0]?.role, hidden: members[0]?.hidden })), next_before_id: rows.length > input.limit ? rows[input.limit - 1]!.id : null }
 	})
 	register("get_shopping_list", "Get one accessible shopping list and its members.", "shopping_lists:read", z.object({ list_id: idSchema }).strict(), async ({ list_id }) => {
 		const member = await requireList(list_id)
-		return { ...await listDetail(list_id), role: member.role }
+		return { ...await listDetail(list_id), role: member.role, hidden: member.hidden }
 	})
 	register("list_shopping_list_items", "List items in an accessible shopping list. Active items are shown by default; use removed to include removed items.", "shopping_lists:read", z.object({ list_id: idSchema, ...page, removed: z.enum(["active", "removed", "all"]).default("active"), done: z.boolean().optional() }).strict(), async input => {
 		await requireList(input.list_id)
@@ -44,7 +44,12 @@ export const registerShoppingListTools = (register: Register, identity: McpIdent
 	register("create_shopping_list", "Create a shopping list with the connected user as an editor.", "shopping_lists:write", z.object({ name: z.string().trim().min(1).max(300) }).strict(), async ({ name }) => {
 		const now = utcNow()
 		const list = await db.client.shoppingList.create({ data: { name, created_at: now, updated_at: now, members: { create: { user_id: userId, role: "editor", created_at: now } } } })
-		return { ...list, role: "editor" }
+		return { ...list, role: "editor", hidden: false }
+	})
+	register("set_shopping_list_visibility", "Hide or show a shopping list for the connected user only. Set hidden to true to hide it, or false to show it again. Viewer or editor membership is sufficient; other members and items are unaffected.", "shopping_lists:write", z.object({ list_id: idSchema, hidden: z.boolean() }).strict(), async ({ list_id, hidden }) => {
+		await requireList(list_id)
+		const member = await db.client.shoppingListMember.update({ where: { shopping_list_id_user_id: { shopping_list_id: list_id, user_id: userId } }, data: { hidden } })
+		return { ...await listDetail(list_id), role: member.role, hidden: member.hidden }
 	})
 	register("rename_shopping_list", "Rename a shopping list. Editor access is required.", "shopping_lists:write", z.object({ list_id: idSchema, name: z.string().trim().min(1).max(300) }).strict(), async ({ list_id, name }) => {
 		await requireList(list_id, true)
