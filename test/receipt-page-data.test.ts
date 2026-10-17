@@ -11,18 +11,19 @@ describe("receipt page data", () => {
 	})
 
 	test("includes the whole selected local date, handles daylight saving, and rejects invalid dates", () => {
-		const original = process.env.TZ
-		try {
-			process.env.TZ = "Europe/Helsinki"
-			expect(receiptDateBefore("2026-10-25")).toBe("2026-10-25T22:00:00.000Z")
-			expect(Date.parse(receiptDateBefore("2026-10-25")!) - Date.parse(receiptDateBefore("2026-10-24")!)).toBe(25 * 60 * 60 * 1000)
-			expect(Date.parse(receiptDateBefore("2026-03-29")!) - Date.parse(receiptDateBefore("2026-03-28")!)).toBe(23 * 60 * 60 * 1000)
-			expect(receiptDateBefore("")).toBeNull()
-			for (const value of ["nope", "2026-02-30", "2026-13-01", "2026-1-1"]) expect(() => receiptDateBefore(value)).toThrow("Invalid receipt date")
-		} finally {
-			if (original === undefined) delete process.env.TZ
-			else process.env.TZ = original
-		}
+		// Bun caches timezone changes even after TZ is deleted, so isolate this check.
+		const source = `
+			import { receiptDateBefore } from ${JSON.stringify(new URL("../src/react/pages/receipt-page-data.ts", import.meta.url).href)}
+			console.log(JSON.stringify(["2026-10-24", "2026-10-25", "2026-03-28", "2026-03-29"].map(receiptDateBefore)))
+		`
+		const result = Bun.spawnSync([process.execPath, "-e", source], { env: { ...process.env, TZ: "Europe/Helsinki" }, stdout: "pipe", stderr: "pipe" })
+		expect(result.exitCode).toBe(0)
+		const [fallStart, fallEnd, springStart, springEnd] = JSON.parse(result.stdout.toString()) as [string, string, string, string]
+		expect(fallEnd).toBe("2026-10-25T22:00:00.000Z")
+		expect(Date.parse(fallEnd) - Date.parse(fallStart)).toBe(25 * 60 * 60 * 1000)
+		expect(Date.parse(springEnd) - Date.parse(springStart)).toBe(23 * 60 * 60 * 1000)
+		expect(receiptDateBefore("")).toBeNull()
+		for (const value of ["nope", "2026-02-30", "2026-13-01", "2026-1-1"]) expect(() => receiptDateBefore(value)).toThrow("Invalid receipt date")
 	})
 
 	test("merges by ID without duplicating receipts or replacing unchanged objects", () => {
