@@ -768,6 +768,7 @@ h1 {
 
 .receipts-page__controls {
 	display: flex;
+	flex-wrap: wrap;
 	align-items: center;
 	justify-content: space-between;
 	gap: 1rem;
@@ -781,6 +782,31 @@ h1 {
 
 .receipts-page__actions {
 	flex: 0 0 auto;
+}
+
+.receipts-page__filters {
+	flex-wrap: wrap;
+	align-items: end;
+}
+
+.receipt-date-filter {
+	display: grid;
+	gap: 0.25rem;
+	color: var(--muted);
+	font-size: 0.85rem;
+}
+
+.receipt-date-filter input {
+	width: auto;
+}
+
+.receipt-pagination {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 0.65rem;
+	min-height: 3rem;
+	padding: 1rem;
 }
 
 .inventory-page {
@@ -1199,6 +1225,10 @@ button:hover,
 
 .receipt-view-toggle {
 	margin-right: auto;
+}
+
+.receipt-view-toggle input {
+	flex: 0 0 auto;
 }
 
 .shoppinglist-input {
