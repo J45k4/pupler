@@ -1686,6 +1686,14 @@ button:hover,
 	}
 }
 
+.todo-card__detail {
+	display: block;
+	margin-top: 0.2rem;
+	color: var(--muted);
+	font-size: 0.8rem;
+	white-space: pre-wrap;
+}
+
 .todos-panel-actions {
 	display: flex;
 	align-items: center;

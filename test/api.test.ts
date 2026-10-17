@@ -1,3 +1,4 @@
+import { TodoListRole } from "../src/todo-list-role"
 import { existsSync, mkdtempSync, rmSync } from "node:fs"
 import { Database as SQLiteDatabase } from "bun:sqlite"
 import { tmpdir } from "node:os"
@@ -67,6 +68,10 @@ import {
 	projectMergeRoute,
 	projectsCollectionRoute,
 	timeReportRoute,
+	todoListDetailRoute,
+	todoListMemberDetailRoute,
+	todoListMembersCollectionRoute,
+	todoListsCollectionRoute,
 	todoDetailRoute,
 	todosCollectionRoute,
 	userDetailRoute,
@@ -162,6 +167,10 @@ const createRoutes = () => {
 				"/api/shopping-lists/:id": shoppingListDetailRoute,
 				"/api/shopping-lists/:id/members": shoppingListMembersCollectionRoute,
 				"/api/shopping-lists/:id/members/:userId": shoppingListMemberDetailRoute,
+				"/api/todo-lists": todoListsCollectionRoute,
+				"/api/todo-lists/:id": todoListDetailRoute,
+				"/api/todo-lists/:id/members": todoListMembersCollectionRoute,
+				"/api/todo-lists/:id/members/:userId": todoListMemberDetailRoute,
 				"/api/todos": todosCollectionRoute,
 				"/api/todos/:id": todoDetailRoute,
 				"/api/users": usersCollectionRoute,
@@ -191,7 +200,11 @@ const request = async (
 ) => {
 	const url = new URL(`http://localhost${path}`)
 	const pathname = url.pathname
-	const routeKey = pathname.match(/^\/api\/shopping-lists\/\d+\/members\/\d+$/)
+	const routeKey = pathname.match(/^\/api\/todo-lists\/\d+\/members\/\d+$/)
+		? "/api/todo-lists/:id/members/:userId"
+		: pathname.match(/^\/api\/todo-lists\/\d+\/members$/)
+			? "/api/todo-lists/:id/members"
+			: pathname.match(/^\/api\/shopping-lists\/\d+\/members\/\d+$/)
 		? "/api/shopping-lists/:id/members/:userId"
 		: pathname.match(/^\/api\/shopping-lists\/\d+\/members$/)
 			? "/api/shopping-lists/:id/members"
@@ -253,11 +266,12 @@ const request = async (
 		return handler.clone()
 	}
 	const headers = new Headers(options.headers)
-	if ((pathname.startsWith("/api/time-") || pathname.startsWith("/api/shopping-")) && !headers.has("Cookie") && !headers.has("Authorization")) {
-		const username = pathname.startsWith("/api/time-") ? "time-test-admin" : "shopping-test-admin"
+	if ((pathname.startsWith("/api/time-") || pathname.startsWith("/api/shopping-") || pathname.startsWith("/api/todo")) && !headers.has("Cookie") && !headers.has("Authorization")) {
+		const username = pathname.startsWith("/api/time-") ? "time-test-admin" : pathname.startsWith("/api/todo") ? "todo-test-admin" : "shopping-test-admin"
 		if (!await routes.db.client.user.findUnique({ where: { username } })) {
 			const now = new Date().toISOString()
 			const created = await routes.db.client.user.create({ data: { name: "Test admin", username, password_hash: await Bun.password.hash("time-test-password"), is_admin: true, created_at: now, updated_at: now } })
+			if (pathname.startsWith("/api/todo")) await routes.db.client.todoListMember.create({ data: { todo_list_id: 1, user_id: created.id, role: TodoListRole.Editor, created_at: now } })
 			if (pathname.startsWith("/api/shopping-")) await routes.db.client.shoppingListMember.create({ data: { shopping_list_id: 1, user_id: created.id, role: "editor", created_at: now } })
 		}
 		const login = await authLoginRoute(new Request("http://localhost/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password: "time-test-password" }) }))
@@ -3976,6 +3990,118 @@ describe("Pupler API", () => {
 		expect((await asUser(alice.cookie, listPath)).status).toBe(200)
 		expect((await asUser("pupler_session=invalid", listPath)).status).toBe(401)
 		expect((await asUser("pupler_session=invalid", "/api/shopping-list-items")).status).toBe(401)
+	})
+
+	test("keeps todo cards private and enforces sharing roles and personal visibility", async () => {
+		const routes = createRoutes()
+		const password = "todo-share-password"
+		const passwordHash = await Bun.password.hash(password)
+		const createUser = async (username: string) => {
+			const now = new Date().toISOString()
+			const user = await routes.db.client.user.create({ data: { name: username, username, password_hash: passwordHash, is_admin: false, created_at: now, updated_at: now } })
+			const response = await request(routes, "/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password }) })
+			expect(response.status).toBe(200)
+			return { id: user.id, cookie: response.headers.get("set-cookie")!.split(";")[0]! }
+		}
+		const alice = await createUser("todo-alice")
+		const bob = await createUser("todo-bob")
+		const carol = await createUser("todo-carol")
+		const asUser = (cookie: string, path: string, method = "GET", body?: object) => {
+			const segments = new URL(`http://localhost${path}`).pathname.split("/")
+			return request(routes, path, { method, headers: { Cookie: cookie, ...(body ? { "Content-Type": "application/json" } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) }, { id: segments[3] ?? "", userId: segments[5] ?? "" })
+		}
+
+		const created = await asUser(alice.cookie, "/api/todo-lists", "POST", { name: "Hardware" })
+		expect(created.status).toBe(201)
+		const list = await created.json()
+		const listPath = `/api/todo-lists/${list.id}`
+		expect((await (await asUser(bob.cookie, "/api/todo-lists")).json())).toEqual([])
+		expect((await asUser(carol.cookie, listPath)).status).toBe(404)
+		const candidatesResponse = await asUser(alice.cookie, `${listPath}/members`)
+		expect(candidatesResponse.status).toBe(200)
+		const candidates = await candidatesResponse.json()
+		expect(candidates.list_id).toBe(list.id)
+		expect(candidates.users).toEqual(expect.arrayContaining([{ id: bob.id, name: "todo-bob", username: "todo-bob" }, { id: carol.id, name: "todo-carol", username: "todo-carol" }]))
+		expect(candidates.users.some((candidate: { id: number }) => candidate.id === alice.id)).toBe(false)
+		expect((await asUser(carol.cookie, `${listPath}/members`)).status).toBe(404)
+		for (const role of [0, 3, 1.5, "viewer", "editor", "1", "2", true, null]) expect((await asUser(alice.cookie, `${listPath}/members`, "POST", { username: "todo-bob", role })).status).toBe(400)
+		expect((await asUser(alice.cookie, `${listPath}/members`, "POST", { username: "todo-bob", role: TodoListRole.Viewer })).status).toBe(201)
+		expect((await asUser(alice.cookie, `${listPath}/members`, "POST", { username: "todo-bob", role: TodoListRole.Viewer })).status).toBe(409)
+		expect((await asUser(bob.cookie, `${listPath}/members`)).status).toBe(403)
+		expect((await (await asUser(alice.cookie, `${listPath}/members`)).json()).users.some((candidate: { id: number }) => candidate.id === bob.id)).toBe(false)
+		expect((await (await asUser(bob.cookie, "/api/todo-lists")).json())[0].role).toBe(TodoListRole.Viewer)
+		for (const role of [0, 3, 1.5, "viewer", "editor", "1", "2", true, null]) expect((await asUser(alice.cookie, `${listPath}/members/${bob.id}`, "PATCH", { role })).status).toBe(400)
+		expect((await (await asUser(alice.cookie, listPath)).json()).members.find((member: { user_id: number }) => member.user_id === bob.id).role).toBe(TodoListRole.Viewer)
+
+		const itemResponse = await asUser(alice.cookie, "/api/todos", "POST", { todo_list_id: list.id, title: "Hammer" })
+		expect(itemResponse.status).toBe(201)
+		const item = await itemResponse.json()
+		expect((await (await asUser(bob.cookie, `/api/todos?todo_list_id=${list.id}`)).json())).toHaveLength(1)
+		expect((await asUser(bob.cookie, `/api/todos/${item.id}`)).status).toBe(200)
+		expect((await asUser(bob.cookie, `/api/todos/${item.id}`, "PATCH", { status: 2 })).status).toBe(403)
+		expect((await asUser(bob.cookie, `/api/todos/${item.id}`, "PUT", { name: "Changed" })).status).toBe(403)
+		expect((await asUser(bob.cookie, `/api/todos/${item.id}`, "DELETE")).status).toBe(403)
+		expect((await asUser(bob.cookie, "/api/todos", "POST", { todo_list_id: list.id, title: "Nails" })).status).toBe(403)
+		expect((await asUser(bob.cookie, listPath, "PATCH", { name: "Changed" })).status).toBe(403)
+		expect(list.hidden).toBe(false)
+		expect((await asUser(carol.cookie, listPath, "PATCH", { hidden: true })).status).toBe(404)
+		expect((await asUser("pupler_session=invalid", listPath, "PATCH", { hidden: true })).status).toBe(401)
+		for (const hidden of ["true", 1, null]) expect((await asUser(bob.cookie, listPath, "PATCH", { hidden })).status).toBe(400)
+		expect((await asUser(bob.cookie, listPath, "PATCH", {})).status).toBe(400)
+		expect((await asUser(bob.cookie, listPath, "PATCH", { hidden: true, user_id: alice.id })).status).toBe(400)
+		expect((await asUser(bob.cookie, listPath, "PATCH", { hidden: true, name: "Changed" })).status).toBe(403)
+		expect((await (await asUser(bob.cookie, listPath)).json()).hidden).toBe(false)
+		const hiddenResponse = await asUser(bob.cookie, listPath, "PATCH", { hidden: true })
+		expect(hiddenResponse.status).toBe(200)
+		expect((await hiddenResponse.json()).hidden).toBe(true)
+		expect((await (await asUser(bob.cookie, "/api/todo-lists")).json())[0]).toMatchObject({ id: list.id, hidden: true, role: TodoListRole.Viewer })
+		expect((await (await asUser(alice.cookie, "/api/todo-lists")).json())[0].hidden).toBe(false)
+		expect((await (await asUser(bob.cookie, listPath)).json()).hidden).toBe(true)
+		expect((await (await asUser(bob.cookie, `/api/todos/${item.id}`)).json()).title).toBe("Hammer")
+		expect((await asUser(bob.cookie, listPath, "PATCH", { hidden: true })).status).toBe(200)
+		const restoredResponse = await asUser(bob.cookie, listPath, "PATCH", { hidden: false })
+		expect(restoredResponse.status).toBe(200)
+		expect((await restoredResponse.json()).hidden).toBe(false)
+		expect((await (await asUser(bob.cookie, "/api/todo-lists")).json())[0].hidden).toBe(false)
+		expect((await asUser(alice.cookie, listPath, "PATCH", { hidden: true, name: "Renamed hardware" })).status).toBe(200)
+		expect((await (await asUser(alice.cookie, listPath)).json())).toMatchObject({ name: "Renamed hardware", hidden: true })
+		expect((await (await asUser(bob.cookie, listPath)).json())).toMatchObject({ name: "Renamed hardware", hidden: false })
+
+		expect((await asUser(carol.cookie, `/api/todos/${item.id}`)).status).toBe(404)
+		for (const method of ["PATCH", "PUT", "DELETE"]) expect((await asUser(carol.cookie, `/api/todos/${item.id}`, method, method === "DELETE" ? undefined : { title: "Intrusion", status: 1 })).status).toBe(404)
+		expect((await asUser(carol.cookie, "/api/todos", "POST", { todo_list_id: list.id, title: "Intrusion" })).status).toBe(404)
+		expect((await asUser(alice.cookie, `/api/todos/${item.id}`, "PATCH", { todo_list_id: 1 })).status).toBe(400)
+		expect((await asUser(alice.cookie, `/api/todos/${item.id}`, "PUT", { title: "Hammer", status: 1, notes: "Keep in workshop" })).status).toBe(200)
+		expect((await (await asUser(alice.cookie, `/api/todos/${item.id}`)).json()).todo_list_id).toBe(list.id)
+		expect((await asUser(carol.cookie, "/api/todos?todo_list_id=" + list.id)).status).toBe(200)
+		expect((await (await asUser(carol.cookie, "/api/todos?todo_list_id=" + list.id)).json())).toEqual([])
+		expect((await asUser(bob.cookie, `${listPath}/members`, "POST", { username: "todo-carol", role: TodoListRole.Viewer })).status).toBe(403)
+		expect((await asUser(bob.cookie, `${listPath}/members/${alice.id}`, "PATCH", { role: TodoListRole.Viewer })).status).toBe(403)
+		expect((await asUser(bob.cookie, `${listPath}/members/${alice.id}`, "DELETE")).status).toBe(403)
+
+		expect((await asUser(alice.cookie, `${listPath}/members/${bob.id}`, "PATCH", { role: TodoListRole.Editor })).status).toBe(200)
+		expect((await asUser(bob.cookie, `/api/todos/${item.id}`, "PATCH", { status: 2 })).status).toBe(200)
+		expect((await asUser(alice.cookie, `${listPath}/members/${alice.id}`, "DELETE")).status).toBe(400)
+		expect((await asUser(alice.cookie, `${listPath}/members/${bob.id}`, "DELETE")).status).toBe(204)
+		expect((await asUser(bob.cookie, `/api/todos/${item.id}`)).status).toBe(404)
+		expect((await asUser(bob.cookie, listPath)).status).toBe(404)
+
+		const removableResponse = await asUser(alice.cookie, "/api/todo-lists", "POST", { name: "Temporary" })
+		const removable = await removableResponse.json()
+		const removablePath = `/api/todo-lists/${removable.id}`
+		const removableItemResponse = await asUser(alice.cookie, "/api/todos", "POST", { todo_list_id: removable.id, title: "Tape" })
+		const removableItem = await removableItemResponse.json()
+		expect((await asUser(alice.cookie, `${removablePath}/members`, "POST", { username: "todo-bob", role: TodoListRole.Viewer })).status).toBe(201)
+		expect((await asUser(bob.cookie, removablePath, "DELETE")).status).toBe(403)
+		expect((await asUser(carol.cookie, removablePath, "DELETE")).status).toBe(404)
+		expect((await asUser(alice.cookie, removablePath, "DELETE")).status).toBe(204)
+		expect((await asUser(alice.cookie, removablePath)).status).toBe(404)
+		expect((await asUser(bob.cookie, removablePath)).status).toBe(404)
+		expect((await asUser(alice.cookie, `/api/todos/${removableItem.id}`)).status).toBe(404)
+		expect(await routes.db.client.todoListMember.count({ where: { todo_list_id: removable.id } })).toBe(0)
+		expect((await asUser(alice.cookie, listPath)).status).toBe(200)
+		expect((await asUser("pupler_session=invalid", listPath)).status).toBe(401)
+		expect((await asUser("pupler_session=invalid", "/api/todos")).status).toBe(401)
 	})
 
 	test("creates shoppinglist items with ingredient and product links", async () => {

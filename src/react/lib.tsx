@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { apiFetch } from "./api"
 
 export type Todo = {
+	todo_list_id: number
 	id: number
 	title: string
 	notes: string | null

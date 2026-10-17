@@ -14,6 +14,7 @@ import sql12 from "../prisma/migrations/20260926000000_add_mcp_oauth/migration.s
 import sql13 from "../prisma/migrations/20261001000000_add_passkeys_and_invites/migration.sql" with { type: "text" }
 import sql14 from "../prisma/migrations/20261003000000_add_location_points_and_tracks/migration.sql" with { type: "text" }
 import sql15 from "../prisma/migrations/20261005000000_add_shopping_list_visibility/migration.sql" with { type: "text" }
+import sql16 from "../prisma/migrations/20261017000000_add_todo_lists/migration.sql" with { type: "text" }
 import { Database } from "bun:sqlite"
 import { createHash, randomUUID } from "node:crypto"
 import { mkdirSync } from "node:fs"
@@ -36,6 +37,7 @@ export const migrations = [
 	{ name: "20261001000000_add_passkeys_and_invites", sql: sql13 },
 	{ name: "20261003000000_add_location_points_and_tracks", sql: sql14 },
 	{ name: "20261005000000_add_shopping_list_visibility", sql: sql15 },
+	{ name: "20261017000000_add_todo_lists", sql: sql16 },
 ]
 
 const legacyShoppingItemRemovalSql = 'ALTER TABLE "shopping_list_items" ADD COLUMN "removed_at" TEXT;\n'

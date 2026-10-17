@@ -1,3 +1,4 @@
+import { TodoListRole } from "../src/todo-list-role"
 import { afterEach, describe, expect, test } from "bun:test"
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -93,6 +94,29 @@ describe("Pupler CLI", () => {
 			"bun ./cli/cli.ts inventory-items update 7 --receipt-item-id null",
 		)
 		expect(help.stdout).toContain("--expires-at 2026-05-01T00:00:00.000Z")
+	})
+
+	test("creates todo cards and filters todos by their card", async () => {
+		const server = await startServer()
+		const options = { baseUrl: server.baseUrl }
+		const created = await runCli(["todo-lists", "create", "--json", "--name", "Home"], options)
+		expect(created.exitCode).toBe(0)
+		const list = JSON.parse(created.stdout) as { id: number; role: TodoListRole; hidden: boolean }
+		expect(list.role).toBe(TodoListRole.Editor)
+		expect(list.hidden).toBe(false)
+		const added = await runCli(["todos", "create", "--json", "--todo-list-id", String(list.id), "--title", "Water plants"], options)
+		expect(added.exitCode).toBe(0)
+		const todo = JSON.parse(added.stdout) as { id: number; todo_list_id: number }
+		expect(todo.todo_list_id).toBe(list.id)
+		const listed = await runCli(["todos", "list", "--json", "--todo-list-id", String(list.id)], options)
+		expect(listed.exitCode).toBe(0)
+		expect(JSON.parse(listed.stdout)).toEqual([expect.objectContaining({ id: todo.id, title: "Water plants" })])
+		const updated = await runCli(["todos", "update", String(todo.id), "--json", "--status", "2"], options)
+		expect(updated.exitCode).toBe(0)
+		expect(JSON.parse(updated.stdout).status).toBe(2)
+		const hidden = await runCli(["todo-lists", "update", String(list.id), "--json", "--hidden", "true"], options)
+		expect(hidden.exitCode).toBe(0)
+		expect(JSON.parse(hidden.stdout).hidden).toBe(true)
 	})
 
 	test("creates and lists ingredients as JSON", async () => {

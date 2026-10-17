@@ -290,16 +290,44 @@ model ShoppingListItem {
 	@@map("shopping_list_items")
 }
 
+model TodoList {
+	id         Int              @id @default(autoincrement())
+	name       String
+	created_at String           @map("created_at")
+	updated_at String           @map("updated_at")
+	todos      Todo[]
+	members    TodoListMember[]
+
+	@@map("todo_lists")
+}
+
+model TodoListMember {
+	todo_list_id Int      @map("todo_list_id")
+	user_id      Int      @map("user_id")
+	role         Int
+	hidden       Boolean  @default(false)
+	created_at   String   @map("created_at")
+	todo_list    TodoList @relation(fields: [todo_list_id], references: [id], onDelete: Cascade)
+	user         User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+	@@id([todo_list_id, user_id])
+	@@index([user_id], map: "idx_todo_list_members_user_id")
+	@@map("todo_list_members")
+}
+
 model Todo {
-	id           Int     @id @default(autoincrement())
+	id           Int      @id @default(autoincrement())
+	todo_list_id Int      @default(1) @map("todo_list_id")
 	title        String
 	notes        String?
-	status       Int     @default(1)
-	due_at       String? @map("due_at")
-	completed_at String? @map("completed_at")
-	created_at   String  @map("created_at")
-	updated_at   String  @map("updated_at")
+	status       Int      @default(1)
+	due_at       String?  @map("due_at")
+	completed_at String?  @map("completed_at")
+	created_at   String   @map("created_at")
+	updated_at   String   @map("updated_at")
+	todo_list    TodoList @relation(fields: [todo_list_id], references: [id])
 
+	@@index([todo_list_id], map: "idx_todos_todo_list_id")
 	@@index([status], map: "idx_todos_status")
 	@@index([due_at], map: "idx_todos_due_at")
 	@@map("todos")
@@ -321,6 +349,7 @@ model User {
 	invites       UserInvite[]
 	oauth_grants  OAuthGrant[]
 	shopping_list_members ShoppingListMember[]
+	todo_list_members TodoListMember[]
 	location_points LocationPoint[]
 	tracks        Track[]
 

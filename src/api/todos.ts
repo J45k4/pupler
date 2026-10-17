@@ -1,6 +1,8 @@
 import type { BunRequest } from "bun"
 
 import { db } from "../db"
+import { requireAuthenticatedUser } from "./auth"
+import { requireTodoListMember } from "./todo-lists"
 import {
 	assertKnownFields,
 	empty,
@@ -19,6 +21,7 @@ import {
 	utcNow,
 	type Database,
 	type JsonObject,
+	type JsonValue,
 } from "./core"
 
 export enum TodoStatus {
@@ -33,7 +36,7 @@ const TODO_STATUSES = new Set<number>([
 	TodoStatus.Archived,
 ])
 
-const DEFAULT_SORT = [{ created_at: "desc" }, { id: "desc" }] as const
+const DEFAULT_SORT = [{ created_at: "desc" as const }, { id: "desc" as const }]
 const SORT_FIELDS = new Set([
 	"id",
 	"title",
@@ -45,7 +48,7 @@ const SORT_FIELDS = new Set([
 ])
 const WRITABLE_FIELDS = ["title", "notes", "status", "due_at", "completed_at"]
 
-const expectTodoStatus = (value: unknown, field: string) => {
+const expectTodoStatus = (value: JsonValue, field: string) => {
 	const status = expectInteger(value, field)
 	if (!TODO_STATUSES.has(status)) {
 		throw new HttpError(
@@ -74,6 +77,7 @@ const parseFilters = (url: URL) => {
 		if (key === "sort" || key === "order") continue
 		switch (key) {
 			case "id":
+			case "todo_list_id":
 			case "status":
 				where[key] = parseIntegerQuery(key, value)
 				break
@@ -95,12 +99,13 @@ const parseFilters = (url: URL) => {
 }
 
 const parseCreateValues = (body: JsonObject) => {
-	assertKnownFields(body, WRITABLE_FIELDS)
+	assertKnownFields(body, [...WRITABLE_FIELDS, "todo_list_id"])
 	const now = utcNow()
 	const status =
 		readOptionalBodyField(body, "status", expectTodoStatus) ??
 		TodoStatus.Open
 	return {
+		todo_list_id: readOptionalBodyField(body, "todo_list_id", expectInteger) ?? 1,
 		title: requireBodyField(body, "title", expectString).trim(),
 		notes:
 			readOptionalBodyField(body, "notes", expectNullableString) ?? null,
@@ -182,12 +187,13 @@ const ensureTodoTitle = (title: string) => {
 }
 
 export const todosCollectionRoute = async (req: Request) => {
+	const user = await requireAuthenticatedUser(req)
 	if (req.method === "GET") {
 		const url = new URL(req.url)
 		return json(
 			200,
 			await db.client.todo.findMany({
-				where: parseFilters(url),
+				where: { ...parseFilters(url), todo_list: { members: { some: { user_id: user.id } } } },
 				orderBy: parseSort(url),
 			}),
 		)
@@ -195,6 +201,7 @@ export const todosCollectionRoute = async (req: Request) => {
 	if (req.method === "POST") {
 		const values = parseCreateValues(await readJsonObject(req))
 		ensureTodoTitle(values.title)
+		await requireTodoListMember(db, user.id, values.todo_list_id, true)
 		const created = await db.client.todo.create({ data: values })
 		return json(201, created)
 	}
@@ -202,9 +209,11 @@ export const todosCollectionRoute = async (req: Request) => {
 }
 
 export const todoDetailRoute = async (req: BunRequest<string>) => {
-	const id = parseIdParam(req.params.id)
+	const user = await requireAuthenticatedUser(req)
+	const id = parseIdParam(req.params.id ?? "")
 	const existingRow = await fetchTodo(db, id)
 	if (!existingRow) throw new HttpError(404, "Resource not found")
+	await requireTodoListMember(db, user.id, existingRow.todo_list_id, req.method !== "GET")
 
 	if (req.method === "GET") {
 		return json(200, existingRow)

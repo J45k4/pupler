@@ -295,9 +295,16 @@ const RESOURCES: ResourceConfig[] = [
 		},
 	},
 	{
+		command: "todo-lists",
+		path: "/api/todo-lists",
+		fields: { name: { type: "string" }, hidden: { type: "boolean" } },
+		queryFields: {},
+	},
+	{
 		command: "todos",
 		path: "/api/todos",
 		fields: {
+			todo_list_id: { type: "integer" },
 			title: { type: "string" },
 			notes: { type: "string", nullable: true },
 			status: { type: "integer" },
@@ -305,6 +312,7 @@ const RESOURCES: ResourceConfig[] = [
 			completed_at: { type: "timestamp", nullable: true },
 		},
 		queryFields: {
+			todo_list_id: { type: "integer" },
 			id: { type: "integer" },
 			title: { type: "string", nullable: true },
 			notes: { type: "string", nullable: true },

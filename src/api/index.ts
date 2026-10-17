@@ -118,3 +118,5 @@ export { locationsCollectionRoute, locationDetailRoute } from "./locations"
 
 export { locationPointsCollectionRoute, locationPointDetailRoute } from "./location-points"
 export { tracksCollectionRoute, trackDetailRoute } from "./tracks"
+
+export { todoListsCollectionRoute, todoListDetailRoute, todoListMembersCollectionRoute, todoListMemberDetailRoute } from "./todo-lists"
