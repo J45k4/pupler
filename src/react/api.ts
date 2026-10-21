@@ -1,3 +1,6 @@
+import { apiReadCache } from "./api-cache"
+import { configureOfflineTransport, offlineAvailable, offlineEpoch, offlineReadVersion, readOfflineData, rememberOfflineRead, shouldQueueOfflineMutation, queueOfflineMutation } from "./offline"
+
 export class ApiError extends Error {
 	status: number
 
@@ -7,7 +10,7 @@ export class ApiError extends Error {
 	}
 }
 
-export const apiFetch = async <T>(
+const networkFetch = async <T>(
 	path: string,
 	options: RequestInit = {},
 ): Promise<T> => {
@@ -15,10 +18,11 @@ export const apiFetch = async <T>(
 		...options,
 		credentials: "same-origin",
 		headers: {
-			...(options.body ? { "Content-Type": "application/json" } : {}),
+			...(typeof options.body === "string" ? { "Content-Type": "application/json" } : {}),
 			...(options.headers ?? {}),
 		},
 	})
+	if (response.status === 401 || (response.ok && !["GET", "HEAD"].includes((options.method ?? "GET").toUpperCase()))) apiReadCache.clear()
 	if (response.status === 204) return undefined as T
 	const body = (await response.json().catch(() => null)) as
 		| (T & { error?: string })
@@ -31,6 +35,24 @@ export const apiFetch = async <T>(
 		throw new ApiError(response.status, message)
 	}
 	return body as T
+}
+
+configureOfflineTransport(networkFetch)
+
+export const apiFetch = async <T,>(path: string, options: RequestInit = {}): Promise<T> => {
+	const requestEpoch = offlineEpoch()
+	const requestVersion = offlineReadVersion()
+	if (shouldQueueOfflineMutation(path, options)) return queueOfflineMutation<T>(path, options)
+	const read = (options.method ?? "GET").toUpperCase() === "GET"
+	if (read && offlineAvailable() && /[?&]shopping_list_id=-\d+(?:&|$)/.test(path)) return readOfflineData<T>(path)
+	if (read && offlineAvailable() && !navigator.onLine && path !== "/api/auth/session") return readOfflineData<T>(path)
+	try {
+		const data = await networkFetch<T>(path, options)
+		return read && offlineAvailable() ? rememberOfflineRead(path, data, requestEpoch, requestVersion) : data
+	} catch (error) {
+		if (read && offlineAvailable() && !(error instanceof ApiError) && !options.signal?.aborted && path !== "/api/auth/session") return readOfflineData<T>(path)
+		throw error
+	}
 }
 
 export const apiGet = <T>(path: string) => apiFetch<T>(path)

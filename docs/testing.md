@@ -10,6 +10,7 @@ bun test test/punisher.test.ts
 bun test test/mcp.test.ts
 bun test test/api.test.ts test/e2e.test.ts
 bun test test/migrations.test.ts
+bun test test/api-cache.test.ts test/fetch-optimization.test.ts test/offline.test.ts test/static-assets.test.ts
 ```
 
 ## Punisher security suite

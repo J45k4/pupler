@@ -4,6 +4,7 @@ import type { BunRequest } from "bun"
 import { db } from "../db"
 import { requireAuthenticatedUser } from "./auth"
 import { ownedTimeBody, requireTimeOwner, scopeTimeOwner } from "./time-ownership"
+import type { TimeUser } from "./time-ownership"
 import {
 	assertKnownFields,
 	empty,
@@ -499,4 +500,51 @@ export const timeEntryStopRoute = async (req: BunRequest<string>) => {
 			include: ENTRY_INCLUDE,
 		}),
 	)
+}
+
+export const applyOfflineTimeMutation = async (database: Database, user: TimeUser, path: string, method: string, body: JsonObject, expectedRunningId: number | null, expectedUpdatedAt: string | null) => {
+	if (path === "/api/time-entries/start" && method === "POST") {
+		const expected = expectedRunningId === null ? null : await fetchTimeEntry(database, expectedRunningId)
+		if (expectedRunningId !== null && !expected) throw new HttpError(409, "The timer changed on another device. Your offline time has been kept for review.")
+		if (expected) requireTimeOwner(user, expected)
+		const owner = body.user_id === undefined ? expected ? expected.user_id : user.id : body.user_id
+		const running = await database.client.timeEntry.findFirst({ where: { user_id: scopeTimeOwner(user, owner) as number | null, ended_at: null }, orderBy: [{ started_at: "desc" }, { id: "desc" }] })
+		if ((running?.id ?? null) !== expectedRunningId || (expectedUpdatedAt && running?.updated_at !== expectedUpdatedAt)) throw new HttpError(409, "The timer changed on another device. Your offline time has been kept for review.")
+		return createEntry(database, parseStartValues(await ownedTimeBody(user, { ...body, user_id: owner as number | null })))
+	}
+	if (path === "/api/time-entries" && method === "POST") {
+		const values = parseCreateValues(await ownedTimeBody(user, { ...body, user_id: body.user_id ?? user.id }))
+		if (values.ended_at === null) {
+			const running = await database.client.timeEntry.findFirst({ where: { user_id: values.user_id, ended_at: null }, orderBy: [{ started_at: "desc" }, { id: "desc" }] })
+			if ((running?.id ?? null) !== expectedRunningId || (expectedUpdatedAt && running?.updated_at !== expectedUpdatedAt)) throw new HttpError(409, "The timer changed on another device. Your offline time has been kept for review.")
+		}
+		return createEntry(database, values)
+	}
+	const match = path.match(/^\/api\/time-entries\/(\d+)(\/stop)?$/)
+	if (!match) throw new HttpError(400, "Unsupported offline timer action")
+	const id = parseIdParam(match[1]!)
+	const existing = await fetchTimeEntry(database, id)
+	requireTimeOwner(user, existing)
+	if (!existing) throw new HttpError(404, "Time entry not found")
+	if (expectedUpdatedAt && existing.updated_at !== expectedUpdatedAt) throw new HttpError(409, "This time entry changed on another device. Your offline changes have been kept for review.")
+	if (match[2] && method === "POST") {
+		if (existing.ended_at !== null) throw new HttpError(409, "This timer was already stopped on another device")
+		const endedAt = parseStopValues(body)
+		assertProjectBeforeStop(existing.project_id)
+		assertChronologicalRange(existing.started_at, endedAt)
+		return database.client.timeEntry.update({ where: { id }, data: { ended_at: endedAt, updated_at: utcNow() }, include: ENTRY_INCLUDE })
+	}
+	if (!match[2] && method === "PATCH") {
+		const values = parsePatchValues(await ownedTimeBody(user, body), existing)
+		if (values.ended_at === null && existing.ended_at !== null) {
+			const running = await database.client.timeEntry.findFirst({ where: { user_id: (values.user_id ?? existing.user_id) as number | null, ended_at: null }, orderBy: [{ started_at: "desc" }, { id: "desc" }] })
+			if ((running?.id ?? null) !== expectedRunningId) throw new HttpError(409, "The timer changed on another device. Your offline time has been kept for review.")
+		}
+		return updateEntry(database, id, values, existing)
+	}
+	if (!match[2] && method === "DELETE") {
+		await database.client.timeEntry.delete({ where: { id } })
+		return { id, deleted: true }
+	}
+	throw new HttpError(400, "Unsupported offline timer action")
 }

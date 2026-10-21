@@ -66,7 +66,7 @@ export const ImportSchedulesPage = ({ link }: { link: (p: string) => string }) =
 	const { data: schedules, loading: sLoading, error: sError, reload } = useApi<ImportSchedule[]>("/api/import-schedules")
 	const { data: clients } = useApi<ScheduleClient[]>("/api/clients?archived_at=null&sort=name&order=asc")
 
-	const [status, setStatus] = useState("Loading schedules...")
+	const [status, setStatus] = useState("")
 	const [statusError, setStatusError] = useState(false)
 	const [modalOpen, setModalOpen] = useState(false)
 	const [modalStatus, setModalStatus] = useState("")

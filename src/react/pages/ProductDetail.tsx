@@ -32,6 +32,9 @@ export const ProductDetailPage = ({ id, link }: { id: string; link: (p: string) 
 		setIsPerishable(String(product.is_perishable))
 		setPictureBroken(false)
 	}, [product?.id])
+	useEffect(() => {
+		setPictureBroken(false)
+	}, [product?.picture_file_id, product?.picture_file?.created_at])
 
 	if (!Number.isInteger(productId)) return <div className="card panel page-panel"><p className="page-copy">Product id is invalid.</p></div>
 	if (loading) return <p className="page-copy">Loading…</p>

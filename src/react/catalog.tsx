@@ -20,20 +20,14 @@ export const findOrCreateIngredientByName = async (
 export const uploadProductPicture = async (productId: number, file: File) => {
 	const formData = new FormData()
 	formData.set("file", file)
-	const response = await fetch(`/api/products/${productId}/picture`, {
+	await apiFetch(`/api/products/${productId}/picture`, {
 		method: "POST",
 		body: formData,
 	})
-	const body = (await response.json()) as { error?: string }
-	if (!response.ok) throw new Error(body.error ?? "Failed to upload product picture")
 }
 
 export const deleteProductPicture = async (productId: number) => {
-	const response = await fetch(`/api/products/${productId}/picture`, { method: "DELETE" })
-	if (!response.ok) {
-		const body = (await response.json().catch(() => null)) as { error?: string } | null
-		throw new Error(body?.error ?? "Failed to remove product picture")
-	}
+	await apiFetch(`/api/products/${productId}/picture`, { method: "DELETE" })
 }
 
 export const UnitSelect = ({
@@ -122,13 +116,13 @@ export const ProductCard = ({
 }) => (
 	<a className="product" href={link(`/products/${product.id}`)} data-link="">
 		<div className="product__media">
-			<img
+			{product.picture_file_id ? <img
 				className="product__image"
 				src={`/api/products/${product.id}/picture`}
 				alt={product.name}
 				loading="lazy"
 				onError={(e) => e.currentTarget.parentElement?.remove()}
-			/>
+			/> : null}
 		</div>
 		<header>
 			<h3>{product.name}</h3>

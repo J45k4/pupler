@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from "react"
 import { apiFetch } from "../api"
+import { apiReadCache } from "../api-cache"
 import { navigate, useLocation } from "../router"
-import { Empty, Status, formatDuration, formatReceiptDateTime, type Client, type Project, type TimeEntry } from "../lib"
+import { Empty, Status, formatDuration, formatReceiptDateTime, useApi, type Client, type Project, type TimeEntry } from "../lib"
 import { EntryCreateModal, EntryEditModal } from "./TimeEntryForms"
 import * as data from "./time-report-data"
 
@@ -16,11 +17,21 @@ const useReportData = <T,>(key: string, load: (signal: AbortSignal) => Promise<T
 	const loader = useRef(load)
 	loader.current = load
 	const [revision, setRevision] = useState(0)
-	const [state, setState] = useState<{ key: string; value: T | null; error: string }>({ key: "", value: null, error: "" })
+	useEffect(() => {
+		const synced = (event: Event) => {
+			const detail = (event as CustomEvent<{ paths?: string[]; pending?: boolean }>).detail
+			if (detail?.pending) return
+			const paths = detail?.paths
+			if (!paths || paths.some(path => path.startsWith("/api/time-entries"))) setRevision(value => value + 1)
+		}
+		window.addEventListener("pupler:synced", synced)
+		return () => window.removeEventListener("pupler:synced", synced)
+	}, [])
+	const [state, setState] = useState<{ key: string; value: T | null; error: string }>(() => ({ key, value: apiReadCache.peek<T>(`report:${key}`), error: "" }))
 	useEffect(() => {
 		const controller = new AbortController()
-		setState({ key, value: null, error: "" })
-		void loader.current(controller.signal).then(value => {
+		setState({ key, value: apiReadCache.peek<T>(`report:${key}`), error: "" })
+		void apiReadCache.read(`report:${key}`, signal => loader.current(signal), controller.signal, revision > 0).then(value => {
 			if (!controller.signal.aborted) setState({ key, value, error: "" })
 		}).catch(error => {
 			if (!controller.signal.aborted) setState({ key, value: null, error: error instanceof Error ? error.message : "Could not load time report." })
@@ -30,10 +41,12 @@ const useReportData = <T,>(key: string, load: (signal: AbortSignal) => Promise<T
 	return { value: state.key === key ? state.value : null, error: state.key === key ? state.error : "", reload: () => setRevision(value => value + 1) }
 }
 
-const loadDays = async (days: data.TimeWeeklyDayReport[], signal: AbortSignal) => Promise.all(days.map(async day => ({
-	...day,
-	report: Date.parse(day.from) >= Date.now() ? data.createEmptyTimeReport(day.from, day.to) : await apiFetch<data.TimeReport>(reportQuery(day.from, day.to), { signal }),
-})))
+const loadDays = async (days: data.TimeWeeklyDayReport[], signal: AbortSignal) => {
+	const elapsed = days.filter(day => Date.parse(day.from) < Date.now())
+	const boundaries = elapsed.length ? [...elapsed.map(day => day.from), elapsed.at(-1)!.to] : []
+	const reports = boundaries.length ? await apiFetch<data.TimeReport[]>(`/api/time-report?${new URLSearchParams({ view: "days", boundaries: JSON.stringify(boundaries) })}`, { signal }) : []
+	return days.map((day, index) => ({ ...day, report: reports[index] ?? data.createEmptyTimeReport(day.from, day.to) }))
+}
 
 const defaultDay = (days: data.TimeWeeklyDayReport[]) => days.find(day => day.date === data.formatDateInput())?.date ?? days.find(day => day.baselineSeconds > 0)?.date ?? days[0]?.date ?? ""
 
@@ -151,15 +164,15 @@ export const TimeWeeklyPage = (_props: { link: (path: string) => string }) => {
 	const [selectedDate, setSelectedDate] = useState("")
 	const [range, setRange] = useState<data.TimeEntryRangeInput | null>(null)
 	const [editing, setEditing] = useState<TimeEntry | null>(null)
-	const result = useReportData(`week:${week}`, async signal => {
+	const { data: projects, error: projectsError } = useApi<Project[]>(range !== null || editing !== null ? "/api/projects?sort=name&order=asc" : null)
+	const { data: clients, error: clientsError } = useApi<Client[]>(range !== null || editing !== null ? "/api/clients?sort=name&order=asc" : null)
+	const result = useReportData(`week:${week}:${view}`, async signal => {
 		const days = data.getTimeWeeklyDays(week)
-		const [reports, entries, projects, clients] = await Promise.all([
+		const [reports, entries] = await Promise.all([
 			loadDays(days, signal),
-			apiFetch<TimeEntry[]>(entriesQuery(days[0]!.from, days[6]!.to), { signal }),
-			apiFetch<Project[]>("/api/projects?sort=name&order=asc", { signal }),
-			apiFetch<Client[]>("/api/clients?sort=name&order=asc", { signal }),
+			view === "detail" ? apiFetch<TimeEntry[]>(entriesQuery(days[0]!.from, days[6]!.to), { signal }) : Promise.resolve([]),
 		])
-		return { days: reports, entries, projects, clients }
+		return { days: reports, entries }
 	})
 	const choose = (date: string, mode = view) => {
 		data.updateTimeWeeklyViewUrl(date, mode)
@@ -185,10 +198,11 @@ export const TimeWeeklyPage = (_props: { link: (path: string) => string }) => {
 			</div>
 		</div>
 		<div className="time-overview-results">{value ? view === "detail" ? <WeeklyDetail key={week} days={value.days} entries={value.entries} onAddRange={setRange} onEditEntry={setEditing} /> : <WeeklyChart days={value.days} selectedDate={selected} onSelectDate={setSelectedDate} /> : <Empty message="Choose a week to load time usage." />}</div>
-		{value ? <>
-			<EntryCreateModal projects={value.projects} clients={value.clients} entries={value.entries} range={range ?? undefined} open={range !== null} onClose={() => setRange(null)} onSaved={result.reload} />
-			<EntryEditModal clients={value.clients} entry={editing} entries={value.entries} projects={value.projects} open={editing !== null} onClose={() => setEditing(null)} onSaved={result.reload} onDeleted={result.reload} />
+		{value && projects && clients ? <>
+			<EntryCreateModal projects={projects} clients={clients} entries={value.entries} range={range ?? undefined} open={range !== null} onClose={() => setRange(null)} onSaved={result.reload} />
+			<EntryEditModal clients={clients} entry={editing} entries={value.entries} projects={projects} open={editing !== null} onClose={() => setEditing(null)} onSaved={result.reload} onDeleted={result.reload} />
 		</> : null}
+		{(range !== null || editing !== null) && (!projects || !clients) ? <div><Status message={projectsError ?? clientsError ?? "Loading entry options…"} error={!!(projectsError || clientsError)} /><button className="secondary" type="button" onClick={() => { setRange(null); setEditing(null) }}>Cancel</button></div> : null}
 	</section>
 }
 
@@ -313,7 +327,7 @@ const OverviewList = ({ report, average, group, entries, period, selection, item
 export const TimeOverviewPage = (_props: { link: (path: string) => string }) => {
 	const location = useLocation()
 	const selection = data.getCurrentTimeOverviewSelection()
-	const result = useReportData(`overview:${location.search}`, async signal => {
+	const result = useReportData(`overview:${selection.span.value}:${selection.day}:${selection.fromDay}:${selection.toDay}`, async signal => {
 		const period = data.getTimeOverviewPeriod(selection)
 		const averagePeriod = data.getFullLocalDayBounds(period)
 		const reportPromise = apiFetch<data.TimeReport>(reportQuery(period.from, period.to), { signal })

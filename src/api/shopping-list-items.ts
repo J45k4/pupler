@@ -2,6 +2,7 @@ import type { BunRequest } from "bun"
 
 import { db } from "../db"
 import { requireAuthenticatedUser } from "./auth"
+import type { TimeUser } from "./time-ownership"
 import { requireShoppingListMember } from "./shopping-lists"
 import {
 	assertKnownFields,
@@ -234,6 +235,24 @@ export const shoppingListItemsCollectionRoute = async (req: Request) => {
 	const user = await requireAuthenticatedUser(req)
 	if (req.method === "GET") {
 		const url = new URL(req.url)
+		if (url.searchParams.get("view") === "board") {
+			if ([...url.searchParams.keys()].some(key => key !== "view")) throw new HttpError(400, "Board does not accept item filters")
+			const membership = { shopping_list: { members: { some: { user_id: user.id } } } }
+			const [items, removed] = await Promise.all([
+				db.client.shoppingListItem.findMany({ where: { ...membership, removed_at: null }, orderBy: [...DEFAULT_SORT], select: shoppingListItemDetailSelect }),
+				db.client.shoppingListItem.groupBy({ by: ["shopping_list_id"], where: { ...membership, removed_at: { not: null } }, _count: { _all: true } }),
+			])
+			return json(200, { items, removed_counts: Object.fromEntries(removed.map(row => [row.shopping_list_id, row._count._all])) })
+		}
+		if (url.searchParams.get("view") === "overview") {
+			if ([...url.searchParams.keys()].some(key => key !== "view")) throw new HttpError(400, "Overview does not accept item filters")
+			const where = { done: false, removed_at: null, shopping_list: { members: { some: { user_id: user.id } } } }
+			const [items, total] = await Promise.all([
+				db.client.shoppingListItem.findMany({ where, orderBy: [{ created_at: "asc" }, { id: "asc" }], take: 8, select: { id: true, name: true, quantity: true, unit: true } }),
+				db.client.shoppingListItem.count({ where }),
+			])
+			return json(200, { items, total })
+		}
 		const where = { ...parseFilters(url), shopping_list: { members: { some: { user_id: user.id } } } }
 		return json(
 			200,
@@ -302,4 +321,24 @@ export const shoppingListItemDetailRoute = async (req: BunRequest<string>) => {
 		return empty(204)
 	}
 	throw new HttpError(405, "Method not allowed for this route")
+}
+
+export const applyOfflineShoppingItemMutation = async (database: Database, user: TimeUser, path: string, method: string, body: JsonObject) => {
+	if (path === "/api/shopping-list-items" && method === "POST") {
+		const values = parseCreateValues(body)
+		await requireShoppingListMember(database, user.id, values.shopping_list_id, true)
+		await validateIngredientProductRefs(database, values)
+		const created = await database.client.shoppingListItem.create({ data: { ...values, ...removalValues(body) } })
+		return fetchShoppingListItemDetail(database, created.id)
+	}
+	const match = path.match(/^\/api\/shopping-list-items\/(\d+)$/)
+	if (!match || !["PATCH", "DELETE"].includes(method)) throw new HttpError(400, "Unsupported offline shopping action")
+	const id = parseIdParam(match[1]!)
+	const existing = await fetchShoppingListItem(database, id)
+	if (!existing) throw new HttpError(404, "Shopping item not found")
+	await requireShoppingListMember(database, user.id, existing.shopping_list_id, true)
+	const values = method === "DELETE" ? { done: false, updated_at: utcNow() } : parsePatchValues(body)
+	await validateIngredientProductRefs(database, { ingredient_id: (values.ingredient_id as number | null | undefined) ?? existing.ingredient_id, product_id: (values.product_id as number | null | undefined) ?? existing.product_id })
+	await database.client.shoppingListItem.update({ where: { id }, data: { ...values, ...removalValues(method === "DELETE" ? { removed: true } : body, existing) } })
+	return fetchShoppingListItemDetail(database, id)
 }

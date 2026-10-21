@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { apiFetch } from "../api"
-import { Empty, Status, formatMoney, formatReceiptDateTime, useApi, type Group, type Product, type PurchaseReceipt, type ReceiptItem } from "../lib"
+import { Empty, Status, formatMoney, formatReceiptDateTime, useApi, type Group, type PurchaseReceipt, type ReceiptItem } from "../lib"
 import { findOrCreateGroup } from "./Receipts"
 
 export const ReceiptDetailPage = ({ id, link }: { id: string; link: (p: string) => string }) => {
@@ -10,9 +10,8 @@ export const ReceiptDetailPage = ({ id, link }: { id: string; link: (p: string) 
 		valid ? `/api/receipts/${receiptId}` : null,
 	)
 	const { data: items } = useApi<ReceiptItem[]>(
-		valid ? `/api/receipt-items?receipt_id=${receiptId}` : null,
+		valid ? `/api/receipt-items?receipt_id=${receiptId}&view=detail` : null,
 	)
-	const { data: products } = useApi<Product[]>("/api/products")
 	const { data: groups, reload: reloadGroups } = useApi<Group[]>("/api/groups?sort=name&order=asc")
 
 	const [groupName, setGroupName] = useState<string | null>(null)
@@ -41,7 +40,6 @@ export const ReceiptDetailPage = ({ id, link }: { id: string; link: (p: string) 
 	if (rError || !receipt) return <Status message={rError ?? "Failed to load receipt."} error />
 
 	const rows = items ?? []
-	const productsById = new Map((products ?? []).map((p) => [p.id, p]))
 	const pictureUrl = receipt.picture_file?.created_at
 		? `/api/receipts/${receipt.id}/picture?updated=${encodeURIComponent(receipt.picture_file.created_at)}`
 		: `/api/receipts/${receipt.id}/picture`
@@ -163,7 +161,7 @@ export const ReceiptDetailPage = ({ id, link }: { id: string; link: (p: string) 
 							<tbody>
 								{rows.map((item) => (
 									<tr key={item.id}>
-										<td>{productsById.get(item.product_id)?.name ?? `Product #${item.product_id}`}</td>
+										<td>{item.product?.name ?? `Product #${item.product_id}`}</td>
 										<td>{`${item.quantity} ${item.unit}`}</td>
 										<td>{item.line_total !== null ? formatMoney(item.line_total, receipt.currency) : "-"}</td>
 									</tr>

@@ -418,11 +418,7 @@ export const RecipeDetailPage = ({ id, link }: { id: string; link: (p: string) =
 			for (const file of Array.from(files)) {
 				const formData = new FormData()
 				formData.set("file", file)
-				const response = await fetch(`/api/recipes/${recipe.id}/pictures`, { method: "POST", body: formData })
-				if (!response.ok) {
-					const body = (await response.json().catch(() => null)) as { error?: string } | null
-					throw new Error(body?.error ?? "Failed to upload image")
-				}
+				await apiFetch(`/api/recipes/${recipe.id}/pictures`, { method: "POST", body: formData })
 			}
 			setFiles(null)
 			setPictureStatus("Uploaded images.")
@@ -434,11 +430,7 @@ export const RecipeDetailPage = ({ id, link }: { id: string; link: (p: string) =
 
 	const removeImage = async (imageId: number) => {
 		try {
-			const response = await fetch(`/api/recipes/${recipe.id}/pictures/${imageId}`, { method: "DELETE" })
-			if (!response.ok) {
-				const body = (await response.json().catch(() => null)) as { error?: string } | null
-				throw new Error(body?.error ?? "Failed to remove image")
-			}
+			await apiFetch(`/api/recipes/${recipe.id}/pictures/${imageId}`, { method: "DELETE" })
 			setPictureStatus("Removed image.")
 			reload()
 		} catch (err) {

@@ -5,17 +5,24 @@ import { dbPath, filesPath, initializeDatabase } from "./db"
 import { oauthRoute, oauthRegistrationRoute, connectionsRoute } from "./oauth/routes"
 import { mcpRoute } from "./mcp/server"
 import { cleanupUploads, uploadRoute } from "./mcp/uploads"
+import { offlineSyncRoute } from "./api/offline"
+import { compressedAssetRoutes } from "./web/static-assets"
 
 import reactIndex from "./react/index.html"
+import offlineWorker from "./web/offline-worker.js" with { type: "text" }
+const offlineWorkerSource = offlineWorker as unknown as string
 
 import faviconPath from "./web/favicon.png" with { type: "file" }
 const favicon = Bun.file(faviconPath)
+const assetRoutes = await compressedAssetRoutes(reactIndex)
 
 for (const bundle of [reactIndex]) {
 	for (const file of bundle.files ?? []) {
 		if (file.loader === "html") file.headers["cache-control"] = "no-store"
 	}
 }
+const indexFile = reactIndex.files?.find(file => file.loader === "html")
+const frontend = indexFile ? new Response(Bun.file(indexFile.path), { headers: indexFile.headers }) : reactIndex
 
 const version = resolvePuplerVersion()
 const envPort = process.env.PORT
@@ -41,6 +48,7 @@ const apiRoutes = createApiRoutes({
 		"/api/auth/invites/:token/verify": routes.inviteRegistrationVerifyRoute,
 	},
 	authenticated: {
+		"/api/offline/sync": offlineSyncRoute,
 		"/api/auth/connections": connectionsRoute,
 		"/api/auth/connections/:id": connectionsRoute,
 		"/api/auth/api-keys": routes.apiKeysCollectionRoute,
@@ -140,6 +148,7 @@ const instance = Bun.serve({
 	},
 	routes: {
 		...apiRoutes,
+		...assetRoutes,
 		"/.well-known/oauth-protected-resource": oauthRoute,
 		"/.well-known/oauth-protected-resource/mcp": oauthRoute,
 		"/.well-known/oauth-authorization-server": oauthRoute,
@@ -150,11 +159,12 @@ const instance = Bun.serve({
 		"/mcp": mcpRoute,
 		"/mcp/uploads/:token": uploadRoute,
 		"/health": new Response("ok"),
+		"/service-worker.js": new Response(offlineWorkerSource.replace("__PUPLER_SHELL_VERSION__", Bun.hash(JSON.stringify(reactIndex.files ?? [])).toString(16)), { headers: { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-cache", "Service-Worker-Allowed": "/" } }),
 		"/favicon.png": new Response(favicon, {
 			headers: { "Content-Type": "image/png" },
 		}),
 		"/api/*": Response.json({ error: "Route not found" }, { status: 404 }),
-		"/*": reactIndex,
+		"/*": frontend,
 	},
 })
 

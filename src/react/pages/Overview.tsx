@@ -3,7 +3,7 @@ import { Empty, Status, TickingDuration, formatReceiptDateTime, useApi } from ".
 import type { ShoppingListItem, TimeEntry } from "../lib"
 
 const TimerPanel = ({ link }: { link: (p: string) => string }) => {
-	const { data, loading, error, reload } = useApi<TimeEntry[]>("/api/time-entries?sort=started_at&order=desc")
+	const { data, loading, error, reload } = useApi<TimeEntry[]>("/api/time-entries?running=true&sort=started_at&order=desc")
 	const running = (data ?? []).find((e) => e.ended_at === null) ?? null
 
 	const stop = async () => {
@@ -58,10 +58,10 @@ const TimerPanel = ({ link }: { link: (p: string) => string }) => {
 }
 
 const ShoppingPanel = ({ link }: { link: (p: string) => string }) => {
-	const { data, loading, error } = useApi<ShoppingListItem[]>(
-		"/api/shopping-list-items?done=false&sort=created_at&order=asc",
+	const { data, loading, error } = useApi<{ items: Pick<ShoppingListItem, "id" | "name" | "quantity" | "unit">[]; total: number }>(
+		"/api/shopping-list-items?view=overview",
 	)
-	const items = (data ?? []).slice(0, 8)
+	const items = data?.items ?? []
 
 	return (
 		<div className="card panel dashboard-shopping-panel">
@@ -93,8 +93,8 @@ const ShoppingPanel = ({ link }: { link: (p: string) => string }) => {
 				message={
 					loading || error
 						? ""
-						: (data ?? []).length
-							? `${Math.min((data ?? []).length, 8)} of ${(data ?? []).length} active item(s).`
+						: data?.total
+							? `${items.length} of ${data.total} active item(s).`
 							: "Shoppinglist is empty."
 				}
 			/>

@@ -100,59 +100,51 @@ const entryDurationSeconds = (
 	return Math.max(0, Math.floor((endMs - startMs) / 1000))
 }
 
-export const timeReportRoute = async (req: Request) => {
-	const user = await requireAuthenticatedUser(req)
-	if (req.method !== "GET") {
-		throw new HttpError(405, "Method not allowed for this route")
-	}
-
-	const url = new URL(req.url)
-	const period = parseTimeReportQuery(url)
-	if (!user.is_admin) period.user_id = scopeTimeOwner(user, period.user_id) as number
-	const entries = await db.client.timeEntry.findMany({
-		where: {
-			...(period.user_id === undefined
-				? {}
-				: { user_id: period.user_id }),
-			started_at: { lte: period.to },
-			...(period.from === null
-				? {}
-				: {
-						OR: [
-							{ ended_at: null },
-							{ ended_at: { gte: period.from } },
-						],
-					}),
-		},
-		include: {
-			user: {
-				select: {
-					id: true,
-					name: true,
-					email: true,
-				},
+const fetchReportEntries = (period: TimeReportPeriod) => db.client.timeEntry.findMany({
+	where: {
+		...(period.user_id === undefined
+			? {}
+			: { user_id: period.user_id }),
+		started_at: { lte: period.to },
+		...(period.from === null
+			? {}
+			: {
+					OR: [
+						{ ended_at: null },
+						{ ended_at: { gte: period.from } },
+					],
+				}),
+	},
+	include: {
+		user: {
+			select: {
+				id: true,
+				name: true,
+				email: true,
 			},
-			project: {
-				select: {
-					id: true,
-					name: true,
-					color: true,
-					archived_at: true,
-					client_id: true,
-					client: {
-						select: {
-							id: true,
-							name: true,
-							color: true,
-							archived_at: true,
-						},
+		},
+		project: {
+			select: {
+				id: true,
+				name: true,
+				color: true,
+				archived_at: true,
+				client_id: true,
+				client: {
+					select: {
+						id: true,
+						name: true,
+						color: true,
+						archived_at: true,
 					},
 				},
 			},
 		},
-		orderBy: [{ started_at: "desc" }, { id: "desc" }],
-	})
+	},
+	orderBy: [{ started_at: "desc" }, { id: "desc" }],
+})
 
+const summarizeTimeReport = (entries: Awaited<ReturnType<typeof fetchReportEntries>>, period: TimeReportPeriod) => {
 	const projectTotals = new Map<string, TimeReportProjectTotal>()
 	const clientTotals = new Map<string, MutableTimeReportClientTotal>()
 	let totalSeconds = 0
@@ -261,11 +253,47 @@ export const timeReportRoute = async (req: Request) => {
 		...(period.user_id === undefined ? {} : { user_id: period.user_id }),
 	}
 
-	return json(200, {
+	return {
 		period: responsePeriod,
 		total_seconds: totalSeconds,
 		running_entry: runningEntry,
 		project_totals: sortedProjectTotals,
 		client_totals: sortedClientTotals,
-	})
+	}
+}
+
+export const timeReportRoute = async (req: Request) => {
+	const user = await requireAuthenticatedUser(req)
+	if (req.method !== "GET") throw new HttpError(405, "Method not allowed for this route")
+	const url = new URL(req.url)
+	if (url.searchParams.get("view") === "days") {
+		for (const key of url.searchParams.keys()) {
+			if (!["view", "boundaries", "user_id"].includes(key)) throw new HttpError(400, `Unknown query parameter \`${key}\``)
+		}
+		let boundaries: string[]
+		try {
+			const values: unknown = JSON.parse(url.searchParams.get("boundaries") ?? "null")
+			if (!Array.isArray(values) || values.length < 2 || values.length > 32 || values.some(value => typeof value !== "string")) throw new Error()
+			boundaries = values.map(value => new Date(parseTimestampQuery("boundaries", value)).toISOString())
+			if (boundaries.some((value, index) => index > 0 && (Date.parse(value) <= Date.parse(boundaries[index - 1]!) || Date.parse(value) - Date.parse(boundaries[index - 1]!) > 25 * 60 * 60_000))) throw new Error()
+		} catch {
+			throw new HttpError(400, "Boundaries must contain 2 to 32 increasing timestamps at most 25 hours apart")
+		}
+		const query = new URL(req.url)
+		query.searchParams.delete("view")
+		query.searchParams.delete("boundaries")
+		query.searchParams.set("from", boundaries[0]!)
+		query.searchParams.set("to", boundaries.at(-1)!)
+		const period = parseTimeReportQuery(query)
+		if (!user.is_admin) period.user_id = scopeTimeOwner(user, period.user_id) as number
+		const entries = await fetchReportEntries(period)
+		return json(200, boundaries.slice(0, -1).map((from, index) => {
+			const to = boundaries[index + 1]!
+			const overlapping = entries.filter(entry => Date.parse(entry.started_at) <= Date.parse(to) && (entry.ended_at === null || Date.parse(entry.ended_at) >= Date.parse(from)))
+			return summarizeTimeReport(overlapping, { ...period, from, to })
+		}))
+	}
+	const period = parseTimeReportQuery(url)
+	if (!user.is_admin) period.user_id = scopeTimeOwner(user, period.user_id) as number
+	return json(200, summarizeTimeReport(await fetchReportEntries(period), period))
 }

@@ -77,7 +77,7 @@ export const ProductStatsPage = ({ link }: { link: (p: string) => string }) => {
 					rows.length === 0 ? (
 						<Empty message="No products yet." />
 					) : (
-						<table className="shoppinglist-table product-stats-table">
+						<div className="table-scroll"><table className="shoppinglist-table product-stats-table">
 							<thead>
 								<tr>
 									{columns.map((col) => (
@@ -120,7 +120,7 @@ export const ProductStatsPage = ({ link }: { link: (p: string) => string }) => {
 									</tr>
 								))}
 							</tbody>
-						</table>
+						</table></div>
 					)
 				) : null}
 			</div>

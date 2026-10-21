@@ -4,7 +4,7 @@ import { Empty, Status, useApi, type Client, type Project } from "../lib"
 
 export const ProjectsPage = ({ link }: { link: (p: string) => string }) => {
 	const [showArchived, setShowArchived] = useState(false)
-	const [status, setStatus] = useState("Loading projects...")
+	const [status, setStatus] = useState("")
 	const [statusError, setStatusError] = useState(false)
 	const [name, setName] = useState("")
 	const [color, setColor] = useState("#2d7c6f")

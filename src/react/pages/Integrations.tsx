@@ -27,7 +27,7 @@ const formatDateTime = (value: string | null | undefined) =>
 
 export const IntegrationsPage = () => {
 	const { data, loading, error, reload } = useApi<ExternalIntegration[]>("/api/external-integrations")
-	const [status, setStatus] = useState("Loading integrations...")
+	const [status, setStatus] = useState("")
 	const [statusError, setStatusError] = useState(false)
 	const [modalOpen, setModalOpen] = useState(false)
 	const [modalStatus, setModalStatus] = useState("")

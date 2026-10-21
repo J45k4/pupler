@@ -7,7 +7,8 @@ import {
 	type ReactNode,
 } from "react"
 import { startAuthentication, type PublicKeyCredentialRequestOptionsJSON } from "@simplewebauthn/browser"
-import { apiFetch } from "./api"
+import { apiFetch, ApiError } from "./api"
+import { activateOfflineUser, offlineSignedOut, prepareOfflinePages, savedOfflineUser } from "./offline"
 import { navigate } from "./router"
 
 export type AuthUser = {
@@ -33,22 +34,37 @@ type AuthState = {
 const AuthContext = createContext<AuthState | null>(null)
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-	const [user, setUser] = useState<AuthUser | null>(null)
+	const [user, setUserState] = useState<AuthUser | null>(null)
 	const [loading, setLoading] = useState(true)
+	const setUser = useCallback((next: AuthUser | null) => {
+		setUserState(next)
+		void activateOfflineUser(next).then(() => next ? prepareOfflinePages() : undefined).catch(() => {})
+	}, [])
 
 	const refresh = useCallback(async () => {
 		try {
+			if (await offlineSignedOut().catch(() => false)) {
+				setUserState(null)
+				return
+			}
 			const body = await apiFetch<{ user: AuthUser }>("/api/auth/session")
 			setUser(body.user)
-		} catch {
-			setUser(null)
+		} catch (error) {
+			if (error instanceof ApiError && error.status === 401) setUser(null)
+			else {
+				const saved = await savedOfflineUser().catch(() => null)
+				if (saved) setUser(saved)
+				else setUserState(null)
+			}
 		} finally {
 			setLoading(false)
 		}
-	}, [])
+	}, [setUser])
 
 	useEffect(() => {
 		void refresh()
+		window.addEventListener("online", refresh)
+		return () => window.removeEventListener("online", refresh)
 	}, [refresh])
 
 	useEffect(() => {
@@ -77,6 +93,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 	}, [])
 
 	const login = useCallback(async (username: string, password: string) => {
+		if (await offlineSignedOut().catch(() => false)) await apiFetch("/api/auth/logout", { method: "POST", body: "{}" })
 		const body = await apiFetch<{ user: AuthUser }>("/api/auth/login", {
 			method: "POST",
 			body: JSON.stringify({ username, password }),
@@ -85,6 +102,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 	}, [])
 
 	const loginWithPasskey = useCallback(async () => {
+		if (await offlineSignedOut().catch(() => false)) await apiFetch("/api/auth/logout", { method: "POST", body: "{}" })
 		const { challenge_id, options } = await apiFetch<{ challenge_id: string, options: PublicKeyCredentialRequestOptionsJSON }>("/api/auth/passkey/options", { method: "POST", body: "{}" })
 		const response = await startAuthentication({ optionsJSON: options })
 		const body = await apiFetch<{ user: AuthUser }>("/api/auth/passkey/verify", {
@@ -95,7 +113,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 	}, [])
 
 	const logout = useCallback(async () => {
-		await apiFetch("/api/auth/logout", { method: "POST", body: "{}" })
+		await apiFetch("/api/auth/logout", { method: "POST", body: "{}" }).catch(() => {})
 		setUser(null)
 		navigate("/login")
 	}, [])

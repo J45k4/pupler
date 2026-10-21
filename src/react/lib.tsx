@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { apiFetch } from "./api"
+import { apiReadCache } from "./api-cache"
+import { offlineAvailable, readOfflineData } from "./offline"
 
 export type Todo = {
 	todo_list_id: number
@@ -243,36 +245,51 @@ export const fromDateTimeLocalValue = (value: string) => {
 }
 
 export const useApi = <T,>(path: string | null) => {
-	const [data, setData] = useState<T | null>(null)
-	const [loading, setLoading] = useState(path !== null)
-	const [error, setError] = useState<string | null>(null)
+	const [result, setResult] = useState<{ path: string | null; data: T | null; error: string | null; loading: boolean }>(() => ({ path, data: path ? apiReadCache.peek<T>(path) : null, error: null, loading: path !== null }))
 	const [version, setVersion] = useState(0)
+	const sequence = useRef(0)
 	const reload = useCallback(() => setVersion((v) => v + 1), [])
+	const update = useCallback((change: (data: T | null) => T) => {
+		sequence.current++
+		setResult(previous => {
+			const data = change(previous.path === path ? previous.data : null)
+			if (path) apiReadCache.write(path, data)
+			return { path, data, error: null, loading: false }
+		})
+	}, [path])
 
 	useEffect(() => {
-		if (path === null) {
-			setLoading(false)
-			return
+		if (path === null) return
+		const controller = new AbortController()
+		const load = (refresh = false) => {
+			const request = ++sequence.current
+			setResult(previous => ({ path, data: previous.path === path ? previous.data : apiReadCache.peek<T>(path), error: null, loading: true }))
+			void apiReadCache.read(path, signal => apiFetch<T>(path, { signal }), controller.signal, refresh).then(data => {
+				if (!controller.signal.aborted && sequence.current === request) setResult({ path, data, error: null, loading: false })
+			}).catch(error => {
+				if (!controller.signal.aborted && sequence.current === request) setResult(previous => ({ ...previous, error: error instanceof Error ? error.message : "Request failed", loading: false }))
+			})
 		}
-		let cancelled = false
-		setLoading(true)
-		setError(null)
-		apiFetch<T>(path)
-			.then((body) => {
-				if (!cancelled) setData(body)
-			})
-			.catch((err) => {
-				if (!cancelled) setError(err instanceof Error ? err.message : "Request failed")
-			})
-			.finally(() => {
-				if (!cancelled) setLoading(false)
-			})
+		load(version > 0)
+		const revalidate = () => { if (document.visibilityState === "visible") load() }
+		const synced = () => {
+			if (offlineAvailable()) void readOfflineData<T>(path).then(data => {
+				if (!controller.signal.aborted) { sequence.current++; apiReadCache.write(path, data); setResult({ path, data, error: null, loading: false }) }
+			}).catch(() => {})
+		}
+		window.addEventListener("online", revalidate)
+		window.addEventListener("pupler:synced", synced)
+		document.addEventListener("visibilitychange", revalidate)
 		return () => {
-			cancelled = true
+			controller.abort()
+			window.removeEventListener("online", revalidate)
+			window.removeEventListener("pupler:synced", synced)
+			document.removeEventListener("visibilitychange", revalidate)
 		}
 	}, [path, version])
 
-	return { data, loading, error, reload }
+	const current = result.path === path ? result : { data: path ? apiReadCache.peek<T>(path) : null, error: null, loading: path !== null }
+	return { ...current, loading: current.loading && current.data === null, reload, update }
 }
 
 export const Empty = ({ message }: { message: string }) => (

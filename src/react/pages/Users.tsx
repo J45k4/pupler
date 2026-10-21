@@ -7,7 +7,7 @@ import { PasskeyList } from "../PasskeyList"
 export const UsersPage = () => {
 	const { user: currentUser } = useAuth()
 	const { data, loading, error, reload } = useApi<AppUser[]>("/api/users?sort=name&order=asc")
-	const [status, setStatus] = useState("Loading users...")
+	const [status, setStatus] = useState("")
 	const [statusError, setStatusError] = useState(false)
 	const [createOpen, setCreateOpen] = useState(false)
 	const [createStatus, setCreateStatus] = useState("")

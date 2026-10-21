@@ -1,6 +1,7 @@
 import { rankTimeProjects, type ProjectUsage } from "./time-entry-data"
 import { useEffect, useId, useMemo, useState } from "react"
 import { apiFetch } from "../api"
+import { rememberOfflineRead } from "../offline"
 import { Combobox } from "../Combobox"
 import { Modal, Status, toDateTimeLocalValue, formatReceiptDateTime, type Client, type Project, type TimeEntry } from "../lib"
 import type { TimeEntryRangeInput } from "./time-report-data"
@@ -42,7 +43,7 @@ const Adjustments = ({ label, value, onChange }: { label: string; value: string;
 	onChange(toDateTimeLocalValue(date))
 }}>-{minutes} min</button>)}</div>
 
-type CommonProps = { projects: Project[]; clients?: Client[]; entries?: TimeEntry[]; projectUsage?: ProjectUsage[]; previousEndedAt?: string | null; open: boolean; onClose: () => void; onSaved: () => void }
+type CommonProps = { projects: Project[]; clients?: Client[]; entries?: TimeEntry[]; projectUsage?: ProjectUsage[]; previousEndedAt?: string | null; open: boolean; onClose: () => void; onSaved: (optionsChanged?: boolean) => void }
 
 export const EntryCreateModal = ({ projects, clients = [], entries = [], projectUsage, range, open, onClose, onSaved }: CommonProps & { range?: TimeEntryRangeInput }) => <EntryForm key={open ? `create:${range?.startedAt ?? "default"}:${range?.endedAt ?? ""}` : "closed"} projects={projects} clients={clients} entries={entries} projectUsage={projectUsage} range={range} open={open} onClose={onClose} onSaved={onSaved} />
 export const EntryEditModal = ({ entry, onDeleted, ...props }: CommonProps & { entry: TimeEntry | null; onDeleted: () => void }) => entry ? <EntryForm key={`${entry.id}:${props.open}`} entry={entry} {...props} onDeleted={onDeleted} /> : null
@@ -67,7 +68,10 @@ const EntryForm = ({ projects, clients = [], entries = [], projectUsage, previou
 	const perform = async (action: () => Promise<void>) => {
 		setPending(true)
 		setMessage("")
-		try { await action() } catch (error) { setMessage(error instanceof Error ? error.message : "Could not save entry.") } finally { setPending(false) }
+		try {
+			if (entry && entry.id > 0) await rememberOfflineRead(`/api/time-entries/${entry.id}`, entry)
+			await action()
+		} catch (error) { setMessage(error instanceof Error ? error.message : "Could not save entry.") } finally { setPending(false) }
 	}
 	const save = async () => {
 		const startDate = new Date(start)
@@ -84,7 +88,7 @@ const EntryForm = ({ projects, clients = [], entries = [], projectUsage, previou
 		} else id = (await ensureTimeProject(projects, clients, projectName, clientName)).id
 		await apiFetch(entry ? `/api/time-entries/${entry.id}` : "/api/time-entries", { method: entry ? "PATCH" : "POST", body: JSON.stringify({ project_id: id, description: description.trim() || null, started_at: startDate.toISOString(), ended_at: running ? null : endDate?.toISOString() ?? null }) })
 		onClose()
-		onSaved()
+		onSaved(id !== null && !projects.some(project => project.id === id))
 	}
 	return <Modal id={entry ? "time-entry-edit-modal" : "time-entry-create-modal"} title={title} open={open} onClose={onClose} className={range ? "time-entry-create-modal--range-preview" : ""}>
 		<form className={entry ? "time-entry-edit-form" : undefined} onSubmit={event => { event.preventDefault(); void perform(save) }}>
@@ -113,7 +117,7 @@ export const StopTimerModal = ({ entry, projects, clients, open, onClose, onSave
 				await apiFetch(`/api/time-entries/${entry.id}`, { method: "PATCH", body: JSON.stringify({ project_id: project.id }) })
 				await apiFetch(`/api/time-entries/${entry.id}/stop`, { method: "POST", body: "{}" })
 				onClose()
-				onSaved()
+				onSaved(!projects.some(value => value.id === project.id))
 			} catch (error) { setMessage(error instanceof Error ? error.message : "Failed to stop timer.") } finally { setPending(false) }
 		})()
 	}}><label>Client (optional)<Combobox value={clientName} onChange={value => { setClientName(value); setProjectName("") }} options={clients.filter(value => value.archived_at === null).map(value => ({ value: String(value.id), label: value.name }))} allowCreate createLabelPrefix="Create client" /></label><label>Project<Combobox value={projectName} onChange={setProjectName} options={projects.filter(value => value.archived_at === null && (!clientName.trim() || client?.id === value.client_id)).map(value => ({ value: String(value.id), label: value.name }))} allowCreate createLabelPrefix="Create project" /></label><div className="actions"><button type="submit" disabled={pending}>Stop Timer</button><button type="button" className="secondary" onClick={onClose}>Cancel</button></div></form><Status message={message} error={!!message} /></Modal>

@@ -105,14 +105,16 @@ export const TimePage = ({ link }: { link: (p: string) => string }) => {
 
 	const reload = useCallback(() => {
 		reloadEntries()
-		reloadProjects()
-		reloadClients()
-	}, [reloadEntries, reloadProjects, reloadClients])
+	}, [reloadEntries])
 	const editEntry = useCallback((entry: TimeEntry) => {
 		setEditing(entry)
 		setEditOpen(true)
 	}, [])
-	const changed = (msg: string) => {
+	const changed = (msg: string, optionsChanged = false) => {
+		if (optionsChanged) {
+			reloadProjects()
+			reloadClients()
+		}
 		setStatus(msg)
 		setStatusError(false)
 		reload()
@@ -135,6 +137,10 @@ export const TimePage = ({ link }: { link: (p: string) => string }) => {
 			if (projectText.trim()) {
 				const project = await ensureTimeProject(projects ?? [], clients ?? [], projectText, clientText)
 				projectId = project.id
+				if (!(projects ?? []).some(value => value.id === project.id)) {
+					reloadProjects()
+					reloadClients()
+				}
 			}
 			await apiFetch("/api/time-entries/start", {
 				method: "POST",
@@ -365,7 +371,7 @@ export const TimePage = ({ link }: { link: (p: string) => string }) => {
 					</section>
 				</div>
 			</div>
-			{running ? <StopTimerModal key={String(stopOpen)} entry={running} projects={projects ?? []} clients={clients ?? []} open={stopOpen} onClose={() => setStopOpen(false)} onSaved={() => changed("Timer stopped.")} /> : null}
+			{running ? <StopTimerModal key={String(stopOpen)} entry={running} projects={projects ?? []} clients={clients ?? []} open={stopOpen} onClose={() => setStopOpen(false)} onSaved={optionsChanged => changed("Timer stopped.", optionsChanged)} /> : null}
 			<EntryCreateModal
 				projects={projects ?? []}
 				clients={clients ?? []}
@@ -373,9 +379,9 @@ export const TimePage = ({ link }: { link: (p: string) => string }) => {
 				projectUsage={summary?.project_usage}
 				open={createOpen}
 				onClose={() => setCreateOpen(false)}
-				onSaved={() => changed("Entry created.")}
+				onSaved={optionsChanged => changed("Entry created.", optionsChanged)}
 			/>
-			<EntryEditModal projectUsage={summary?.project_usage} previousEndedAt={summary?.previous_ended_at} entry={editing} clients={clients ?? []} entries={entries ?? []} projects={projects ?? []} open={editOpen} onClose={() => setEditOpen(false)} onSaved={() => changed("Entry saved.")} onDeleted={() => changed("Entry deleted.")} />
+			<EntryEditModal projectUsage={summary?.project_usage} previousEndedAt={summary?.previous_ended_at} entry={editing} clients={clients ?? []} entries={entries ?? []} projects={projects ?? []} open={editOpen} onClose={() => setEditOpen(false)} onSaved={optionsChanged => changed("Entry saved.", optionsChanged)} onDeleted={() => changed("Entry deleted.")} />
 		</>
 	)
 }

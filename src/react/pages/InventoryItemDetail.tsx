@@ -40,10 +40,11 @@ const rowLabel = (
 export const InventoryItemDetailPage = ({ id, link }: { id: string; link: (p: string) => string }) => {
 	const itemId = Number.parseInt(id, 10)
 	const valid = Number.isInteger(itemId)
+	const [editingLinks, setEditingLinks] = useState(false)
 	const { data: item, loading, error, reload } = useApi<ItemDetail>(valid ? `/api/inventory-items/${itemId}` : null)
-	const { data: products } = useApi<Product[]>("/api/products")
-	const { data: receiptItems } = useApi<ReceiptItem[]>("/api/receipt-items?sort=created_at&order=desc")
-	const { data: receipts } = useApi<PurchaseReceipt[]>("/api/receipts?sort=purchased_at&order=desc")
+	const { data: products, loading: productsLoading, error: productsError } = useApi<Product[]>(editingLinks ? "/api/products" : null)
+	const { data: receiptItems, loading: receiptItemsLoading, error: receiptItemsError } = useApi<ReceiptItem[]>(editingLinks ? "/api/receipt-items?sort=created_at&order=desc" : null)
+	const { data: receipts, loading: receiptsLoading, error: receiptsError } = useApi<PurchaseReceipt[]>(editingLinks ? "/api/receipts?sort=purchased_at&order=desc" : null)
 	const { data: container } = useApi<InventoryContainer>(
 		item?.container_id != null ? `/api/inventory-containers/${item.container_id}` : null,
 	)
@@ -83,6 +84,7 @@ export const InventoryItemDetailPage = ({ id, link }: { id: string; link: (p: st
 				receipt_item_id: receiptItemId ? Number.parseInt(receiptItemId, 10) : null,
 			})
 			setLinksStatus("Saved links.")
+			setEditingLinks(false)
 			setLinksError(false)
 			reload()
 		} catch (err) {
@@ -102,11 +104,7 @@ export const InventoryItemDetailPage = ({ id, link }: { id: string; link: (p: st
 			for (const file of Array.from(files)) {
 				const formData = new FormData()
 				formData.set("file", file)
-				const response = await fetch(`/api/inventory-items/${item.id}/pictures`, { method: "POST", body: formData })
-				if (!response.ok) {
-					const body = (await response.json().catch(() => null)) as { error?: string } | null
-					throw new Error(body?.error ?? "Failed to upload image")
-				}
+				await apiFetch(`/api/inventory-items/${item.id}/pictures`, { method: "POST", body: formData })
 			}
 			setFiles(null)
 			setPictureStatus("Uploaded images.")
@@ -120,11 +118,7 @@ export const InventoryItemDetailPage = ({ id, link }: { id: string; link: (p: st
 
 	const removeImage = async (imageId: number) => {
 		try {
-			const response = await fetch(`/api/inventory-items/${item.id}/pictures/${imageId}`, { method: "DELETE" })
-			if (!response.ok) {
-				const body = (await response.json().catch(() => null)) as { error?: string } | null
-				throw new Error(body?.error ?? "Failed to remove image")
-			}
+			await apiFetch(`/api/inventory-items/${item.id}/pictures/${imageId}`, { method: "DELETE" })
 			setPictureStatus("Removed image.")
 			setPictureError(false)
 			reload()
@@ -176,7 +170,9 @@ export const InventoryItemDetailPage = ({ id, link }: { id: string; link: (p: st
 						<h2>Links & IDs</h2>
 						<span className={expiration.className}>{expiration.label}</span>
 					</div>
-					<form id="inventory-item-links-form" className="inventory-link-form" onSubmit={saveLinks}>
+					<button className="secondary" type="button" onClick={() => setEditingLinks(value => !value)}>{editingLinks ? "Cancel editing" : "Edit links"}</button>
+					{editingLinks ? <Status message={productsError ?? receiptItemsError ?? receiptsError ?? (productsLoading || receiptItemsLoading || receiptsLoading ? "Loading link options…" : "")} error={!!(productsError || receiptItemsError || receiptsError)} /> : null}
+					{editingLinks ? <form id="inventory-item-links-form" className="inventory-link-form" onSubmit={saveLinks}>
 						<label>
 							Product
 							<select id="inventory-item-product-id" name="product_id" value={productId} onChange={(e) => setProductId(e.target.value)}>
@@ -218,11 +214,11 @@ export const InventoryItemDetailPage = ({ id, link }: { id: string; link: (p: st
 							</select>
 						</label>
 						<div className="actions">
-							<button className="primary" type="submit">
+							<button className="primary" type="submit" disabled={productsLoading || receiptItemsLoading || receiptsLoading || !!(productsError || receiptItemsError || receiptsError)}>
 								Save Links
 							</button>
 						</div>
-					</form>
+					</form> : null}
 					<Status message={linksStatus} error={linksError} />
 					<dl className="receipt-metadata">
 						{meta("Inventory Item ID", String(item.id))}

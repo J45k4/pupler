@@ -20,6 +20,7 @@ for (const [name, entry] of Object.entries({
 })) {
 	const result = await Bun.build({
 		entrypoints: [entry],
+		minify: true,
 		compile: { outfile: `${output}/${name}${platform === "win32" ? ".exe" : ""}`, ...(platform === "linux" && arch === "x64" ? { target: "bun-linux-x64-baseline" as const } : {}) },
 		define: { PUPLER_BUILD_VERSION: JSON.stringify(version), "process.env.NODE_ENV": JSON.stringify("production") },
 		plugins: [{

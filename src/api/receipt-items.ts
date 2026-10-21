@@ -159,11 +159,15 @@ const parsePatchValues = (body: JsonObject) => {
 export const receiptItemsCollectionRoute = async (req: Request) => {
 	if (req.method === "GET") {
 		const url = new URL(req.url)
+		const view = url.searchParams.get("view")
+		if (view !== null && view !== "detail") throw new HttpError(400, "Unknown receipt item view")
+		url.searchParams.delete("view")
 		return json(
 			200,
 			await db.client.receiptItem.findMany({
 				where: parseFilters(url),
 				orderBy: parseSort(url),
+				...(view === "detail" ? { include: { product: { select: { id: true, name: true } } } } : {}),
 			}),
 		)
 	}

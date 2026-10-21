@@ -125,11 +125,7 @@ export const ReceiptsPage = ({ link }: { link: (p: string) => string }) => {
 			if (picture) {
 				const formData = new FormData()
 				formData.set("file", picture)
-				const response = await fetch(`/api/receipts/${created.id}/picture`, { method: "POST", body: formData })
-				if (!response.ok) {
-					const body = (await response.json().catch(() => null)) as { error?: string } | null
-					throw new Error(body?.error ?? "Failed to upload receipt picture")
-				}
+				await apiFetch(`/api/receipts/${created.id}/picture`, { method: "POST", body: formData })
 			}
 			setStoreName("")
 			setPurchasedAt(toDateTimeLocalValue())

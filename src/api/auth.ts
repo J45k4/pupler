@@ -124,7 +124,7 @@ export const createSessionResponse = async (user: { id: number }, req: Request, 
 	)
 }
 
-export const resolveAuthenticatedUser = async (req: Request) => {
+const resolveRequestUser = async (req: Request) => {
 	const authorization = req.headers.get("authorization")
 	if (authorization !== null) {
 		const key = authorization.match(/^Bearer (pupler_[A-Za-z0-9_-]{43})$/i)?.[1]
@@ -159,6 +159,17 @@ export const resolveAuthenticatedUser = async (req: Request) => {
 	})
 
 	return session.user
+}
+
+const requestUsers = new WeakMap<Request, ReturnType<typeof resolveRequestUser>>()
+
+export const resolveAuthenticatedUser = (req: Request) => {
+	let user = requestUsers.get(req)
+	if (!user) {
+		user = resolveRequestUser(req)
+		requestUsers.set(req, user)
+	}
+	return user
 }
 
 export const requireAuthenticatedUser = async (req: Request) => {
