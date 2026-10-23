@@ -1,3 +1,4 @@
+import { upsertItem } from "./data-updates"
 import { useState } from "react"
 import { startRegistration, type PublicKeyCredentialCreationOptionsJSON } from "@simplewebauthn/browser"
 import { apiFetch } from "./api"
@@ -14,7 +15,7 @@ const kind = (transports: string[]) =>
 	transports.includes("internal") ? "This device / platform" : transports.includes("hybrid") ? "Phone" : transports.length ? "Security key" : "Passkey"
 
 export const PasskeyList = ({ baseUrl, emptyMessage, canAdd = false }: { baseUrl: string, emptyMessage: string, canAdd?: boolean }) => {
-	const { data, loading, error, reload } = useApi<Passkey[]>(baseUrl)
+	const { data, loading, error, reload, update } = useApi<Passkey[]>(baseUrl)
 	const [status, setStatus] = useState("")
 	const [statusError, setStatusError] = useState(false)
 
@@ -25,7 +26,8 @@ export const PasskeyList = ({ baseUrl, emptyMessage, canAdd = false }: { baseUrl
 		try {
 			const options = await apiFetch<PublicKeyCredentialCreationOptionsJSON>(`${baseUrl}/options`, { method: "POST", body: "{}" })
 			const response = await startRegistration({ optionsJSON: options })
-			await apiFetch(baseUrl, { method: "POST", body: JSON.stringify({ response }) })
+			const saved = await apiFetch<Passkey>(baseUrl, { method: "POST", body: JSON.stringify({ response }) })
+			update(current => upsertItem(current, saved))
 			setStatus("Passkey added.")
 			setStatusError(false)
 			reload()
@@ -42,6 +44,7 @@ export const PasskeyList = ({ baseUrl, emptyMessage, canAdd = false }: { baseUrl
 		if (!window.confirm("Remove this passkey? Sessions signed in with it will be logged out.")) return
 		try {
 			await apiFetch(`${baseUrl}/${passkey.id}`, { method: "DELETE" })
+			update(current => (current ?? []).filter(item => item.id !== passkey.id))
 			setStatus("Passkey removed.")
 			setStatusError(false)
 			reload()

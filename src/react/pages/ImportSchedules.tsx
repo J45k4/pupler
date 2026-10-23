@@ -1,3 +1,4 @@
+import { upsertItem } from "../data-updates"
 import { useState } from "react"
 import { apiFetch } from "../api"
 import { Empty, Modal, Status, toDateTimeLocalValue, useApi } from "../lib"
@@ -63,7 +64,7 @@ const lookbackLabel = (params: ScheduleParams) =>
 
 export const ImportSchedulesPage = ({ link }: { link: (p: string) => string }) => {
 	const { data: integrations } = useApi<ExternalIntegration[]>("/api/external-integrations")
-	const { data: schedules, loading: sLoading, error: sError, reload } = useApi<ImportSchedule[]>("/api/import-schedules")
+	const { data: schedules, loading: sLoading, error: sError, reload, update } = useApi<ImportSchedule[]>("/api/import-schedules")
 	const { data: clients } = useApi<ScheduleClient[]>("/api/clients?archived_at=null&sort=name&order=asc")
 
 	const [status, setStatus] = useState("")
@@ -102,7 +103,7 @@ export const ImportSchedulesPage = ({ link }: { link: (p: string) => string }) =
 			const lookback = lookbackDays.trim() ? Number(lookbackDays) : null
 			const next = nextRunAt.trim() ? new Date(nextRunAt) : null
 			if (next && Number.isNaN(next.getTime())) throw new Error("Next run time is invalid.")
-			await apiFetch("/api/import-schedules", {
+			const saved = await apiFetch<ImportSchedule>("/api/import-schedules", {
 				method: "POST",
 				body: JSON.stringify({
 					integration_id: Number(integrationId),
@@ -119,6 +120,7 @@ export const ImportSchedulesPage = ({ link }: { link: (p: string) => string }) =
 				}),
 			})
 			setModalOpen(false)
+			update(current => upsertItem(current, saved))
 			setStatus("Schedule created.")
 			setStatusError(false)
 			reload()
@@ -259,7 +261,7 @@ export const ImportScheduleDetailPage = ({ id, link }: { id: string; link: (p: s
 	const scheduleId = Number.parseInt(id, 10)
 	const valid = Number.isInteger(scheduleId)
 	const { data: integrations } = useApi<ExternalIntegration[]>("/api/external-integrations")
-	const { data: schedule, loading: sLoading, error: sError, reload } = useApi<ImportSchedule>(
+	const { data: schedule, loading: sLoading, error: sError, reload, update } = useApi<ImportSchedule>(
 		valid ? `/api/import-schedules/${scheduleId}` : null,
 	)
 	const { data: clients } = useApi<ScheduleClient[]>("/api/clients?archived_at=null&sort=name&order=asc")
@@ -314,7 +316,7 @@ export const ImportScheduleDetailPage = ({ id, link }: { id: string; link: (p: s
 		try {
 			const next = form.next_run_at.trim() ? new Date(form.next_run_at) : null
 			if (next && Number.isNaN(next.getTime())) throw new Error("Next run time is invalid.")
-			await apiFetch(`/api/import-schedules/${scheduleId}`, {
+			const saved = await apiFetch<ImportSchedule>(`/api/import-schedules/${scheduleId}`, {
 				method: "PATCH",
 				body: JSON.stringify({
 					integration_id: Number(form.integration_id),
@@ -331,6 +333,7 @@ export const ImportScheduleDetailPage = ({ id, link }: { id: string; link: (p: s
 					status: Number(form.status),
 				}),
 			})
+			update(() => saved)
 			setStatus("Schedule saved.")
 			setStatusError(false)
 			reload()

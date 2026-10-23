@@ -1,8 +1,18 @@
 import { describe, expect, test } from "bun:test"
 import type { PurchaseReceipt } from "../src/react/lib"
-import { mergeReceiptPage, receiptDateBefore, receiptPageParams } from "../src/react/pages/receipt-page-data"
+import { applyReceiptChanges, mergeReceiptPage, receiptDateBefore, receiptPageParams } from "../src/react/pages/receipt-page-data"
 
 describe("receipt page data", () => {
+	test("confirmed receipts override old pages, follow group/date filters and sort equivalent timezones", () => {
+		const receipt = (id: number, group_id: number | null, purchased_at: string) => ({ id, group_id, purchased_at }) as PurchaseReceipt
+		const old = receipt(1, null, "2026-10-24T10:00:00Z")
+		const moved = { ...old, group_id: 7 }
+		const newer = receipt(2, null, "2026-10-24T13:00:00+03:00")
+		expect(applyReceiptChanges([old, newer], [moved], "group_id=null")).toEqual([newer])
+		expect(applyReceiptChanges([old, newer], [moved], "group_id=7")).toEqual([moved])
+		expect(applyReceiptChanges([old], [newer], "").map(item => item.id)).toEqual([2, 1])
+		expect(applyReceiptChanges([old], [receipt(3, null, "2026-10-25T00:00:00Z")], "before=2026-10-25T00%3A00%3A00Z")).toEqual([old])
+	})
 	test("builds consistent page and group filters", () => {
 		expect(new URLSearchParams(receiptPageParams("all", "")).toString()).toBe("view=page&limit=40")
 		expect(new URLSearchParams(receiptPageParams("ungrouped", "")).get("group_id")).toBe("null")

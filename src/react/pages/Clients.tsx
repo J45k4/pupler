@@ -1,3 +1,4 @@
+import { upsertItem } from "../data-updates"
 import { useMemo, useState } from "react"
 import { apiFetch } from "../api"
 import { Empty, Status, useApi, type Client, type Project } from "../lib"
@@ -18,7 +19,7 @@ export const ClientsPage = ({ link }: { link: (p: string) => string }) => {
 	const [name, setName] = useState("")
 	const [color, setColor] = useState("#2d7c6f")
 
-	const { data: clientsData, loading: cLoading, error: cError, reload: reloadClients } = useApi<Client[]>("/api/clients?sort=name&order=asc")
+	const { data: clientsData, loading: cLoading, error: cError, reload: reloadClients, update: updateClients } = useApi<Client[]>("/api/clients?sort=name&order=asc")
 	const { data: projectsData, reload: reloadProjects } = useApi<Project[]>("/api/projects?sort=name&order=asc")
 
 	const reload = () => {
@@ -36,12 +37,13 @@ export const ClientsPage = ({ link }: { link: (p: string) => string }) => {
 
 	const save = async (client: Client, nextName: string, nextColor: string) => {
 		try {
-			await apiFetch(`/api/clients/${client.id}`, {
+			const saved = await apiFetch<Client>(`/api/clients/${client.id}`, {
 				method: "PATCH",
 				body: JSON.stringify({ name: nextName, color: nextColor }),
 			})
 			setStatus("Client saved.")
 			setStatusError(false)
+			updateClients(current => upsertItem(current, saved))
 			reload()
 		} catch (err) {
 			setStatus(err instanceof Error ? err.message : "Failed to save client.")
@@ -52,12 +54,13 @@ export const ClientsPage = ({ link }: { link: (p: string) => string }) => {
 	const toggleArchive = async (client: Client) => {
 		const archived = client.archived_at !== null
 		try {
-			await apiFetch(`/api/clients/${client.id}`, {
+			const saved = await apiFetch<Client>(`/api/clients/${client.id}`, {
 				method: "PATCH",
 				body: JSON.stringify({ archived_at: archived ? null : new Date().toISOString() }),
 			})
 			setStatus(archived ? "Client restored." : "Client archived.")
 			setStatusError(false)
+			updateClients(current => upsertItem(current, saved))
 			reload()
 		} catch (err) {
 			setStatus(err instanceof Error ? err.message : "Failed to update client.")
@@ -73,7 +76,7 @@ export const ClientsPage = ({ link }: { link: (p: string) => string }) => {
 			return
 		}
 		try {
-			await apiFetch("/api/clients", {
+			const saved = await apiFetch<Client>("/api/clients", {
 				method: "POST",
 				body: JSON.stringify({ name: name.trim(), color, archived_at: null }),
 			})
@@ -81,6 +84,7 @@ export const ClientsPage = ({ link }: { link: (p: string) => string }) => {
 			setColor("#2d7c6f")
 			setStatus("Client created.")
 			setStatusError(false)
+			updateClients(current => upsertItem(current, saved))
 			reload()
 		} catch (err) {
 			setStatus(err instanceof Error ? err.message : "Failed to create client.")
@@ -186,7 +190,7 @@ const ClientRow = ({
 export const ClientDetailPage = ({ id, link }: { id: string; link: (p: string) => string }) => {
 	const clientId = Number.parseInt(id, 10)
 	const valid = Number.isInteger(clientId)
-	const { data: client, loading: cLoading, error: cError, reload } = useApi<Client>(valid ? `/api/clients/${clientId}` : null)
+	const { data: client, loading: cLoading, error: cError, reload, update: updateClient } = useApi<Client>(valid ? `/api/clients/${clientId}` : null)
 	const { data: projects } = useApi<Project[]>(valid ? `/api/projects?client_id=${clientId}&sort=name&order=asc` : null)
 
 	const [name, setName] = useState<string | null>(null)
@@ -210,12 +214,13 @@ export const ClientDetailPage = ({ id, link }: { id: string; link: (p: string) =
 			return
 		}
 		try {
-			await apiFetch(`/api/clients/${client.id}`, {
+			const saved = await apiFetch<Client>(`/api/clients/${client.id}`, {
 				method: "PATCH",
 				body: JSON.stringify({ name: currentName.trim(), color: currentColor }),
 			})
 			setStatus("Client saved.")
 			setStatusError(false)
+			updateClient(() => saved)
 			reload()
 		} catch (err) {
 			setStatus(err instanceof Error ? err.message : "Failed to save client.")
@@ -225,12 +230,13 @@ export const ClientDetailPage = ({ id, link }: { id: string; link: (p: string) =
 
 	const toggleArchive = async () => {
 		try {
-			await apiFetch(`/api/clients/${client.id}`, {
+			const saved = await apiFetch<Client>(`/api/clients/${client.id}`, {
 				method: "PATCH",
 				body: JSON.stringify({ archived_at: archived ? null : new Date().toISOString() }),
 			})
 			setStatus(archived ? "Client restored." : "Client archived.")
 			setStatusError(false)
+			updateClient(() => saved)
 			reload()
 		} catch (err) {
 			setStatus(err instanceof Error ? err.message : "Failed to update client.")

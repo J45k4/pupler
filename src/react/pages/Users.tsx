@@ -1,3 +1,4 @@
+import { upsertItem } from "../data-updates"
 import { useState } from "react"
 import { apiFetch } from "../api"
 import { Empty, Modal, Status, useApi, type AppUser } from "../lib"
@@ -6,7 +7,7 @@ import { PasskeyList } from "../PasskeyList"
 
 export const UsersPage = () => {
 	const { user: currentUser } = useAuth()
-	const { data, loading, error, reload } = useApi<AppUser[]>("/api/users?sort=name&order=asc")
+	const { data, loading, error, reload, update } = useApi<AppUser[]>("/api/users?sort=name&order=asc")
 	const [status, setStatus] = useState("")
 	const [statusError, setStatusError] = useState(false)
 	const [createOpen, setCreateOpen] = useState(false)
@@ -48,7 +49,7 @@ export const UsersPage = () => {
 			return
 		}
 		try {
-			await apiFetch("/api/users", {
+			const saved = await apiFetch<AppUser>("/api/users", {
 				method: "POST",
 				body: JSON.stringify({
 					name: cName.trim(),
@@ -66,6 +67,7 @@ export const UsersPage = () => {
 			setCreateOpen(false)
 			setStatus("User created.")
 			setStatusError(false)
+			update(current => upsertItem(current, saved))
 			reload()
 		} catch (err) {
 			setCreateStatus(err instanceof Error ? err.message : "Failed to create user.")
@@ -94,7 +96,7 @@ export const UsersPage = () => {
 			return
 		}
 		try {
-			await apiFetch(`/api/users/${editUser.id}`, {
+			const saved = await apiFetch<AppUser>(`/api/users/${editUser.id}`, {
 				method: "PATCH",
 				body: JSON.stringify({
 					name: eName.trim(),
@@ -107,6 +109,7 @@ export const UsersPage = () => {
 			setEditUser(null)
 			setStatus("User saved.")
 			setStatusError(false)
+			update(current => upsertItem(current, saved))
 			reload()
 		} catch (err) {
 			setEditStatus(err instanceof Error ? err.message : "Failed to save user.")
@@ -129,6 +132,7 @@ export const UsersPage = () => {
 			await apiFetch(`/api/users/${user.id}`, { method: "DELETE" })
 			setStatus("User deleted.")
 			setStatusError(false)
+			update(current => (current ?? []).filter(item => item.id !== user.id))
 			reload()
 		} catch (err) {
 			setStatus(err instanceof Error ? err.message : "Failed to delete user.")

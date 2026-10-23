@@ -10,7 +10,8 @@ bun test test/punisher.test.ts
 bun test test/mcp.test.ts
 bun test test/api.test.ts test/e2e.test.ts
 bun test test/migrations.test.ts
-bun test test/api-cache.test.ts test/fetch-optimization.test.ts test/offline.test.ts test/static-assets.test.ts
+bun test test/api-cache.test.ts test/fetch-optimization.test.ts test/offline.test.ts test/offline-refresh.test.ts test/static-assets.test.ts
+bun test test/data-updates.test.ts test/time-changes.test.ts test/receipt-page-data.test.ts
 ```
 
 ## Punisher security suite
@@ -36,3 +37,23 @@ API and migration behavior live in `test/api.test.ts` and
 `test/migrations.test.ts`; `test/e2e.test.ts` checks HTTP integration. Keep
 automated tests focused on behavior and permissions. Inspect visual UI changes
 in a browser instead of adding brittle DOM or screenshot assertions.
+
+## Mobile action refresh checks
+
+Use headless Chrome with a phone viewport and network emulation (800 ms latency,
+400 kbps download, 100 kbps upload). Hold follow-up API reads and offline sync
+requests separately so successful saves and durable local actions can be checked
+before background requests finish. Release captured old responses afterwards and
+check that they do not undo the newer state.
+
+Check timer start/stop/edit/discard, shopping changes and the overview in the
+same tab and another tab. Include a frozen/resumed tab, a real offline reload,
+device storage failure, reconnect, and verification that sync creates no duplicate
+records. Check report edits/deletions, duration and client/project totals,
+pending reloads, discarding unsent work and editing again after acknowledgement.
+
+For other forms, confirm saved values and removed records appear immediately
+while their refresh is held. Include image upload/replacement/removal, filtered
+receipt creation and paging, inventory moves and consumption, project merge,
+account controls, integrations and locations. Use isolated test databases, local
+vendor fixtures and a virtual WebAuthn authenticator on localhost.

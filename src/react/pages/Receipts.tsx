@@ -1,3 +1,4 @@
+import { upsertItem } from "../data-updates"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { apiFetch } from "../api"
 import { Empty, Modal, Status, toDateTimeLocalValue, useApi, type Group, type PurchaseReceipt } from "../lib"
@@ -35,7 +36,7 @@ export const ReceiptsPage = ({ link }: { link: (p: string) => string }) => {
 
 	const params = useMemo(() => receiptPageParams(groupFilter, newestDate), [groupFilter, newestDate])
 	const { receipts, loading: receiptsLoading, error: receiptsError, hasMore, loadMore, reload: reloadReceipts, updateReceipt } = useReceiptPages(params)
-	const { data: groupsData, loading: groupsLoading, error: groupsError, reload: reloadGroups } = useApi<Group[]>("/api/groups?sort=name&order=asc")
+	const { data: groupsData, loading: groupsLoading, error: groupsError, reload: reloadGroups, update: updateGroups } = useApi<Group[]>("/api/groups?sort=name&order=asc")
 
 	const reload = () => {
 		reloadReceipts()
@@ -111,8 +112,9 @@ export const ReceiptsPage = ({ link }: { link: (p: string) => string }) => {
 			if (groupName.trim()) {
 				const group = await findOrCreateGroup(groupName, groups)
 				groupId = group.id
+				updateGroups(current => upsertItem(current, group))
 			}
-			const created = await apiFetch<PurchaseReceipt>("/api/receipts", {
+			let created = await apiFetch<PurchaseReceipt>("/api/receipts", {
 				method: "POST",
 				body: JSON.stringify({
 					group_id: groupId,
@@ -125,7 +127,8 @@ export const ReceiptsPage = ({ link }: { link: (p: string) => string }) => {
 			if (picture) {
 				const formData = new FormData()
 				formData.set("file", picture)
-				await apiFetch(`/api/receipts/${created.id}/picture`, { method: "POST", body: formData })
+				const uploaded = await apiFetch<{ receipt: PurchaseReceipt }>(`/api/receipts/${created.id}/picture`, { method: "POST", body: formData })
+				created = uploaded.receipt
 			}
 			setStoreName("")
 			setPurchasedAt(toDateTimeLocalValue())
@@ -133,10 +136,11 @@ export const ReceiptsPage = ({ link }: { link: (p: string) => string }) => {
 			setTotalAmount("")
 			setGroupName("")
 			setPicture(null)
+			updateReceipt(created)
 			setReceiptOpen(false)
 			setStatus(picture ? `Created receipt #${created.id} and uploaded picture` : `Created receipt #${created.id}`)
 			setStatusError(false)
-			reload()
+			reloadGroups()
 		} catch (err) {
 			setCreateStatus(err instanceof Error ? err.message : "Failed to create receipt")
 		}
@@ -155,9 +159,10 @@ export const ReceiptsPage = ({ link }: { link: (p: string) => string }) => {
 			})
 			setNewGroupName("")
 			setGroupOpen(false)
+			updateGroups(current => upsertItem(current, group))
 			setStatus(`Created group ${group.name}.`)
 			setStatusError(false)
-			reload()
+			reloadGroups()
 		} catch (err) {
 			setGroupStatus(err instanceof Error ? err.message : "Failed to create group")
 		}

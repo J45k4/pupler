@@ -74,6 +74,18 @@ test("failed reads are retriable and already-aborted reads do not start a reques
 	expect(called).toBe(false)
 })
 
+test("a confirmed local write supersedes a pending read without clearing unrelated data", async () => {
+	const cache = new ApiReadCache()
+	cache.write("other", 7)
+	const pending = deferred<string>()
+	const read = cache.read("items", () => pending.promise, new AbortController().signal)
+	cache.write("items", "saved")
+	pending.resolve("old")
+	expect(await read).toBe("old")
+	expect(cache.peek<string>("items")).toBe("saved")
+	expect(cache.peek<number>("other")).toBe(7)
+})
+
 test("JSON and multipart mutations invalidate page data and authentication failures clear private data", async () => {
 	const originalFetch = globalThis.fetch
 	const requests: RequestInit[] = []

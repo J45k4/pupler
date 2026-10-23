@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { apiFetch } from "./api"
 import { apiReadCache } from "./api-cache"
-import { offlineAvailable, readOfflineData } from "./offline"
+import { offlineAvailable, readOfflineData, rememberOfflineRead } from "./offline"
+import { offlineChangeAffects, offlineReadPath } from "./offline-data"
 
 export type Todo = {
 	todo_list_id: number
@@ -253,7 +254,10 @@ export const useApi = <T,>(path: string | null) => {
 		sequence.current++
 		setResult(previous => {
 			const data = change(previous.path === path ? previous.data : null)
-			if (path) apiReadCache.write(path, data)
+			if (path) {
+				apiReadCache.write(path, data)
+				if (offlineAvailable()) void rememberOfflineRead(path, data).catch(() => {})
+			}
 			return { path, data, error: null, loading: false }
 		})
 	}, [path])
@@ -263,19 +267,34 @@ export const useApi = <T,>(path: string | null) => {
 		const controller = new AbortController()
 		const load = (refresh = false) => {
 			const request = ++sequence.current
-			setResult(previous => ({ path, data: previous.path === path ? previous.data : apiReadCache.peek<T>(path), error: null, loading: true }))
+			let settled = false
+			const cached = apiReadCache.peek<T>(path)
+			setResult(previous => ({ path, data: cached ?? (previous.path === path ? previous.data : null), error: null, loading: true }))
+			// A phone can report online while requests stall; show its durable edits first.
+			if (cached === null && offlineAvailable() && offlineReadPath(path)) void readOfflineData<T>(path).then(data => {
+				if (!settled && !controller.signal.aborted && sequence.current === request) setResult({ path, data, error: null, loading: true })
+			}).catch(() => {})
 			void apiReadCache.read(path, signal => apiFetch<T>(path, { signal }), controller.signal, refresh).then(data => {
+				settled = true
 				if (!controller.signal.aborted && sequence.current === request) setResult({ path, data, error: null, loading: false })
 			}).catch(error => {
+				settled = true
 				if (!controller.signal.aborted && sequence.current === request) setResult(previous => ({ ...previous, error: error instanceof Error ? error.message : "Request failed", loading: false }))
 			})
 		}
 		load(version > 0)
 		const revalidate = () => { if (document.visibilityState === "visible") load() }
-		const synced = () => {
-			if (offlineAvailable()) void readOfflineData<T>(path).then(data => {
-				if (!controller.signal.aborted) { sequence.current++; apiReadCache.write(path, data); setResult({ path, data, error: null, loading: false }) }
-			}).catch(() => {})
+		const synced = (event: Event) => {
+			const detail = (event as CustomEvent<{ paths?: string[]; pending?: boolean }>).detail
+			if (!offlineAvailable() || !offlineChangeAffects(path, detail?.paths)) return
+			if (!offlineReadPath(path)) {
+				if (!detail?.pending) load(true)
+				return
+			}
+			const request = ++sequence.current
+			void readOfflineData<T>(path).then(data => {
+				if (!controller.signal.aborted && sequence.current === request) { apiReadCache.write(path, data); setResult({ path, data, error: null, loading: false }) }
+			}).catch(() => { if (!controller.signal.aborted && sequence.current === request) load(true) })
 		}
 		window.addEventListener("online", revalidate)
 		window.addEventListener("pupler:synced", synced)

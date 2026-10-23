@@ -24,3 +24,13 @@ export const mergeReceiptPage = (existing: PurchaseReceipt[], incoming: Purchase
 	for (const receipt of incoming) byId.set(receipt.id, receipt)
 	return [...byId.values()]
 }
+
+export const applyReceiptChanges = (existing: PurchaseReceipt[], changes: PurchaseReceipt[], params: string) => {
+	const query = new URLSearchParams(params)
+	const group = query.get("group_id")
+	const before = query.get("before")
+	return mergeReceiptPage(existing, changes).filter(item =>
+		(group === null || (group === "null" ? item.group_id === null : String(item.group_id) === group)) &&
+		(before === null || Date.parse(item.purchased_at) < Date.parse(before)),
+	).sort((a, b) => Date.parse(b.purchased_at) - Date.parse(a.purchased_at) || b.id - a.id)
+}

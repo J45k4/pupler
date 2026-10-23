@@ -1,18 +1,19 @@
 import { useEffect, useState } from "react"
 import { apiFetch } from "../api"
+import { upsertItem } from "../data-updates"
 import { Empty, Status, formatMoney, formatReceiptDateTime, useApi, type Group, type PurchaseReceipt, type ReceiptItem } from "../lib"
 import { findOrCreateGroup } from "./Receipts"
 
 export const ReceiptDetailPage = ({ id, link }: { id: string; link: (p: string) => string }) => {
 	const receiptId = Number.parseInt(id, 10)
 	const valid = Number.isInteger(receiptId)
-	const { data: receipt, loading: rLoading, error: rError, reload: reloadReceipt } = useApi<PurchaseReceipt>(
+	const { data: receipt, loading: rLoading, error: rError, reload: reloadReceipt, update: updateReceipt } = useApi<PurchaseReceipt>(
 		valid ? `/api/receipts/${receiptId}` : null,
 	)
 	const { data: items } = useApi<ReceiptItem[]>(
 		valid ? `/api/receipt-items?receipt_id=${receiptId}&view=detail` : null,
 	)
-	const { data: groups, reload: reloadGroups } = useApi<Group[]>("/api/groups?sort=name&order=asc")
+	const { data: groups, reload: reloadGroups, update: updateGroups } = useApi<Group[]>("/api/groups?sort=name&order=asc")
 
 	const [groupName, setGroupName] = useState<string | null>(null)
 	const [groupStatus, setGroupStatus] = useState("")
@@ -49,12 +50,14 @@ export const ReceiptDetailPage = ({ id, link }: { id: string; link: (p: string) 
 		try {
 			const trimmed = (groupName ?? "").trim()
 			const group = trimmed ? await findOrCreateGroup(trimmed, groups ?? []) : null
-			await apiFetch(`/api/receipts/${receipt.id}`, {
+			if (group) updateGroups(current => upsertItem(current, group))
+			const saved = await apiFetch<PurchaseReceipt>(`/api/receipts/${receipt.id}`, {
 				method: "PATCH",
 				body: JSON.stringify({ group_id: group?.id ?? null }),
 			})
 			setGroupStatus(group ? `Saved group ${group.name}.` : "Cleared receipt group.")
 			setGroupError(false)
+			updateReceipt(() => saved)
 			reloadReceipt()
 			reloadGroups()
 		} catch (err) {

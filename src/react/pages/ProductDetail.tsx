@@ -5,7 +5,7 @@ import { UnitSelect, deleteProductPicture, findOrCreateIngredientByName, uploadP
 
 export const ProductDetailPage = ({ id, link }: { id: string; link: (p: string) => string }) => {
 	const productId = Number.parseInt(id, 10)
-	const { data: product, loading, error, reload } = useApi<Product>(
+	const { data: product, loading, error, reload, update } = useApi<Product>(
 		Number.isInteger(productId) ? `/api/products/${productId}` : null,
 	)
 
@@ -60,6 +60,7 @@ export const ProductDetailPage = ({ id, link }: { id: string; link: (p: string) 
 					is_perishable: isPerishable === "true",
 				}),
 			})
+			update(() => updated)
 			setStatus(`Saved ${updated.name}.`)
 			setStatusError(false)
 			reload()
@@ -77,7 +78,8 @@ export const ProductDetailPage = ({ id, link }: { id: string; link: (p: string) 
 			return
 		}
 		try {
-			await uploadProductPicture(product.id, picture)
+			const saved = await uploadProductPicture(product.id, picture)
+			update(() => saved)
 			setPicture(null)
 			setPictureStatus(`Uploaded picture for ${product.name}.`)
 			setPictureError(false)
@@ -91,6 +93,7 @@ export const ProductDetailPage = ({ id, link }: { id: string; link: (p: string) 
 	const removePicture = async () => {
 		try {
 			await deleteProductPicture(product.id)
+			update(current => ({ ...current!, picture_file_id: null, picture_file: null }))
 			setPictureStatus(`Removed picture for ${product.name}.`)
 			setPictureError(false)
 			reload()

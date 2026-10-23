@@ -5,6 +5,8 @@ import { navigate, useLocation } from "../router"
 import { Empty, Status, formatDuration, formatReceiptDateTime, useApi, type Client, type Project, type TimeEntry } from "../lib"
 import { EntryCreateModal, EntryEditModal } from "./TimeEntryForms"
 import * as data from "./time-report-data"
+import { applyTimeChange, applyEntryChange, confirmTimeEntries, type TimeChange, type TimeResult } from "../time-changes"
+import { pendingTimeChanges, queuedTimeChanges } from "../offline"
 
 const style = (values: Record<string, string | number>) => values as CSSProperties
 const Color = ({ color }: { color: string }) => <span className="time-color" style={style({ "--time-color": color })} />
@@ -13,35 +15,81 @@ const entriesQuery = (from: string, to: string) => `/api/time-entries?${new URLS
 const timeOfDay = (date: Date) => new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(date)
 
 // Ignore stale responses on date changes and cancel reads when leaving a report.
-const useReportData = <T,>(key: string, load: (signal: AbortSignal) => Promise<T>) => {
+const useReportData = <T,>(key: string, load: (signal: AbortSignal) => Promise<T>, project: (value: T, change: TimeChange) => T, confirm: (value: T, results: TimeResult[]) => T = value => value) => {
 	const loader = useRef(load)
 	loader.current = load
+	const projection = useRef(project)
+	projection.current = project
+	const confirmation = useRef(confirm)
+	confirmation.current = confirm
+	const sequence = useRef(0)
 	const [revision, setRevision] = useState(0)
+	const [state, setState] = useState<{ key: string; value: T | null; error: string }>(() => ({ key, value: apiReadCache.peek<T>(`report:${key}`), error: "" }))
+	const loaded = useRef(false)
+	loaded.current = state.key === key && state.value !== null
+	const update = (changes: TimeChange[]) => {
+		if (loaded.current) sequence.current++
+		setState(previous => {
+			if (previous.key !== key || previous.value === null) return previous
+			const value = changes.reduce<T>((current, change) => projection.current(current, change), previous.value)
+			apiReadCache.write(`report:${key}`, value)
+			return { key, value, error: "" }
+		})
+	}
 	useEffect(() => {
 		const synced = (event: Event) => {
-			const detail = (event as CustomEvent<{ paths?: string[]; pending?: boolean }>).detail
-			if (detail?.pending) return
+			const detail = (event as CustomEvent<{ paths?: string[]; pending?: boolean; time_changes?: TimeChange[]; time_results?: TimeResult[] }>).detail
 			const paths = detail?.paths
-			if (!paths || paths.some(path => path.startsWith("/api/time-entries"))) setRevision(value => value + 1)
+			if (paths?.length && !paths.some(path => path.startsWith("/api/time-entries"))) return
+			if (detail?.pending) {
+				if (detail.time_changes?.length) update(detail.time_changes)
+				return
+			}
+			if (detail?.time_results?.length) setState(previous => previous.key === key && previous.value !== null ? { ...previous, value: confirmation.current(previous.value, detail.time_results!) } : previous)
+			void pendingTimeChanges().then(pending => { if (!pending) setRevision(value => value + 1) })
 		}
 		window.addEventListener("pupler:synced", synced)
 		return () => window.removeEventListener("pupler:synced", synced)
-	}, [])
-	const [state, setState] = useState<{ key: string; value: T | null; error: string }>(() => ({ key, value: apiReadCache.peek<T>(`report:${key}`), error: "" }))
+	}, [key])
 	useEffect(() => {
 		const controller = new AbortController()
-		setState({ key, value: apiReadCache.peek<T>(`report:${key}`), error: "" })
-		void apiReadCache.read(`report:${key}`, signal => loader.current(signal), controller.signal, revision > 0).then(value => {
-			if (!controller.signal.aborted) setState({ key, value, error: "" })
+		const request = ++sequence.current
+		setState(previous => ({ key, value: previous.key === key ? previous.value : apiReadCache.peek<T>(`report:${key}`), error: "" }))
+		void apiReadCache.read(`report:${key}`, async signal => {
+			const value = await loader.current(signal)
+			const changes = await queuedTimeChanges()
+			return changes.reduce<T>((current, change) => projection.current(current, change), value)
+		}, controller.signal, revision > 0).then(value => {
+			if (!controller.signal.aborted && sequence.current === request) setState({ key, value, error: "" })
 		}).catch(error => {
-			if (!controller.signal.aborted) setState({ key, value: null, error: error instanceof Error ? error.message : "Could not load time report." })
+			if (!controller.signal.aborted && sequence.current === request) setState(previous => ({ ...previous, error: error instanceof Error ? error.message : "Could not load time report." }))
 		})
 		return () => controller.abort()
 	}, [key, revision])
-	return { value: state.key === key ? state.value : null, error: state.key === key ? state.error : "", reload: () => setRevision(value => value + 1) }
+	return { value: state.key === key ? state.value : null, error: state.key === key ? state.error : "", update }
 }
 
-const loadDays = async (days: data.TimeWeeklyDayReport[], signal: AbortSignal) => {
+const changeDays = (days: data.TimeWeeklyDayReport[], change: TimeChange) => days.map(day => ({ ...day, report: day.report ? applyTimeChange(day.report, change) : null }))
+const changeAverage = (average: data.TimeOverviewAverage | null, period: data.TimeOverviewPeriod | null, change: TimeChange) => {
+	if (!average || !period) return average
+	const next = { ...average, projectSecondsByKey: new Map(average.projectSecondsByKey), clientSecondsByKey: new Map(average.clientSecondsByKey) }
+	for (const [entry, direction] of [[change.before, -1], [change.after, 1]] as const) {
+		if (!entry) continue
+		const contribution = applyTimeChange(data.createEmptyTimeReport(period.from, period.to), { before: null, after: entry })
+		next.totalSeconds += direction * contribution.total_seconds
+		for (const project of contribution.project_totals) {
+			const key = data.projectTotalKey(project.project_id)
+			next.projectSecondsByKey.set(key, (next.projectSecondsByKey.get(key) ?? 0) + direction * project.total_seconds)
+		}
+		for (const client of contribution.client_totals) {
+			const key = data.clientTotalKey(client)
+			next.clientSecondsByKey.set(key, (next.clientSecondsByKey.get(key) ?? 0) + direction * client.total_seconds)
+		}
+	}
+	return next
+}
+
+const loadDays = async (days: data.TimeWeeklyDayReport[], signal: AbortSignal): Promise<data.TimeWeeklyDayReport[]> => {
 	const elapsed = days.filter(day => Date.parse(day.from) < Date.now())
 	const boundaries = elapsed.length ? [...elapsed.map(day => day.from), elapsed.at(-1)!.to] : []
 	const reports = boundaries.length ? await apiFetch<data.TimeReport[]>(`/api/time-report?${new URLSearchParams({ view: "days", boundaries: JSON.stringify(boundaries) })}`, { signal }) : []
@@ -173,7 +221,8 @@ export const TimeWeeklyPage = (_props: { link: (path: string) => string }) => {
 			view === "detail" ? apiFetch<TimeEntry[]>(entriesQuery(days[0]!.from, days[6]!.to), { signal }) : Promise.resolve([]),
 		])
 		return { days: reports, entries }
-	})
+	}, (value, change) => ({ days: changeDays(value.days, change), entries: applyEntryChange(value.entries, change, value.days[0]!.from, value.days.at(-1)!.to) }),
+	(value, results) => ({ ...value, entries: confirmTimeEntries(value.entries, results) }))
 	const choose = (date: string, mode = view) => {
 		data.updateTimeWeeklyViewUrl(date, mode)
 		navigate(`${window.location.pathname}${window.location.search}`)
@@ -199,8 +248,8 @@ export const TimeWeeklyPage = (_props: { link: (path: string) => string }) => {
 		</div>
 		<div className="time-overview-results">{value ? view === "detail" ? <WeeklyDetail key={week} days={value.days} entries={value.entries} onAddRange={setRange} onEditEntry={setEditing} /> : <WeeklyChart days={value.days} selectedDate={selected} onSelectDate={setSelectedDate} /> : <Empty message="Choose a week to load time usage." />}</div>
 		{value && projects && clients ? <>
-			<EntryCreateModal projects={projects} clients={clients} entries={value.entries} range={range ?? undefined} open={range !== null} onClose={() => setRange(null)} onSaved={result.reload} />
-			<EntryEditModal clients={clients} entry={editing} entries={value.entries} projects={projects} open={editing !== null} onClose={() => setEditing(null)} onSaved={result.reload} onDeleted={result.reload} />
+			<EntryCreateModal projects={projects} clients={clients} entries={value.entries} range={range ?? undefined} open={range !== null} onClose={() => setRange(null)} onSaved={(_options, changes) => { if (changes) result.update(changes) }} />
+			<EntryEditModal clients={clients} entry={editing} entries={value.entries} projects={projects} open={editing !== null} onClose={() => setEditing(null)} onSaved={(_options, changes) => { if (changes) result.update(changes) }} onDeleted={changes => { if (changes) result.update(changes) }} />
 		</> : null}
 		{(range !== null || editing !== null) && (!projects || !clients) ? <div><Status message={projectsError ?? clientsError ?? "Loading entry options…"} error={!!(projectsError || clientsError)} /><button className="secondary" type="button" onClick={() => { setRange(null); setEditing(null) }}>Cancel</button></div> : null}
 	</section>
@@ -238,7 +287,7 @@ export const MonthlyCalendar = ({ days, selectedDate, onSelectDate }: { days: da
 export const TimeMonthlyPage = (_props: { link: (path: string) => string }) => {
 	useLocation()
 	const month = data.getCurrentTimeMonthlyDate()
-	const result = useReportData(`month:${month}`, signal => loadDays(data.getTimeMonthlyDays(month), signal))
+	const result = useReportData(`month:${month}`, signal => loadDays(data.getTimeMonthlyDays(month), signal), changeDays)
 	const days = result.value
 	const choose = (value: string) => { data.updateTimeMonthlyUrl(value); navigate(`${window.location.pathname}${window.location.search}`) }
 	const move = (offset: number) => {
@@ -343,8 +392,9 @@ export const TimeOverviewPage = (_props: { link: (path: string) => string }) => 
 			projectSecondsByKey: new Map(averageReport.project_totals.map(project => [data.projectTotalKey(project.project_id), project.total_seconds])),
 			clientSecondsByKey: new Map(averageReport.client_totals.map(client => [data.clientTotalKey(client), client.total_seconds])),
 		} : null
-		return { report, entries, period, average }
-	})
+		return { report, entries, period, average, averagePeriod }
+	}, (value, change) => ({ ...value, report: applyTimeChange(value.report, change), entries: applyEntryChange(value.entries, change, value.period.from, value.period.to), average: changeAverage(value.average, value.averagePeriod, change) }),
+	(value, results) => ({ ...value, entries: confirmTimeEntries(value.entries, results) }))
 	const choose = (next: data.TimeOverviewSelection) => { data.updateTimeOverviewUrl(next); navigate(`${window.location.pathname}${window.location.search}`) }
 	const range = (field: "fromDay" | "toDay", value: string) => {
 		const next = { ...selection, [field]: value || data.formatDateInput(), span: data.getTimeOverviewSpan("custom-range") }

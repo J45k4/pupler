@@ -38,7 +38,7 @@ export const sortByExpiration = (items: InventoryItem[]) =>
 	})
 
 export const updateInventoryItem = (id: number, payload: Record<string, unknown>) =>
-	apiFetch(`/api/inventory-items/${id}`, { method: "PATCH", body: JSON.stringify(payload) })
+	apiFetch<InventoryItem>(`/api/inventory-items/${id}`, { method: "PATCH", body: JSON.stringify(payload) })
 
 export const createInventoryContainer = (payload: { name: string; parent_container_id: number | null; notes: string | null }) =>
 	apiFetch<InventoryContainer>("/api/inventory-containers", { method: "POST", body: JSON.stringify(payload) })

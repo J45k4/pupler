@@ -1,3 +1,4 @@
+import { upsertItem } from "../data-updates"
 import { useState } from "react"
 import { apiFetch } from "../api"
 import { Empty, Modal, Status, useApi } from "../lib"
@@ -26,7 +27,7 @@ const formatDateTime = (value: string | null | undefined) =>
 		: "Not set"
 
 export const IntegrationsPage = () => {
-	const { data, loading, error, reload } = useApi<ExternalIntegration[]>("/api/external-integrations")
+	const { data, loading, error, reload, update } = useApi<ExternalIntegration[]>("/api/external-integrations")
 	const [status, setStatus] = useState("")
 	const [statusError, setStatusError] = useState(false)
 	const [modalOpen, setModalOpen] = useState(false)
@@ -87,13 +88,14 @@ export const IntegrationsPage = () => {
 				reports_base_url: reportsBaseUrl.trim(),
 			}
 			if (apiKey.trim()) values.api_key = apiKey.trim()
-			await apiFetch(editing === null ? "/api/external-integrations/clockify" : `/api/external-integrations/${editing.id}`, {
+			const saved = await apiFetch<ExternalIntegration>(editing === null ? "/api/external-integrations/clockify" : `/api/external-integrations/${editing.id}`, {
 				method: editing === null ? "POST" : "PATCH",
 				body: JSON.stringify(values),
 			})
 			const wasEditing = editing !== null
 			setEditing(null)
 			setModalOpen(false)
+			update(current => upsertItem(current, saved))
 			reload()
 			setStatus(wasEditing ? "Integration updated." : "Clockify integration saved.")
 			setStatusError(false)

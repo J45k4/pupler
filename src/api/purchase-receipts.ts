@@ -405,6 +405,7 @@ export const receiptPictureRoute = async (req: BunRequest<string>) => {
 
 		return json(200, {
 			receipt_id: receiptId,
+			receipt: await fetchReceiptDetail(db, receiptId),
 			content_type: uploaded.type,
 			filename: uploaded.name || null,
 			size: uploaded.size,

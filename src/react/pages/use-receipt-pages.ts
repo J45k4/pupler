@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { apiFetch } from "../api"
 import type { PurchaseReceipt } from "../lib"
-import { mergeReceiptPage, type ReceiptPage } from "./receipt-page-data"
+import { applyReceiptChanges, mergeReceiptPage, type ReceiptPage } from "./receipt-page-data"
 
 type Session = { key: string; controller: AbortController; busy: boolean }
 type Feed = { key: string; receipts: PurchaseReceipt[]; cursor: string | null; loading: boolean; error: string | null }
@@ -10,6 +10,8 @@ export const useReceiptPages = (params: string) => {
 	const [revision, setRevision] = useState(0)
 	const key = `${params}:${revision}`
 	const session = useRef<Session | null>(null)
+	const changes = useRef(new Map<number, { version: number; receipt: PurchaseReceipt }>())
+	const changeVersion = useRef(0)
 	const [feed, setFeed] = useState<Feed>({ key: "", receipts: [], cursor: null, loading: true, error: null })
 	const current = feed.key === key ? feed : { key, receipts: [], cursor: null, loading: true, error: null }
 	const reload = useCallback(() => setRevision((value) => value + 1), [])
@@ -17,13 +19,15 @@ export const useReceiptPages = (params: string) => {
 	const requestPage = useCallback(async (active: Session, cursor: string | null) => {
 		if (active.busy || session.current !== active) return
 		active.busy = true
+		const readVersion = changeVersion.current
 		setFeed((previous) => ({ ...previous, loading: true, error: null }))
 		try {
 			const query = new URLSearchParams(params)
 			if (cursor !== null) query.set("cursor", cursor)
 			const page = await apiFetch<ReceiptPage>(`/api/receipts?${query}`, { signal: active.controller.signal })
 			if (!active.controller.signal.aborted && session.current === active) {
-				setFeed((previous) => ({ key: active.key, receipts: cursor === null ? page.receipts : mergeReceiptPage(previous.receipts, page.receipts), cursor: page.next_cursor, loading: false, error: null }))
+				const newer = [...changes.current.values()].filter(change => change.version > readVersion).map(change => change.receipt)
+				setFeed((previous) => ({ key: active.key, receipts: applyReceiptChanges(cursor === null ? page.receipts : mergeReceiptPage(previous.receipts, page.receipts), newer, params), cursor: page.next_cursor, loading: false, error: null }))
 			}
 		} catch (error) {
 			if (!active.controller.signal.aborted && session.current === active) setFeed((previous) => ({ ...previous, loading: false, error: error instanceof Error ? error.message : "Failed to load receipts" }))
@@ -47,8 +51,8 @@ export const useReceiptPages = (params: string) => {
 	}, [key, current.loading, current.cursor, current.error, requestPage])
 
 	const updateReceipt = useCallback((receipt: PurchaseReceipt) => {
-		const group = new URLSearchParams(params).get("group_id")
-		setFeed((previous) => previous.key !== key ? previous : ({ ...previous, receipts: previous.receipts.flatMap((item) => item.id !== receipt.id ? [item] : group !== null && String(receipt.group_id) !== group ? [] : [receipt]) }))
+		changes.current.set(receipt.id, { version: ++changeVersion.current, receipt })
+		setFeed(previous => previous.key !== key ? previous : ({ ...previous, receipts: applyReceiptChanges(previous.receipts, [receipt], params) }))
 	}, [params, key])
 
 	return { receipts: current.receipts, loading: current.loading, error: current.error, hasMore: current.cursor !== null, loadMore, reload, updateReceipt }

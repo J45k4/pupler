@@ -1,5 +1,7 @@
 import { useState } from "react"
 import { apiFetch } from "../api"
+import { apiReadCache } from "../api-cache"
+import { upsertItem } from "../data-updates"
 import { Empty, Modal, Status, useApi, type Product } from "../lib"
 import { ProductCard, UnitSelect, findOrCreateIngredientByName, uploadProductPicture } from "../catalog"
 
@@ -40,7 +42,7 @@ export const ProductsPage = ({ link }: { link: (p: string) => string }) => {
 			const ingredient = trimmedIngredient
 				? await findOrCreateIngredientByName(trimmedIngredient, defaultUnit)
 				: null
-			const created = await apiFetch<Product>("/api/products", {
+			let created = await apiFetch<Product>("/api/products", {
 				method: "POST",
 				body: JSON.stringify({
 					ingredient_id: ingredient?.id ?? null,
@@ -51,7 +53,8 @@ export const ProductsPage = ({ link }: { link: (p: string) => string }) => {
 					is_perishable: isPerishable === "true",
 				}),
 			})
-			if (picture) await uploadProductPicture(created.id, picture)
+			if (picture) created = await uploadProductPicture(created.id, picture)
+			apiReadCache.write(queryFor(created.barcode ?? "", "barcode"), created.barcode ? [created] : upsertItem(data, created))
 			setName("")
 			setCategory("")
 			setBarcode("")

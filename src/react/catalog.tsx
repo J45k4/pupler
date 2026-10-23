@@ -20,10 +20,11 @@ export const findOrCreateIngredientByName = async (
 export const uploadProductPicture = async (productId: number, file: File) => {
 	const formData = new FormData()
 	formData.set("file", file)
-	await apiFetch(`/api/products/${productId}/picture`, {
+	const result = await apiFetch<{ product: Product }>(`/api/products/${productId}/picture`, {
 		method: "POST",
 		body: formData,
 	})
+	return result.product
 }
 
 export const deleteProductPicture = async (productId: number) => {

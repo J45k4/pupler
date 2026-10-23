@@ -1,3 +1,4 @@
+import { upsertItem } from "../data-updates"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import * as L from "leaflet"
 import "leaflet/dist/leaflet.css"
@@ -111,8 +112,8 @@ const LocationMap = ({ locations, selected, latitude, longitude, onPick, onSelec
 export const LocationsPage = () => {
     const { user } = useAuth()
     const [filter, setFilter] = useState("places")
-    const { data, loading, error, reload } = useApi<SavedLocation[]>(`/api/location-points?kind=${filter}`)
-    const { data: tracksData, error: tracksError, reload: reloadTracks } = useApi<Track[]>("/api/tracks")
+    const { data, loading, error, reload, update: updatePoints } = useApi<SavedLocation[]>(`/api/location-points?kind=${filter}`)
+    const { data: tracksData, error: tracksError, reload: reloadTracks, update: updateTracks } = useApi<Track[]>("/api/tracks")
     const tracks = tracksData ?? []
     const [trackId, setTrackId] = useState("")
     const [sequence, setSequence] = useState("")
@@ -121,7 +122,7 @@ export const LocationsPage = () => {
     const [accuracy, setAccuracy] = useState("")
     const [trackName, setTrackName] = useState("")
     const [activity, setActivity] = useState("")
-    const { data: trackDetail, reload: reloadTrackDetail } = useApi<TrackDetail>(trackId ? `/api/tracks/${trackId}` : null)
+    const { data: trackDetail, reload: reloadTrackDetail, update: updateTrackDetail } = useApi<TrackDetail>(trackId ? `/api/tracks/${trackId}` : null)
     const locations = useMemo(() => (data ?? NO_LOCATIONS).filter(point => filter === "all" || (filter === "places" ? point.track_id === null : point.track_id !== null)), [data, filter])
     const [selected, setSelected] = useState<SavedLocation | null>(null)
     const [name, setName] = useState("")
@@ -160,18 +161,32 @@ export const LocationsPage = () => {
         setLongitude("")
     }
 
+    const rememberPoint = (point: SavedLocation, removed = false) => {
+        if (!trackDetail) return
+        updateTrackDetail(current => {
+            const detail = current ?? trackDetail
+            const points = (removed || point.track_id !== detail.id
+                ? detail.points.filter(value => value.id !== point.id)
+                : upsertItem(detail.points, point)).sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0) || a.id - b.id)
+            return { ...detail, points, _count: { points: points.length } }
+        })
+    }
+
     const save = async (event: React.FormEvent) => {
         event.preventDefault()
         if (!canEdit || busy) return
         setBusy(true)
         try {
-            await apiFetch(selected ? `/api/location-points/${selected.id}` : "/api/location-points", {
+            const saved = await apiFetch<SavedLocation>(selected ? `/api/location-points/${selected.id}` : "/api/location-points", {
                 method: selected ? "PATCH" : "POST",
                 body: JSON.stringify({ name: name.trim() || null, notes: notes.trim() || null, latitude: Number(latitude), longitude: Number(longitude),
                     track_id: trackId ? Number(trackId) : null, sequence: trackId ? Number(sequence) : null,
                     recorded_at: recordedAt.trim() || null, altitude: altitude.trim() ? Number(altitude) : null, accuracy: accuracy.trim() ? Number(accuracy) : null,
                 }),
             })
+            updatePoints(current => upsertItem(current, saved).filter(point => filter === "all" || (filter === "places" ? point.track_id === null : point.track_id !== null)))
+            rememberPoint(saved)
+            updateTracks(current => (current ?? []).map(track => ({ ...track, _count: { points: track._count.points + (saved.track_id === track.id ? 1 : 0) - (selected?.track_id === track.id ? 1 : 0) } })))
             setStatus(selected ? "Location saved." : "Location added.")
             setStatusError(false)
             clear()
@@ -193,6 +208,9 @@ export const LocationsPage = () => {
         setBusy(true)
         try {
             await apiFetch(`/api/location-points/${selected.id}`, { method: "DELETE" })
+            updatePoints(current => (current ?? []).filter(point => point.id !== selected.id))
+            rememberPoint(selected, true)
+            updateTracks(current => (current ?? []).map(track => track.id === selected.track_id ? { ...track, _count: { points: Math.max(0, track._count.points - 1) } } : track))
             clear()
             reload()
             reloadTracks()
@@ -217,6 +235,7 @@ export const LocationsPage = () => {
             setActivity("")
             reloadTracks()
             setFilter("tracks")
+            updateTracks(current => upsertItem(current, track))
             setStatus("Track created. Click the map to add its first point.")
             setStatusError(false)
         } catch (err) {

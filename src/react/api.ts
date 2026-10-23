@@ -1,4 +1,5 @@
 import { apiReadCache } from "./api-cache"
+import { invalidateOfflineReads } from "./offline"
 import { configureOfflineTransport, offlineAvailable, offlineEpoch, offlineReadVersion, readOfflineData, rememberOfflineRead, shouldQueueOfflineMutation, queueOfflineMutation } from "./offline"
 
 export class ApiError extends Error {
@@ -22,7 +23,10 @@ const networkFetch = async <T>(
 			...(options.headers ?? {}),
 		},
 	})
-	if (response.status === 401 || (response.ok && !["GET", "HEAD"].includes((options.method ?? "GET").toUpperCase()))) apiReadCache.clear()
+	if (response.status === 401 || (response.ok && !["GET", "HEAD"].includes((options.method ?? "GET").toUpperCase()))) {
+		apiReadCache.clear()
+		invalidateOfflineReads()
+	}
 	if (response.status === 204) return undefined as T
 	const body = (await response.json().catch(() => null)) as
 		| (T & { error?: string })

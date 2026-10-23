@@ -1,7 +1,8 @@
+import type { TimeChange } from "../time-changes"
 import { rankTimeProjects, type ProjectUsage } from "./time-entry-data"
 import { useEffect, useId, useMemo, useState } from "react"
 import { apiFetch } from "../api"
-import { rememberOfflineRead } from "../offline"
+import { rememberOfflineRead, isQueuedResult } from "../offline"
 import { Combobox } from "../Combobox"
 import { Modal, Status, toDateTimeLocalValue, formatReceiptDateTime, type Client, type Project, type TimeEntry } from "../lib"
 import type { TimeEntryRangeInput } from "./time-report-data"
@@ -10,9 +11,15 @@ export const ensureTimeProject = async (projects: Project[], clients: Client[], 
 	const trimmed = name.trim()
 	if (!trimmed) throw new Error("Project is required.")
 	let client = clientName.trim() ? clients.find(value => value.name.trim().toLowerCase() === clientName.trim().toLowerCase()) : null
-	if (clientName.trim() && !client) client = await apiFetch<Client>("/api/clients", { method: "POST", body: JSON.stringify({ name: clientName.trim(), archived_at: null }) })
+	if (clientName.trim() && !client) {
+		client = await apiFetch<Client>("/api/clients", { method: "POST", body: JSON.stringify({ name: clientName.trim(), archived_at: null }) })
+		await rememberOfflineRead("/api/clients?sort=name&order=asc", [...clients, client])
+	}
 	const existing = projects.find(project => project.archived_at === null && (!client || project.client_id === client.id) && project.name.trim().toLowerCase() === trimmed.toLowerCase())
-	return existing ?? await apiFetch<Project>("/api/projects", { method: "POST", body: JSON.stringify({ name: trimmed, client_id: client?.id ?? null, archived_at: null }) })
+	if (existing) return existing
+	const created = await apiFetch<Project>("/api/projects", { method: "POST", body: JSON.stringify({ name: trimmed, client_id: client?.id ?? null, archived_at: null }) })
+	await rememberOfflineRead("/api/projects?sort=name&order=asc", [...projects, created])
+	return created
 }
 
 export const DescriptionInput = ({ projectId, value, onChange }: { projectId: number | null; value: string; onChange: (value: string) => void }) => {
@@ -43,12 +50,12 @@ const Adjustments = ({ label, value, onChange }: { label: string; value: string;
 	onChange(toDateTimeLocalValue(date))
 }}>-{minutes} min</button>)}</div>
 
-type CommonProps = { projects: Project[]; clients?: Client[]; entries?: TimeEntry[]; projectUsage?: ProjectUsage[]; previousEndedAt?: string | null; open: boolean; onClose: () => void; onSaved: (optionsChanged?: boolean) => void }
+type CommonProps = { projects: Project[]; clients?: Client[]; entries?: TimeEntry[]; projectUsage?: ProjectUsage[]; previousEndedAt?: string | null; open: boolean; onClose: () => void; onSaved: (optionsChanged?: boolean, changes?: TimeChange[]) => void }
 
 export const EntryCreateModal = ({ projects, clients = [], entries = [], projectUsage, range, open, onClose, onSaved }: CommonProps & { range?: TimeEntryRangeInput }) => <EntryForm key={open ? `create:${range?.startedAt ?? "default"}:${range?.endedAt ?? ""}` : "closed"} projects={projects} clients={clients} entries={entries} projectUsage={projectUsage} range={range} open={open} onClose={onClose} onSaved={onSaved} />
-export const EntryEditModal = ({ entry, onDeleted, ...props }: CommonProps & { entry: TimeEntry | null; onDeleted: () => void }) => entry ? <EntryForm key={`${entry.id}:${props.open}`} entry={entry} {...props} onDeleted={onDeleted} /> : null
+export const EntryEditModal = ({ entry, onDeleted, ...props }: CommonProps & { entry: TimeEntry | null; onDeleted: (changes?: TimeChange[]) => void }) => entry ? <EntryForm key={`${entry.id}:${props.open}`} entry={entry} {...props} onDeleted={onDeleted} /> : null
 
-const EntryForm = ({ projects, clients = [], entries = [], projectUsage, previousEndedAt, range, entry, open, onClose, onSaved, onDeleted }: CommonProps & { range?: TimeEntryRangeInput; entry?: TimeEntry; onDeleted?: () => void }) => {
+const EntryForm = ({ projects, clients = [], entries = [], projectUsage, previousEndedAt, range, entry, open, onClose, onSaved, onDeleted }: CommonProps & { range?: TimeEntryRangeInput; entry?: TimeEntry; onDeleted?: (changes?: TimeChange[]) => void }) => {
 	const running = entry?.ended_at === null
 	const selectedProject = entry ? projects.find(project => project.id === entry.project_id) ?? entry.project : null
 	const [clientName, setClientName] = useState(running ? selectedProject?.client?.name ?? clients.find(client => client.id === selectedProject?.client_id)?.name ?? "" : "")
@@ -86,9 +93,9 @@ const EntryForm = ({ projects, clients = [], entries = [], projectUsage, previou
 			if (clientName.trim()) throw new Error("Project is required when client is selected.")
 			id = null
 		} else id = (await ensureTimeProject(projects, clients, projectName, clientName)).id
-		await apiFetch(entry ? `/api/time-entries/${entry.id}` : "/api/time-entries", { method: entry ? "PATCH" : "POST", body: JSON.stringify({ project_id: id, description: description.trim() || null, started_at: startDate.toISOString(), ended_at: running ? null : endDate?.toISOString() ?? null }) })
+		const saved = await apiFetch<TimeEntry>(entry ? `/api/time-entries/${entry.id}` : "/api/time-entries", { method: entry ? "PATCH" : "POST", body: JSON.stringify({ project_id: id, description: description.trim() || null, started_at: startDate.toISOString(), ended_at: running ? null : endDate?.toISOString() ?? null }) })
 		onClose()
-		onSaved(id !== null && !projects.some(project => project.id === id))
+		onSaved(id !== null && !projects.some(project => project.id === id), isQueuedResult(saved) ? undefined : [{ before: entry ?? null, after: saved }])
 	}
 	return <Modal id={entry ? "time-entry-edit-modal" : "time-entry-create-modal"} title={title} open={open} onClose={onClose} className={range ? "time-entry-create-modal--range-preview" : ""}>
 		<form className={entry ? "time-entry-edit-form" : undefined} onSubmit={event => { event.preventDefault(); void perform(save) }}>
@@ -96,8 +103,8 @@ const EntryForm = ({ projects, clients = [], entries = [], projectUsage, previou
 			<label>{running ? "Project (optional)" : "Project"}{entry && !running ? <select aria-label="Entry project" value={projectId} onChange={event => setProjectId(event.target.value)}><option value="">No project</option>{projects.filter(value => value.archived_at === null || value.id === entry.project_id).map(value => <option key={value.id} value={value.id}>{value.name}{value.client ? ` - ${value.client.name}` : ""}</option>)}</select> : <Combobox placeholder="Type or choose a project" options={available.map(value => ({ value: String(value.id), label: value.name }))} value={projectName} onChange={setProjectName} allowCreate createLabelPrefix="Create project" />}</label>
 			<label>Description<DescriptionInput projectId={project?.id ?? null} value={description} onChange={setDescription} /></label>
 			<div className="row"><label>Start<input type="datetime-local" required value={start} onChange={event => setStart(event.target.value)} />{entry ? <Adjustments label="Start" value={start} onChange={setStart} /> : null}</label>{!running ? <label>End<input type="datetime-local" value={end} onChange={event => setEnd(event.target.value)} />{entry ? <Adjustments label="End" value={end} onChange={setEnd} /> : null}</label> : null}</div>
-			{running && previousEnd ? <div><button type="button" className="secondary" disabled={pending} onClick={() => void perform(async () => { await apiFetch(`/api/time-entries/${entry!.id}`, { method: "PATCH", body: JSON.stringify({ started_at: previousEnd }) }); onClose(); onSaved() })}>Set start to previous end</button><div className="section-copy">Previous end: {formatReceiptDateTime(previousEnd)}</div></div> : null}
-			<div className="actions"><button type="submit" className="primary" disabled={pending}>{pending ? "Saving…" : !entry ? "Add Entry" : running ? "Update Timer" : "Save"}</button><button type="button" className="secondary" onClick={onClose}>Cancel</button>{entry ? <button type="button" className="secondary" disabled={pending} onClick={() => void perform(async () => { await apiFetch(`/api/time-entries/${entry.id}`, { method: "DELETE" }); onClose(); onDeleted?.() })}>Delete</button> : null}</div>
+			{running && previousEnd ? <div><button type="button" className="secondary" disabled={pending} onClick={() => void perform(async () => { const saved = await apiFetch<TimeEntry>(`/api/time-entries/${entry!.id}`, { method: "PATCH", body: JSON.stringify({ started_at: previousEnd }) }); onClose(); onSaved(false, isQueuedResult(saved) ? undefined : [{ before: entry!, after: saved }]) })}>Set start to previous end</button><div className="section-copy">Previous end: {formatReceiptDateTime(previousEnd)}</div></div> : null}
+			<div className="actions"><button type="submit" className="primary" disabled={pending}>{pending ? "Saving…" : !entry ? "Add Entry" : running ? "Update Timer" : "Save"}</button><button type="button" className="secondary" onClick={onClose}>Cancel</button>{entry ? <button type="button" className="secondary" disabled={pending} onClick={() => void perform(async () => { const saved = await apiFetch(`/api/time-entries/${entry.id}`, { method: "DELETE" }); onClose(); onDeleted?.(isQueuedResult(saved) ? undefined : [{ before: entry, after: null }]) })}>Delete</button> : null}</div>
 		</form><Status message={message} error={!!message} />
 	</Modal>
 }

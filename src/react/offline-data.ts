@@ -1,4 +1,6 @@
 import type { AuthUser } from "./auth"
+import type { TimeEntry } from "./lib"
+import type { TimeChange } from "./time-changes"
 
 export type OfflineEntity = { id: number; [key: string]: any }
 export type OfflinePayload = {
@@ -16,12 +18,21 @@ export type OfflineOperation = OfflinePayload & {
 	time: string
 	error?: string
 	attempt?: { session: string; payload: OfflinePayload }
+	time_changes?: TimeChange[]
 }
 export type OfflineAccount = {
 	user: AuthUser
 	client_id: string
 	queue: OfflineOperation[]
 	snapshots: Record<string, { data: any; time: number }>
+}
+
+export const offlineChangeAffects = (path: string, changed?: string[]) => {
+	const family = (value: string) => {
+		const name = new URL(value, "http://localhost").pathname.split("/")[2] ?? ""
+		return name.startsWith("shopping-") ? "shopping" : name
+	}
+	return !changed?.length || changed.some(value => family(value) === family(path))
 }
 
 export const offlineReadPath = (path: string) => {
@@ -250,6 +261,10 @@ export const createOfflineOperation = (
 		.find((operation) => operation.path.startsWith("/api/time-entries") && operation.optimistic.id === base?.id)
 	return {
 		id: crypto.randomUUID(),
+		...(path.startsWith("/api/time-entries") ? { time_changes: [
+			...(startsTimer && timer?.running ? [{ before: timer.running, after: { ...timer.running, ended_at: optimistic.started_at, updated_at: optimistic.updated_at } }] : []),
+			{ before: (existing ?? null) as TimeEntry | null, after: optimistic.deleted ? null : optimistic as TimeEntry },
+		] } : {}),
 		path,
 		method,
 		body,
@@ -285,6 +300,10 @@ export const acknowledgeOfflineOperation = (account: OfflineAccount, operation: 
 			if (pending.optimistic.shopping_list_id === oldId) pending.optimistic.shopping_list_id = result.id
 			if (pending.expected_running_id === oldId) pending.expected_running_id = result.id
 			if (pending.optimistic.id === oldId) pending.optimistic.id = result.id
+			for (const change of pending.time_changes ?? []) {
+				if (change.before?.id === oldId) change.before.id = result.id
+				if (change.after?.id === oldId) change.after.id = result.id
+			}
 		}
 	}
 }

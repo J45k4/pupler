@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import type { AuthUser } from "./auth"
 import { mountAppVersion } from "../web/update-widget"
+import { OfflineStatus } from "./OfflineStatus"
 
 export type NavEntry = {
 	href: string
@@ -256,32 +257,35 @@ export const Navbar = ({
 							Login
 						</a>
 					) : (
-						<div className={`account-menu${accountOpen ? " account-menu--open" : ""}`}>
-							<button
-								className="account-menu__trigger"
-								type="button"
-								aria-haspopup="true"
-								aria-expanded={String(accountOpen)}
-								onClick={() => setAccountOpen((v) => !v)}
-								onBlur={(e) => {
-									if (!e.currentTarget.parentElement?.contains(e.relatedTarget as Node)) {
-										setAccountOpen(false)
-									}
-								}}
-							>
-								{label}
-							</button>
-							<div className="account-menu__dropdown" hidden={!accountOpen}>
-								<div className="account-menu__username">{label}</div>
-								<a className="account-menu__link" href={link("/settings")} data-link="" onClick={() => setAccountOpen(false)}>
-									Settings
-								</a>
-								<a className="account-menu__link" href={link("/integrations")} data-link="" onClick={() => setAccountOpen(false)}>
-									Integrations
-								</a>
-								<button className="account-menu__logout" type="button" onClick={() => void onLogout()}>
-									Logout
+						<div className="header-actions">
+							<OfflineStatus key={user.id} currentPath={currentPath} onOpen={() => { setAccountOpen(false); setOpen(false) }} />
+							<div className={`account-menu${accountOpen ? " account-menu--open" : ""}`}>
+								<button
+									className="account-menu__trigger"
+									type="button"
+									aria-haspopup="true"
+									aria-expanded={String(accountOpen)}
+									onClick={() => setAccountOpen((v) => !v)}
+									onBlur={(e) => {
+										if (!e.currentTarget.parentElement?.contains(e.relatedTarget as Node)) {
+											setAccountOpen(false)
+										}
+									}}
+								>
+									{label}
 								</button>
+								<div className="account-menu__dropdown" hidden={!accountOpen}>
+									<div className="account-menu__username">{label}</div>
+									<a className="account-menu__link" href={link("/settings")} data-link="" onClick={() => setAccountOpen(false)}>
+										Settings
+									</a>
+									<a className="account-menu__link" href={link("/integrations")} data-link="" onClick={() => setAccountOpen(false)}>
+										Integrations
+									</a>
+									<button className="account-menu__logout" type="button" onClick={() => void onLogout()}>
+										Logout
+									</button>
+								</div>
 							</div>
 						</div>
 					)

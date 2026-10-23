@@ -1,3 +1,5 @@
+import { apiReadCache } from "../api-cache"
+import { upsertItem } from "../data-updates"
 import { useEffect, useRef, useState } from "react"
 import { apiFetch } from "../api"
 import { Empty, Modal, Status, formatReceiptDateTime, useApi, type Recipe } from "../lib"
@@ -153,8 +155,9 @@ export const RecipeCreatePage = ({
 					is_active: isActive,
 				}),
 			})
+			const savedIngredients: RecipeIngredient[] = []
 			for (const ingredient of drafts) {
-				await apiFetch("/api/recipe-ingredients", {
+				const saved = await apiFetch<RecipeIngredient>("/api/recipe-ingredients", {
 					method: "POST",
 					body: JSON.stringify({
 						recipe_id: recipe.id,
@@ -167,7 +170,9 @@ export const RecipeCreatePage = ({
 						notes: null,
 					}),
 				})
+				savedIngredients.push(saved)
 			}
+			apiReadCache.write(`/api/recipes/${recipe.id}`, { ...recipe, ingredients: savedIngredients, recipe_images: [] })
 			setStatus(`Created recipe #${recipe.id}: ${recipe.name}`)
 			setStatusError(false)
 			navigate(link(`/recipes/${recipe.id}`))
@@ -265,7 +270,7 @@ export const RecipeCreatePage = ({
 export const RecipeDetailPage = ({ id, link }: { id: string; link: (p: string) => string }) => {
 	const recipeId = Number.parseInt(id, 10)
 	const valid = Number.isInteger(recipeId)
-	const { data: recipe, loading, error, reload } = useApi<RecipeDetail>(valid ? `/api/recipes/${recipeId}` : null)
+	const { data: recipe, loading, error, reload, update } = useApi<RecipeDetail>(valid ? `/api/recipes/${recipeId}` : null)
 
 	const [name, setName] = useState<string | null>(null)
 	const [servings, setServings] = useState<string | null>(null)
@@ -305,7 +310,7 @@ export const RecipeDetailPage = ({ id, link }: { id: string; link: (p: string) =
 		event.preventDefault()
 		try {
 			const parsed = (servings ?? "").trim() ? Number.parseInt(servings ?? "", 10) : null
-			await apiFetch(`/api/recipes/${recipe.id}`, {
+			const saved = await apiFetch<RecipeDetail>(`/api/recipes/${recipe.id}`, {
 				method: "PATCH",
 				body: JSON.stringify({
 					name: (name ?? "").trim(),
@@ -315,6 +320,7 @@ export const RecipeDetailPage = ({ id, link }: { id: string; link: (p: string) =
 					instructions: (instructions ?? "").trim() || null,
 				}),
 			})
+			update(() => saved)
 			setDetailStatus("Saved recipe.")
 			setDetailError(false)
 			reload()
@@ -362,7 +368,7 @@ export const RecipeDetailPage = ({ id, link }: { id: string; link: (p: string) =
 			const found = await findOrCreateIngredientByName(trimmed, ingUnit.trim() || "pcs")
 			const unit = ingUnit.trim() || found.default_unit || "pcs"
 			if (editing) {
-				await apiFetch(`/api/recipe-ingredients/${editing.id}`, {
+				const saved = await apiFetch<RecipeIngredient>(`/api/recipe-ingredients/${editing.id}`, {
 					method: "PATCH",
 					body: JSON.stringify({
 						name: trimmed,
@@ -374,9 +380,10 @@ export const RecipeDetailPage = ({ id, link }: { id: string; link: (p: string) =
 						notes: ingNotes.trim() || null,
 					}),
 				})
+				update(current => ({ ...current!, ingredients: upsertItem(current?.ingredients, saved) }))
 				setIngredientStatus(`Saved ${trimmed} in ${recipe.name}.`)
 			} else {
-				await apiFetch("/api/recipe-ingredients", {
+				const saved = await apiFetch<RecipeIngredient>("/api/recipe-ingredients", {
 					method: "POST",
 					body: JSON.stringify({
 						recipe_id: recipe.id,
@@ -389,6 +396,7 @@ export const RecipeDetailPage = ({ id, link }: { id: string; link: (p: string) =
 						notes: ingNotes.trim() || null,
 					}),
 				})
+				update(current => ({ ...current!, ingredients: upsertItem(current?.ingredients, saved) }))
 				setIngredientStatus(`Added ${trimmed} to ${recipe.name}.`)
 			}
 			setModalOpen(false)
@@ -401,6 +409,7 @@ export const RecipeDetailPage = ({ id, link }: { id: string; link: (p: string) =
 	const removeIngredient = async (ingredient: RecipeIngredient) => {
 		try {
 			await apiFetch(`/api/recipe-ingredients/${ingredient.id}`, { method: "DELETE" })
+			update(current => ({ ...current!, ingredients: (current?.ingredients ?? []).filter(item => item.id !== ingredient.id) }))
 			setIngredientStatus(`Removed ${ingredient.name}.`)
 			reload()
 		} catch (err) {
@@ -418,7 +427,8 @@ export const RecipeDetailPage = ({ id, link }: { id: string; link: (p: string) =
 			for (const file of Array.from(files)) {
 				const formData = new FormData()
 				formData.set("file", file)
-				await apiFetch(`/api/recipes/${recipe.id}/pictures`, { method: "POST", body: formData })
+				const added = await apiFetch<RecipeImage[]>(`/api/recipes/${recipe.id}/pictures`, { method: "POST", body: formData })
+				update(current => ({ ...current!, recipe_images: [...(current?.recipe_images ?? []), ...added] }))
 			}
 			setFiles(null)
 			setPictureStatus("Uploaded images.")
@@ -431,6 +441,7 @@ export const RecipeDetailPage = ({ id, link }: { id: string; link: (p: string) =
 	const removeImage = async (imageId: number) => {
 		try {
 			await apiFetch(`/api/recipes/${recipe.id}/pictures/${imageId}`, { method: "DELETE" })
+			update(current => ({ ...current!, recipe_images: (current?.recipe_images ?? []).filter(item => item.id !== imageId) }))
 			setPictureStatus("Removed image.")
 			reload()
 		} catch (err) {

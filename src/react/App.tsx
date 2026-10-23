@@ -3,7 +3,6 @@ import { useAuth } from "./auth"
 import { matchAnyRoute, matchRoute, navigate, returnAfterLogin, usePath } from "./router"
 import { canonicalPath, legacyRedirect } from "./redirects"
 import { Navbar } from "./Navbar"
-import { OfflineStatus } from "./OfflineStatus"
 import { LoginPage } from "./pages/Login"
 import { InvitePage } from "./pages/Invite"
 import { TodosPage } from "./pages/Todos"
@@ -75,7 +74,6 @@ export const App = () => {
 	return (
 		<>
 			<Navbar currentPath={path} user={user} link={link} onLogout={logout} />
-			{user ? <OfflineStatus key={user.id} /> : null}
 			<main key={user?.id} className="page-shell page-shell--wide">
 				{match?.pattern === "/login" ? <LoginPage /> : null}
 				{match?.pattern === "/locations" ? <LocationsPage /> : null}

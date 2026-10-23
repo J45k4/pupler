@@ -1,5 +1,6 @@
 import type { AuthUser } from "./auth"
 import { apiReadCache } from "./api-cache"
+import type { TimeChange } from "./time-changes"
 import {
 	acknowledgeOfflineOperation,
 	createOfflineOperation,
@@ -22,12 +23,22 @@ let opening: Promise<IDBDatabase> | undefined
 let syncing = false
 let retry: ReturnType<typeof setTimeout> | undefined
 let failures = 0
+let syncError = ""
 let epoch = 0
 let readVersion = 0
 let channel: BroadcastChannel | undefined
-const notifyOtherTabs = (paths: string[], pending = false) => {
-	if (activeUser) channel?.postMessage({ user_id: activeUser.id, paths, pending })
+const setSyncError = (error: string) => {
+	if (syncError === error) return
+	syncError = error
+	if (activeUser) channel?.postMessage({ user_id: activeUser.id, sync_error: error })
 }
+const notifyOtherTabs = (paths: string[], pending = false, time_changes?: TimeChange[], time_results?: { local_id: number | null; result: OfflineEntity }[]) => {
+	if (activeUser) channel?.postMessage({ user_id: activeUser.id, paths, pending, time_changes, time_results })
+}
+const queuedResults = new WeakSet<object>()
+export const isQueuedResult = (value: unknown) => typeof value === "object" && value !== null && queuedResults.has(value)
+export const pendingTimeChanges = async () => activeUser ? (await readAccount(activeUser.id))?.queue.some(operation => operation.path.startsWith("/api/time-entries")) ?? false : false
+export const queuedTimeChanges = async () => activeUser ? (await readAccount(activeUser.id))?.queue.flatMap(operation => operation.time_changes ?? []) ?? [] : []
 export type OfflineStatus = { pending: number; syncing: boolean; error: string; operations: OfflineOperation[] }
 let status: OfflineStatus = { pending: 0, syncing: false, error: "", operations: [] }
 const notify = () => {
@@ -37,6 +48,7 @@ export const offlineStatus = () => status
 export const offlineAvailable = () => activeUser !== null && storageAvailable && typeof indexedDB !== "undefined"
 export const offlineEpoch = () => epoch
 export const offlineReadVersion = () => readVersion
+export const invalidateOfflineReads = () => { readVersion++ }
 
 const database = () =>
 	(opening ??= new Promise<IDBDatabase>((resolve, reject) => {
@@ -128,7 +140,8 @@ const refreshStatus = async () => {
 	}
 	if (user?.id !== activeUser?.id) return
 	const operations = account?.queue ?? []
-	status = { pending: operations.length, syncing, error: operations.find((operation) => operation.error)?.error ?? "", operations }
+	if (!operations.length) setSyncError("")
+	status = { pending: operations.length, syncing, error: operations.find((operation) => operation.error)?.error ?? syncError, operations }
 	notify()
 }
 export const activateOfflineUser = async (user: AuthUser | null) => {
@@ -137,6 +150,7 @@ export const activateOfflineUser = async (user: AuthUser | null) => {
 		apiReadCache.clear()
 	}
 	activeUser = user
+	syncError = ""
 	storageAvailable = true
 	clearTimeout(retry)
 	status = { pending: 0, syncing: false, error: "", operations: [] }
@@ -195,13 +209,15 @@ export const queueOfflineMutation = async <T>(path: string, options: RequestInit
 		)
 		account.queue.push(operation)
 		readVersion++
-		return operation.optimistic
+		return operation
 	})
 	apiReadCache.clear()
 	await refreshStatus()
-	notifyOtherTabs([path], true)
+	window.dispatchEvent(new CustomEvent("pupler:synced", { detail: { paths: [path], pending: true, time_changes: result.time_changes } }))
+	notifyOtherTabs([path], true, result.time_changes)
 	if (navigator.onLine) void syncOfflineChanges()
-	return result as T
+	queuedResults.add(result.optimistic)
+	return result.optimistic as T
 }
 export const shouldQueueOfflineMutation = (path: string, options: RequestInit) =>
 	offlineAvailable() && offlineWritePath(path, (options.method ?? "GET").toUpperCase())
@@ -244,31 +260,40 @@ const performSync = async (user: AuthUser, startedEpoch: number) => {
 			if (!Array.isArray(response.results) || response.results.length !== batch.length)
 				throw new Error("Could not confirm saved changes")
 			let transient = false
+			const timeResults: { local_id: number | null; result: OfflineEntity }[] = []
 			await updateAccount(user, (current) => {
 				for (const result of response.results) {
 					const operation = current.queue.find((value) => value.id === result.id)
 					if (!operation) continue
-					if (result.status === 200 && result.result) acknowledgeOfflineOperation(current, operation, result.result)
+					if (result.status === 200 && result.result) {
+						if (operation.path.startsWith("/api/time-entries")) timeResults.push({ local_id: operation.local_id, result: result.result })
+						acknowledgeOfflineOperation(current, operation, result.result)
+					}
 					else if (result.status >= 500) transient = true
 					else operation.error = result.error ?? "This change needs review before it can sync"
 				}
 				readVersion++
 			})
 			apiReadCache.clear()
-			window.dispatchEvent(new CustomEvent("pupler:synced", { detail: { paths: batch.map((operation) => operation.path) } }))
-			notifyOtherTabs(batch.map((operation) => operation.path))
+			if (!transient) setSyncError("")
+			window.dispatchEvent(new CustomEvent("pupler:synced", { detail: { paths: batch.map((operation) => operation.path), time_results: timeResults } }))
+			notifyOtherTabs(batch.map((operation) => operation.path), false, undefined, timeResults)
 			await refreshStatus()
 			if (transient) throw new Error("Server unavailable")
 			failures = 0
 		}
-	} catch {
-		if (navigator.onLine && activeUser?.id === user.id)
+	} catch (error) {
+		if (navigator.onLine && activeUser?.id === user.id && epoch === startedEpoch) {
+			setSyncError(typeof error === "object" && error !== null && "status" in error && error.status === 401
+				? "Sign in again to sync your saved changes."
+				: "Could not sync changes. They are saved on this device. Retrying automatically.")
 			retry = setTimeout(
 				() => {
 					void syncOfflineChanges()
 				},
 				Math.min(60_000, 2000 * 2 ** Math.min(failures++, 5)),
 			)
+		}
 	} finally {
 		syncing = false
 		await refreshStatus()
@@ -297,11 +322,17 @@ export const syncOfflineChanges = async (retryBlocked = false) => {
 }
 export const discardOfflineChanges = async () => {
 	if (!activeUser) return
-	await updateAccount(activeUser, (account) => {
+	const undo = await updateAccount(activeUser, (account) => {
+		const changes = account.queue.flatMap(operation => operation.time_changes ?? []).reverse().map(change => ({ before: change.after, after: change.before }))
 		account.queue = []
 		readVersion++
+		return changes
 	})
 	apiReadCache.clear()
+	if (undo.length) {
+		window.dispatchEvent(new CustomEvent("pupler:synced", { detail: { paths: ["/api/time-entries"], pending: true, time_changes: undo } }))
+		notifyOtherTabs(["/api/time-entries"], true, undo)
+	}
 	if (navigator.onLine) await prepareOfflinePages(true)
 	window.dispatchEvent(new Event("pupler:synced"))
 	notifyOtherTabs([])
@@ -313,10 +344,16 @@ export const configureOfflineTransport = (send: Transport) => {
 	if (typeof BroadcastChannel !== "undefined") {
 		channel = new BroadcastChannel("pupler-offline")
 		channel.onmessage = ({ data }) => {
-			if (data?.user_id !== activeUser?.id || !Array.isArray(data.paths)) return
+			if (!activeUser || data?.user_id !== activeUser.id) return
+			if (typeof data.sync_error === "string") {
+				syncError = data.sync_error
+				void refreshStatus()
+				return
+			}
+			if (!Array.isArray(data.paths)) return
 			readVersion++
 			apiReadCache.clear()
-			window.dispatchEvent(new CustomEvent("pupler:synced", { detail: { paths: data.paths, pending: data.pending } }))
+			window.dispatchEvent(new CustomEvent("pupler:synced", { detail: { paths: data.paths, pending: data.pending, time_changes: data.time_changes, time_results: data.time_results } }))
 			void refreshStatus()
 		}
 	}

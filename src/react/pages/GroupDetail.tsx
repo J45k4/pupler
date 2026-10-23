@@ -6,10 +6,10 @@ import { ReceiptCard } from "../catalog"
 export const GroupDetailPage = ({ id, link }: { id: string; link: (p: string) => string }) => {
 	const groupId = Number.parseInt(id, 10)
 	const valid = Number.isInteger(groupId)
-	const { data: group, loading: groupLoading, error: groupError, reload: reloadGroup } = useApi<Group>(
+	const { data: group, loading: groupLoading, error: groupError, reload: reloadGroup, update: updateGroup } = useApi<Group>(
 		valid ? `/api/groups/${groupId}` : null,
 	)
-	const { data: receipts, loading: receiptsLoading, error: receiptsError, reload: reloadReceipts } = useApi<PurchaseReceipt[]>(
+	const { data: receipts, loading: receiptsLoading, error: receiptsError, reload: reloadReceipts, update: updateReceipts } = useApi<PurchaseReceipt[]>(
 		valid ? `/api/receipts?group_id=${groupId}&sort=purchased_at&order=desc` : null,
 	)
 	const [name, setName] = useState<string | null>(null)
@@ -39,6 +39,8 @@ export const GroupDetailPage = ({ id, link }: { id: string; link: (p: string) =>
 			setName(updated.name)
 			setStatus(`Saved ${updated.name}.`)
 			setStatusError(false)
+			updateGroup(() => updated)
+			updateReceipts(current => (current ?? []).map(receipt => ({ ...receipt, group: updated })))
 			reloadGroup()
 			reloadReceipts()
 		} catch (err) {

@@ -1,15 +1,28 @@
 import { apiFetch } from "../api"
+import { useState } from "react"
 import { Empty, Status, TickingDuration, formatReceiptDateTime, useApi } from "../lib"
-import type { ShoppingListItem, TimeEntry } from "../lib"
+import type { ShoppingListItem } from "../lib"
+import { useTimePage } from "./use-time-page"
+import { shoppingPreview } from "../data-updates"
 
 const TimerPanel = ({ link }: { link: (p: string) => string }) => {
-	const { data, loading, error, reload } = useApi<TimeEntry[]>("/api/time-entries?running=true&sort=started_at&order=desc")
-	const running = (data ?? []).find((e) => e.ended_at === null) ?? null
+	const { summary, loading, error, reload } = useTimePage(0)
+	const running = summary?.running ?? null
+	const [pending, setPending] = useState(false)
+	const [message, setMessage] = useState("")
 
 	const stop = async () => {
-		if (!running) return
-		await apiFetch(`/api/time-entries/${running.id}/stop`, { method: "POST", body: "{}" })
-		reload()
+		if (!running || pending) return
+		setPending(true)
+		setMessage("")
+		try {
+			await apiFetch(`/api/time-entries/${running.id}/stop`, { method: "POST", body: "{}" })
+			reload()
+		} catch (error) {
+			setMessage(error instanceof Error ? error.message : "Could not stop timer.")
+		} finally {
+			setPending(false)
+		}
 	}
 
 	return (
@@ -23,6 +36,7 @@ const TimerPanel = ({ link }: { link: (p: string) => string }) => {
 			<div id="dashboard-timer">
 				{loading ? <p className="page-copy">Loading…</p> : null}
 				{error ? <Status message={error} error /> : null}
+				{message ? <Status message={message} error /> : null}
 				{!loading && !error && !running ? (
 					<div className="dashboard-timer-empty">
 						<Empty message="No timer running." />
@@ -45,7 +59,7 @@ const TimerPanel = ({ link }: { link: (p: string) => string }) => {
 							<a className="secondary action-link" href={link("/time")} data-link="">
 								Edit
 							</a>
-							<button className="primary" type="button" onClick={() => void stop()}>
+							<button className="primary" type="button" disabled={pending} onClick={() => void stop()}>
 								Stop
 							</button>
 						</div>
@@ -58,10 +72,11 @@ const TimerPanel = ({ link }: { link: (p: string) => string }) => {
 }
 
 const ShoppingPanel = ({ link }: { link: (p: string) => string }) => {
-	const { data, loading, error } = useApi<{ items: Pick<ShoppingListItem, "id" | "name" | "quantity" | "unit">[]; total: number }>(
-		"/api/shopping-list-items?view=overview",
+	const { data: board, loading, error } = useApi<{ items: ShoppingListItem[] }>(
+		"/api/shopping-list-items?view=board",
 	)
-	const items = data?.items ?? []
+	const data = shoppingPreview(board?.items ?? [])
+	const items = data.items
 
 	return (
 		<div className="card panel dashboard-shopping-panel">

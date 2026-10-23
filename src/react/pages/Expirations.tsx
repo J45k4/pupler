@@ -5,7 +5,7 @@ import { expirationTag, sortByExpiration, updateInventoryItem } from "../invento
 export const ExpirationsPage = ({ link }: { link: (p: string) => string }) => {
 	const [status, setStatus] = useState("")
 	const [statusError, setStatusError] = useState(false)
-	const { data: itemsData, loading: itemsLoading, error: itemsError, reload } = useApi<InventoryItem[]>(
+	const { data: itemsData, loading: itemsLoading, error: itemsError, reload, update } = useApi<InventoryItem[]>(
 		"/api/inventory-items?consumed_at=null&sort=expires_at&order=asc",
 	)
 	const { data: containersData } = useApi<InventoryContainer[]>("/api/inventory-containers?sort=name&order=asc")
@@ -15,9 +15,10 @@ export const ExpirationsPage = ({ link }: { link: (p: string) => string }) => {
 
 	const consume = async (item: InventoryItem) => {
 		try {
-			await updateInventoryItem(item.id, { consumed_at: new Date().toISOString() })
+			const saved = await updateInventoryItem(item.id, { consumed_at: new Date().toISOString() })
 			setStatus(`Consumed ${item.name}.`)
 			setStatusError(false)
+			update(current => (current ?? []).filter(item => item.id !== saved.id))
 			reload()
 		} catch (err) {
 			setStatus(err instanceof Error ? err.message : "Failed to consume inventory item.")

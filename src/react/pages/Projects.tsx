@@ -1,3 +1,4 @@
+import { upsertItem } from "../data-updates"
 import { useMemo, useState } from "react"
 import { apiFetch } from "../api"
 import { Empty, Status, useApi, type Client, type Project } from "../lib"
@@ -13,7 +14,7 @@ export const ProjectsPage = ({ link }: { link: (p: string) => string }) => {
 	const [mergeSource, setMergeSource] = useState("")
 
 	const { data: clients } = useApi<Client[]>("/api/clients?sort=name&order=asc")
-	const { data: projectsData, loading, error, reload: reloadProjects } = useApi<Project[]>("/api/projects?sort=name&order=asc")
+	const { data: projectsData, loading, error, reload: reloadProjects, update: updateProjects } = useApi<Project[]>("/api/projects?sort=name&order=asc")
 
 	const projects = useMemo(
 		() => (projectsData ?? []).filter((p) => showArchived || p.archived_at === null),
@@ -22,9 +23,10 @@ export const ProjectsPage = ({ link }: { link: (p: string) => string }) => {
 
 	const save = async (project: Project, values: { name: string; color: string; client_id: number | null }) => {
 		try {
-			await apiFetch(`/api/projects/${project.id}`, { method: "PATCH", body: JSON.stringify(values) })
+			const saved = await apiFetch<Project>(`/api/projects/${project.id}`, { method: "PATCH", body: JSON.stringify(values) })
 			setStatus("Project saved.")
 			setStatusError(false)
+			updateProjects(current => upsertItem(current, saved))
 			reloadProjects()
 		} catch (err) {
 			setStatus(err instanceof Error ? err.message : "Failed to save project.")
@@ -35,12 +37,13 @@ export const ProjectsPage = ({ link }: { link: (p: string) => string }) => {
 	const toggleArchive = async (project: Project) => {
 		const archived = project.archived_at !== null
 		try {
-			await apiFetch(`/api/projects/${project.id}`, {
+			const saved = await apiFetch<Project>(`/api/projects/${project.id}`, {
 				method: "PATCH",
 				body: JSON.stringify({ archived_at: archived ? null : new Date().toISOString() }),
 			})
 			setStatus(archived ? "Project restored." : "Project archived.")
 			setStatusError(false)
+			updateProjects(current => upsertItem(current, saved))
 			reloadProjects()
 		} catch (err) {
 			setStatus(err instanceof Error ? err.message : "Failed to update project.")
@@ -56,7 +59,7 @@ export const ProjectsPage = ({ link }: { link: (p: string) => string }) => {
 			return
 		}
 		try {
-			await apiFetch("/api/projects", {
+			const saved = await apiFetch<Project>("/api/projects", {
 				method: "POST",
 				body: JSON.stringify({
 					name: name.trim(),
@@ -70,6 +73,7 @@ export const ProjectsPage = ({ link }: { link: (p: string) => string }) => {
 			setClientId("")
 			setStatus("Project created.")
 			setStatusError(false)
+			updateProjects(current => upsertItem(current, saved))
 			reloadProjects()
 		} catch (err) {
 			setStatus(err instanceof Error ? err.message : "Failed to create project.")
@@ -86,12 +90,16 @@ export const ProjectsPage = ({ link }: { link: (p: string) => string }) => {
 		}
 		if (!window.confirm("Merge source project into target? Source entries move to target and source is archived.")) return
 		try {
-			await apiFetch(`/api/projects/${mergeTarget}/merge`, {
+			const merged = await apiFetch<{ source: Project; target: Project; source_deleted: boolean }>(`/api/projects/${mergeTarget}/merge`, {
 				method: "POST",
 				body: JSON.stringify({ source_id: Number(mergeSource), archive_source: true, delete_source: false }),
 			})
 			setStatus("Projects merged.")
 			setStatusError(false)
+			updateProjects(current => {
+				const next = upsertItem(current, merged.target)
+				return merged.source_deleted ? next.filter(item => item.id !== merged.source.id) : upsertItem(next, merged.source)
+			})
 			reloadProjects()
 		} catch (err) {
 			setStatus(err instanceof Error ? err.message : "Failed to merge projects.")

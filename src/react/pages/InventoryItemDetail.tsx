@@ -41,7 +41,7 @@ export const InventoryItemDetailPage = ({ id, link }: { id: string; link: (p: st
 	const itemId = Number.parseInt(id, 10)
 	const valid = Number.isInteger(itemId)
 	const [editingLinks, setEditingLinks] = useState(false)
-	const { data: item, loading, error, reload } = useApi<ItemDetail>(valid ? `/api/inventory-items/${itemId}` : null)
+	const { data: item, loading, error, reload, update } = useApi<ItemDetail>(valid ? `/api/inventory-items/${itemId}` : null)
 	const { data: products, loading: productsLoading, error: productsError } = useApi<Product[]>(editingLinks ? "/api/products" : null)
 	const { data: receiptItems, loading: receiptItemsLoading, error: receiptItemsError } = useApi<ReceiptItem[]>(editingLinks ? "/api/receipt-items?sort=created_at&order=desc" : null)
 	const { data: receipts, loading: receiptsLoading, error: receiptsError } = useApi<PurchaseReceipt[]>(editingLinks ? "/api/receipts?sort=purchased_at&order=desc" : null)
@@ -79,10 +79,11 @@ export const InventoryItemDetailPage = ({ id, link }: { id: string; link: (p: st
 	const saveLinks = async (event: React.FormEvent) => {
 		event.preventDefault()
 		try {
-			await updateInventoryItem(item.id, {
+			const saved = await updateInventoryItem(item.id, {
 				product_id: productId ? Number.parseInt(productId, 10) : null,
 				receipt_item_id: receiptItemId ? Number.parseInt(receiptItemId, 10) : null,
 			})
+			update(current => current ? { ...current, ...saved } : saved as ItemDetail)
 			setLinksStatus("Saved links.")
 			setEditingLinks(false)
 			setLinksError(false)
@@ -104,7 +105,8 @@ export const InventoryItemDetailPage = ({ id, link }: { id: string; link: (p: st
 			for (const file of Array.from(files)) {
 				const formData = new FormData()
 				formData.set("file", file)
-				await apiFetch(`/api/inventory-items/${item.id}/pictures`, { method: "POST", body: formData })
+				const added = await apiFetch<ItemImage[]>(`/api/inventory-items/${item.id}/pictures`, { method: "POST", body: formData })
+				update(current => ({ ...current!, inventory_item_images: [...(current?.inventory_item_images ?? []), ...added] }))
 			}
 			setFiles(null)
 			setPictureStatus("Uploaded images.")
@@ -119,6 +121,7 @@ export const InventoryItemDetailPage = ({ id, link }: { id: string; link: (p: st
 	const removeImage = async (imageId: number) => {
 		try {
 			await apiFetch(`/api/inventory-items/${item.id}/pictures/${imageId}`, { method: "DELETE" })
+			update(current => ({ ...current!, inventory_item_images: (current?.inventory_item_images ?? []).filter(image => image.id !== imageId) }))
 			setPictureStatus("Removed image.")
 			setPictureError(false)
 			reload()

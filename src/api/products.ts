@@ -435,6 +435,7 @@ export const productPictureRoute = async (req: BunRequest<string>) => {
 
 		return json(200, {
 			product_id: productId,
+			product: await fetchProductDetail(db, productId),
 			content_type: uploaded.type,
 			filename: uploaded.name || null,
 			size: uploaded.size,

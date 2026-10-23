@@ -1,3 +1,4 @@
+import { upsertItem } from "../data-updates"
 import { useMemo, useState } from "react"
 import { apiFetch } from "../api"
 import { Empty, Modal, Status, fromDateTimeLocalValue, toDateTimeLocalValue, useApi, type InventoryContainer, type InventoryItem } from "../lib"
@@ -25,8 +26,8 @@ export const InventoryPage = ({ link }: { link: (p: string) => string }) => {
 		mode === "active"
 			? "/api/inventory-items?consumed_at=null&sort=expires_at&order=asc"
 			: "/api/inventory-items?sort=expires_at&order=asc"
-	const { data: itemsData, loading: itemsLoading, error: itemsError, reload: reloadItems } = useApi<InventoryItem[]>(itemsPath)
-	const { data: containersData, loading: containersLoading, error: containersError, reload: reloadContainers } = useApi<InventoryContainer[]>(
+	const { data: itemsData, loading: itemsLoading, error: itemsError, reload: reloadItems, update: updateItems } = useApi<InventoryItem[]>(itemsPath)
+	const { data: containersData, loading: containersLoading, error: containersError, reload: reloadContainers, update: updateContainers } = useApi<InventoryContainer[]>(
 		"/api/inventory-containers?sort=name&order=asc",
 	)
 
@@ -82,7 +83,8 @@ export const InventoryPage = ({ link }: { link: (p: string) => string }) => {
 				if (payload.kind === "item") {
 					const source = items.find((item) => item.id === payload.id)?.container_id ?? null
 					if (source === targetContainerId) return
-					await updateInventoryItem(payload.id, { container_id: targetContainerId })
+					const saved = await updateInventoryItem(payload.id, { container_id: targetContainerId })
+					updateItems(current => upsertItem(current, saved))
 					setStatus("Inventory location updated.")
 					setStatusError(false)
 					reload()
@@ -95,7 +97,8 @@ export const InventoryPage = ({ link }: { link: (p: string) => string }) => {
 				}
 				const current = containersById.get(payload.id)
 				if (current && (current.parent_container_id ?? null) === targetContainerId) return
-				await updateInventoryContainer(payload.id, { parent_container_id: targetContainerId })
+				const saved = await updateInventoryContainer(payload.id, { parent_container_id: targetContainerId })
+				updateContainers(current => upsertItem(current, saved))
 				setStatus("Container location updated.")
 				setStatusError(false)
 				reload()
@@ -110,6 +113,8 @@ export const InventoryPage = ({ link }: { link: (p: string) => string }) => {
 		if (!window.confirm(`Delete ${container.name}? Child containers and inventory items will be unassigned.`)) return
 		try {
 			await deleteInventoryContainer(container.id)
+			updateContainers(current => (current ?? []).filter(item => item.id !== container.id).map(item => item.parent_container_id === container.id ? { ...item, parent_container_id: null } : item))
+			updateItems(current => (current ?? []).map(item => item.container_id === container.id ? { ...item, container_id: null } : item))
 			setStatus(`Deleted container ${container.name}. Child containers and items are now unassigned.`)
 			setStatusError(false)
 			reload()
@@ -172,6 +177,7 @@ export const InventoryPage = ({ link }: { link: (p: string) => string }) => {
 			setContainerName("")
 			setContainerNotes("")
 			setContainerOpen(false)
+			updateContainers(current => upsertItem(current, created))
 			setStatus(`Created container ${created.name}.`)
 			setStatusError(false)
 			reload()
@@ -191,7 +197,8 @@ export const InventoryPage = ({ link }: { link: (p: string) => string }) => {
 			return
 		}
 		try {
-			await updateInventoryItem(consumeItem.id, { consumed_at: date.toISOString() })
+			const saved = await updateInventoryItem(consumeItem.id, { consumed_at: date.toISOString() })
+			updateItems(current => mode === "active" ? (current ?? []).filter(item => item.id !== saved.id) : upsertItem(current, saved))
 			const name = consumeItem.name
 			setConsumeItem(null)
 			setStatus(`Consumed ${name}.`)

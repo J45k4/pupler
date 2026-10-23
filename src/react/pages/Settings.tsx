@@ -1,3 +1,4 @@
+import { upsertItem } from "../data-updates"
 import { useEffect, useRef, useState } from "react"
 import { apiFetch } from "../api"
 import { Status, useApi } from "../lib"
@@ -54,7 +55,7 @@ type ApiKey = {
 }
 
 const ApiKeysPanel = () => {
-	const { data, loading, error, reload } = useApi<ApiKey[]>("/api/auth/api-keys")
+	const { data, loading, error, reload, update } = useApi<ApiKey[]>("/api/auth/api-keys")
 	const [name, setName] = useState("")
 	const [secret, setSecret] = useState<string | null>(null)
 	const [status, setStatus] = useState("")
@@ -65,11 +66,13 @@ const ApiKeysPanel = () => {
 		setPending(true)
 		setSecret(null)
 		try {
-			const result = await apiFetch<{ key: string }>("/api/auth/api-keys", {
+			const result = await apiFetch<ApiKey & { key: string }>("/api/auth/api-keys", {
 				method: "POST",
 				body: JSON.stringify({ name }),
 			})
-			setSecret(result.key)
+			const { key: newSecret, ...record } = result
+			update(current => upsertItem(current, record))
+			setSecret(newSecret)
 			setName("")
 			setStatus("API key created.")
 			reload()
@@ -85,6 +88,7 @@ const ApiKeysPanel = () => {
 		try {
 			await apiFetch(`/api/auth/api-keys/${key.id}`, { method: "DELETE" })
 			setSecret(null)
+			update(current => (current ?? []).filter(item => item.id !== key.id))
 			setStatus("API key revoked.")
 			reload()
 		} catch (err) {

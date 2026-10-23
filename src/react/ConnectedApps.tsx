@@ -21,7 +21,7 @@ const permissionGroups = [
 ]
 
 export const ConnectedApps = () => {
-	const { data, loading, error, reload } = useApi<Connection[]>("/api/auth/connections")
+	const { data, loading, error, reload, update } = useApi<Connection[]>("/api/auth/connections")
 	const [status, setStatus] = useState("")
 	const [pending, setPending] = useState<string | null>(null)
 	const [editing, setEditing] = useState<string | null>(null)
@@ -40,6 +40,7 @@ export const ConnectedApps = () => {
 		setPending(connection.id)
 		try {
 			await apiFetch(`/api/auth/connections/${connection.id}`, { method: "PATCH", body: JSON.stringify({ scope: draft.join(" ") }) })
+			update(current => (current ?? []).map(item => item.id === connection.id ? { ...item, scope: draft.join(" ") } : item))
 			setStatus(`${connection.client.name} permissions updated. Changes apply immediately.`)
 			setEditing(null)
 			reload()
@@ -52,6 +53,7 @@ export const ConnectedApps = () => {
 		setPending(connection.id)
 		try {
 			await apiFetch(`/api/auth/connections/${connection.id}`, { method: "DELETE" })
+			update(current => (current ?? []).filter(item => item.id !== connection.id))
 			setStatus(`${connection.client.name} disconnected.`)
 			reload()
 		} catch (err) {

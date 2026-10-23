@@ -12,6 +12,7 @@ export class ApiReadCache {
 	}
 
 	write<T>(key: string, data: T) {
+		this.pending.delete(key)
 		this.values.delete(key)
 		this.values.set(key, { data, time: this.now() })
 		while (this.values.size > this.capacity) this.values.delete(this.values.keys().next().value!)

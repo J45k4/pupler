@@ -299,6 +299,18 @@ describe("offline operation protocol without schema changes", () => {
 		expect(account.snapshots[boardPath]!.data.items[0].shopping_list_id).toBe(createdList.id)
 	})
 
+	test("acknowledging a new entry remaps the report changes of its pending edits", async () => {
+		const created = queue(account, "/api/time-entries", "POST", { project_id: project, description: "Created", started_at: "2026-10-21T08:00:00.000Z", ended_at: "2026-10-21T09:00:00.000Z" })
+		const edited = queue(account, `/api/time-entries/${created.local_id}`, "PATCH", { description: "Later edit" })
+		const response = ((await (await sync([operationPayload(created)])).json()) as any).results[0].result
+		acknowledgeOfflineOperation(account, created, response)
+		expect(edited.path).toBe(`/api/time-entries/${response.id}`)
+		expect(edited.time_changes?.[0]?.before?.id).toBe(response.id)
+		expect(edited.time_changes?.[0]?.after?.id).toBe(response.id)
+		expect(edited.time_changes?.[0]?.after?.description).toBe("Later edit")
+		expect(operationPayload(edited)).not.toHaveProperty("time_changes")
+	})
+
 	test("revoked editor access, different accounts, changed payloads and unsupported actions cannot bypass authorization", async () => {
 		queue(account, "/api/shopping-list-items", "POST", { shopping_list_id: list, name: "Milk", quantity: 1, unit: "pcs" })
 		const payload = account.queue.map(operationPayload)

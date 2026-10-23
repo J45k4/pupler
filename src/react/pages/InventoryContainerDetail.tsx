@@ -14,7 +14,7 @@ export const InventoryContainerDetailPage = ({
 }) => {
 	const containerId = Number.parseInt(id, 10)
 	const valid = Number.isInteger(containerId)
-	const { data: container, loading: cLoading, error: cError, reload: reloadContainer } = useApi<InventoryContainer>(
+	const { data: container, loading: cLoading, error: cError, reload: reloadContainer, update: updateContainer } = useApi<InventoryContainer>(
 		valid ? `/api/inventory-containers/${containerId}` : null,
 	)
 	const { data: containers } = useApi<InventoryContainer[]>("/api/inventory-containers?sort=name&order=asc")
@@ -63,6 +63,7 @@ export const InventoryContainerDetailPage = ({
 				parent_container_id: parentId ? Number(parentId) : null,
 				notes: (notes ?? "").trim() || null,
 			})
+			updateContainer(() => updated)
 			setStatus(`Saved ${updated.name}.`)
 			setStatusError(false)
 			reloadContainer()
