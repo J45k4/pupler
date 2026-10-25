@@ -2,6 +2,7 @@ import { apiFetch } from "./api"
 import { setDragPayload } from "./dnd"
 import type { IngredientSummary, Product, PurchaseReceipt } from "./lib"
 import { formatMoney, formatReceiptDateTime } from "./lib"
+import { formatDate, formatTime } from "./dates"
 
 export const UNITS = ["pcs", "g", "kg", "ml", "l", "tbsp", "tsp", "cup", "can", "pack", "m", "cm", "mm"]
 
@@ -68,14 +69,16 @@ export const ReceiptCard = ({
 	link,
 	draggable = true,
 	className = "",
+	compact = false,
 }: {
 	receipt: PurchaseReceipt
 	link: (p: string) => string
 	draggable?: boolean
 	className?: string
+	compact?: boolean
 }) => (
 	<a
-		className={`receipt-card${className ? ` ${className}` : ""}`}
+		className={`receipt-card${compact ? " receipt-card--compact" : ""}${className ? ` ${className}` : ""}`}
 		href={link(`/receipts/${receipt.id}`)}
 		data-link=""
 		draggable={draggable}
@@ -96,15 +99,20 @@ export const ReceiptCard = ({
 				: undefined
 		}
 	>
-		<div className="receipt-card__tags">
-			<span className={receipt.group ? "tag" : "tag tag--neutral"}>
-				{receipt.group?.name ?? "Ungrouped"}
-			</span>
-			<span className="tag tag--neutral">{receipt.currency}</span>
-		</div>
-		<strong>{receipt.store_name}</strong>
-		<div className="section-copy">{formatReceiptDateTime(receipt.purchased_at)}</div>
-		<div className="section-copy">{formatMoney(receipt.total_amount, receipt.currency)}</div>
+		{compact ? <>
+			<div className="receipt-card__summary"><strong>{receipt.store_name}</strong><span className="receipt-card__amount">{receipt.total_amount === null ? `— ${receipt.currency}` : formatMoney(receipt.total_amount, receipt.currency)}</span></div>
+			<time className="receipt-card__date" dateTime={receipt.purchased_at} title={formatReceiptDateTime(receipt.purchased_at)}>{formatDate(receipt.purchased_at)} · {formatTime(receipt.purchased_at)}</time>
+		</> : <>
+			<div className="receipt-card__tags">
+				<span className={receipt.group ? "tag" : "tag tag--neutral"}>
+					{receipt.group?.name ?? "Ungrouped"}
+				</span>
+				<span className="tag tag--neutral">{receipt.currency}</span>
+			</div>
+			<strong>{receipt.store_name}</strong>
+			<div className="section-copy">{formatReceiptDateTime(receipt.purchased_at)}</div>
+			<div className="section-copy">{formatMoney(receipt.total_amount, receipt.currency)}</div>
+		</>}
 	</a>
 )
 

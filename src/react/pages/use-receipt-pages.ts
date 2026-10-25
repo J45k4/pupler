@@ -6,18 +6,18 @@ import { applyReceiptChanges, mergeReceiptPage, type ReceiptPage } from "./recei
 type Session = { key: string; controller: AbortController; busy: boolean }
 type Feed = { key: string; receipts: PurchaseReceipt[]; cursor: string | null; loading: boolean; error: string | null }
 
-export const useReceiptPages = (params: string) => {
+export const useReceiptPages = (params: string | null) => {
 	const [revision, setRevision] = useState(0)
 	const key = `${params}:${revision}`
 	const session = useRef<Session | null>(null)
 	const changes = useRef(new Map<number, { version: number; receipt: PurchaseReceipt }>())
 	const changeVersion = useRef(0)
 	const [feed, setFeed] = useState<Feed>({ key: "", receipts: [], cursor: null, loading: true, error: null })
-	const current = feed.key === key ? feed : { key, receipts: [], cursor: null, loading: true, error: null }
+	const current = feed.key === key ? feed : { key, receipts: [], cursor: null, loading: params !== null, error: null }
 	const reload = useCallback(() => setRevision((value) => value + 1), [])
 
 	const requestPage = useCallback(async (active: Session, cursor: string | null) => {
-		if (active.busy || session.current !== active) return
+		if (params === null || active.busy || session.current !== active) return
 		active.busy = true
 		const readVersion = changeVersion.current
 		setFeed((previous) => ({ ...previous, loading: true, error: null }))
@@ -37,6 +37,11 @@ export const useReceiptPages = (params: string) => {
 	}, [params])
 
 	useEffect(() => {
+		if (params === null) {
+			session.current = null
+			setFeed({ key, receipts: [], cursor: null, loading: false, error: null })
+			return
+		}
 		const active = { key, controller: new AbortController(), busy: false }
 		session.current = active
 		setFeed({ key, receipts: [], cursor: null, loading: true, error: null })
@@ -51,6 +56,7 @@ export const useReceiptPages = (params: string) => {
 	}, [key, current.loading, current.cursor, current.error, requestPage])
 
 	const updateReceipt = useCallback((receipt: PurchaseReceipt) => {
+		if (params === null) return
 		changes.current.set(receipt.id, { version: ++changeVersion.current, receipt })
 		setFeed(previous => previous.key !== key ? previous : ({ ...previous, receipts: applyReceiptChanges(previous.receipts, [receipt], params) }))
 	}, [params, key])

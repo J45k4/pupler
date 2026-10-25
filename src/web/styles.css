@@ -939,9 +939,19 @@ h1 {
 	padding: 2rem;
 }
 
+html:has(.receipts-page) {
+	scrollbar-gutter: stable;
+}
+
+.page-shell:has(.receipts-page) {
+	padding-block: 0.75rem;
+}
+
 .receipts-page {
-	display: grid;
-	gap: 1rem;
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	gap: 0.55rem;
 }
 
 .receipts-page__controls {
@@ -949,13 +959,32 @@ h1 {
 	flex-wrap: wrap;
 	align-items: center;
 	justify-content: space-between;
-	gap: 1rem;
+	gap: 0.65rem;
 }
 
 .receipts-page__filters,
 .receipts-page__actions {
 	margin-bottom: 0;
 	flex-wrap: nowrap;
+	gap: 0.5rem;
+}
+
+.receipts-page__controls button:not(.date-input__calendar) {
+	padding: 0.55rem 0.85rem;
+	font-size: 0.85rem;
+}
+
+.receipts-page__filters input:not([type="checkbox"]),
+.receipts-page__filters select {
+	padding-block: 0.5rem;
+	font-size: 0.875rem;
+	border-radius: 10px;
+}
+
+.receipts-page > .status {
+	min-height: 0;
+	margin: 0;
+	font-size: 0.8rem;
 }
 
 .receipts-page__actions {
@@ -994,6 +1023,112 @@ h1 {
 	gap: 0.65rem;
 	min-height: 3rem;
 	padding: 1rem;
+}
+
+html:has(.receipts-page--table),
+body:has(.receipts-page--table) {
+	height: 100%;
+	min-height: 0;
+}
+
+body:has(.receipts-page--table) {
+	overflow-x: auto;
+	overflow-y: hidden;
+}
+
+#root:has(.receipts-page--table) {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+}
+
+#root:has(.receipts-page--table) > .site-header {
+	flex: 0 0 auto;
+}
+
+.page-shell:has(.receipts-page--table) {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+}
+
+.receipts-page--table {
+	flex: 1;
+	min-height: 0;
+}
+
+.receipts-page--table > :not(.results) {
+	flex-shrink: 0;
+}
+
+.receipts-page--table > .results {
+	display: block;
+	flex: 1;
+	align-self: flex-start;
+	/* Keep wide columns in the page's horizontal scroll area. */
+	width: max-content;
+	min-width: 100%;
+	min-height: 0;
+	overflow-y: auto;
+	border: 1px solid var(--line);
+	border-radius: 12px;
+	background: rgba(255, 255, 255, 0.65);
+}
+
+.receipt-table {
+	width: 100%;
+	min-width: 48rem;
+	border-spacing: 0;
+	font-size: 0.85rem;
+	white-space: nowrap;
+}
+
+.receipt-table th,
+.receipt-table td {
+	padding: 0.65rem 0.85rem;
+	border-bottom: 1px solid var(--line);
+	text-align: left;
+}
+
+.receipt-table th {
+	position: sticky;
+	top: 0;
+	z-index: 1;
+	background: #f7f3ea;
+}
+
+.receipt-table th:first-child {
+	min-width: 12rem;
+}
+
+.receipt-table th:nth-child(2) {
+	min-width: 18rem;
+}
+
+.receipt-table th:nth-child(3) {
+	min-width: 10rem;
+}
+
+.receipt-table tbody tr:hover {
+	background: rgba(255, 255, 255, 0.8);
+}
+
+.receipt-table a {
+	color: inherit;
+	text-decoration: none;
+}
+
+.receipt-table a:hover {
+	color: var(--accent-2);
+	text-decoration: underline;
+}
+
+.receipt-table .receipt-table__amount {
+	min-width: 8rem;
+	text-align: right;
+	font-variant-numeric: tabular-nums;
 }
 
 .inventory-page {
@@ -2354,24 +2489,22 @@ button:hover,
 
 .receipt-kanban {
 	display: grid;
-	align-items: start;
-	gap: 1rem;
-	grid-auto-columns: minmax(min(17rem, 82vw), 22rem);
+	align-items: stretch;
+	gap: 0.65rem;
+	grid-auto-columns: minmax(min(16rem, 82vw), 19rem);
 	grid-auto-flow: column;
 	grid-template-columns: none;
-	max-width: 100%;
-	overflow-x: auto;
-	overflow-y: visible;
+	/* Page-level scrolling lets group headers stick to the viewport. */
+	width: max-content;
+	min-width: 100%;
 	padding-bottom: 0.35rem;
-	scroll-snap-type: x proximity;
-	-webkit-overflow-scrolling: touch;
 }
 
 .receipt-kanban__column {
 	display: grid;
-	gap: 0.85rem;
-	min-height: 12rem;
-	padding: 0.9rem;
+	align-content: start;
+	gap: 0.5rem;
+	padding: 0.65rem;
 	border: 1px solid var(--line);
 	border-radius: 18px;
 	background: rgba(255, 255, 255, 0.42);
@@ -2382,15 +2515,31 @@ button:hover,
 }
 
 .receipt-kanban__header {
+	position: sticky;
+	top: var(--receipt-sticky-top, 0px);
+	z-index: 2;
 	display: grid;
-	gap: 0.45rem;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: start;
+	gap: 0.4rem;
+	margin: -0.65rem -0.65rem 0;
+	padding: 0.65rem;
+	border-radius: 17px 17px 0 0;
+	background: #f7f3ea;
+	box-shadow: 0 1px 0 var(--line);
 }
 
 .receipt-kanban__heading {
 	display: flex;
 	align-items: center;
-	justify-content: space-between;
-	gap: 0.75rem;
+	justify-content: flex-start;
+	flex-wrap: wrap;
+	gap: 0.35rem;
+}
+
+.receipt-kanban__heading > .tag {
+	padding: 0.1rem 0.35rem;
+	font-size: 0.68rem;
 }
 
 .receipt-kanban__totals,
@@ -2401,43 +2550,96 @@ button:hover,
 
 .receipt-kanban__totals {
 	color: var(--muted);
-	font-size: 0.8rem;
+	max-width: 8rem;
+	font-size: 0.7rem;
+	text-align: right;
 }
 
 .receipt-kanban__totals strong {
 	color: var(--text);
-	font-size: 0.95rem;
+	font-size: 0.8rem;
 }
 
 .receipt-kanban__header h3 {
 	min-width: 0;
 	margin: 0;
 	overflow-wrap: anywhere;
-	font-size: 1rem;
+	font-size: 0.85rem;
 }
 
 .receipt-kanban__list {
 	display: grid;
-	gap: 0.75rem;
+	gap: 0.4rem;
 	align-content: start;
-	min-height: 7rem;
+}
+
+.receipt-kanban__more {
+	width: 100%;
+	padding: 0.5rem;
+	font-size: 0.8rem;
+}
+
+.receipt-kanban__cutoff {
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+	margin-block: 0.3rem;
+	color: var(--accent);
+	font-size: 0.7rem;
+	white-space: nowrap;
+}
+
+.receipt-kanban__cutoff::before,
+.receipt-kanban__cutoff::after {
+	flex: 1;
+	height: 1px;
+	background: currentColor;
+	content: "";
 }
 
 .receipt-kanban__empty {
 	display: grid;
 	place-items: center;
-	min-height: 7rem;
-	padding: 0.9rem;
+	padding: 0.65rem;
 	border: 1px dashed var(--line);
 	border-radius: 16px;
 	color: var(--muted);
-	font-size: 0.9rem;
+	font-size: 0.75rem;
 	text-align: center;
 }
 
 .receipt-kanban .receipt-card {
-	border-radius: 16px;
+	border-radius: 10px;
 	background: rgba(255, 255, 255, 0.72);
+}
+
+.receipt-card--compact {
+	gap: 0.3rem;
+	padding: 0.6rem 0.65rem;
+	line-height: 1.3;
+}
+
+.receipt-card__summary {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: start;
+	gap: 0.5rem;
+	font-size: 0.85rem;
+}
+
+.receipt-card__summary > strong {
+	overflow-wrap: anywhere;
+}
+
+.receipt-card__amount {
+	font-weight: 700;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.receipt-card__date {
+	color: var(--muted);
+	font-size: 0.75rem;
 }
 
 .receipt-kanban .receipt-card__header {
@@ -2462,25 +2664,6 @@ button:hover,
 .receipt-drop-target--active {
 	border-color: rgba(186, 90, 49, 0.4);
 	box-shadow: 0 0 0 3px rgba(186, 90, 49, 0.12);
-}
-
-.receipt-card--timeline {
-	width: min(100%, 46rem);
-}
-
-.receipt-timeline__cutoff {
-	display: flex;
-	align-items: center;
-	gap: 0.75rem;
-	width: min(100%, 46rem);
-	color: var(--muted);
-	font-size: 0.85rem;
-}
-
-.receipt-timeline__cutoff-line {
-	flex: 1;
-	height: 1px;
-	background: var(--line);
 }
 
 .metadata-link {
@@ -5355,9 +5538,14 @@ body.modal-open {
 		max-width: none;
 	}
 
-	.receipt-card,
-	.receipt-card--timeline,
-	.receipt-timeline__cutoff {
+	.receipts-page__controls button:not(.date-input__calendar),
+	.receipts-page__filters input:not([type="checkbox"]),
+	.receipts-page__filters select {
+		min-height: 2.75rem;
+		font-size: 1rem;
+	}
+
+	.receipt-card {
 		width: 100%;
 		min-width: 0;
 	}

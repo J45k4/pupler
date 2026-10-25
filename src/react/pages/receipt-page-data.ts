@@ -4,6 +4,15 @@ export type ReceiptPage = { receipts: PurchaseReceipt[]; next_cursor: string | n
 export type ReceiptGroupTotal = { group_id: number | null; currency: string; total_amount: number | null; receipt_count: number; unknown_count: number }
 export const RECEIPT_PAGE_SIZE = 40
 
+export const receiptCutoffDate = (now = new Date()) => {
+	const cutoff = new Date(now)
+	cutoff.setHours(0, 0, 0, 0)
+	cutoff.setDate(cutoff.getDate() - 30)
+	return cutoff
+}
+
+export const receiptCutoffIndex = (receipts: PurchaseReceipt[], cutoff: Date) => receipts.findIndex(receipt => Date.parse(receipt.purchased_at) < cutoff.getTime())
+
 export const receiptDateBefore = (date: string) => {
 	if (!date) return null
 	const end = new Date(`${date}T00:00:00`)
@@ -25,6 +34,14 @@ export const receiptTotalsParams = (params: string) => {
 	const query = new URLSearchParams(params)
 	query.set("view", "totals")
 	query.delete("limit")
+	query.delete("cursor")
+	return query.toString()
+}
+
+export const receiptGroupPageParams = (params: string, groupId: number | null) => {
+	const query = new URLSearchParams(params)
+	query.set("group_id", groupId === null ? "null" : String(groupId))
+	query.set("limit", "10")
 	query.delete("cursor")
 	return query.toString()
 }

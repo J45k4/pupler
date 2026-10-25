@@ -1,11 +1,12 @@
 import { DateInput } from "../DateInput"
 import { upsertItem } from "../data-updates"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { Fragment, useEffect, useMemo, useRef, useState } from "react"
+import { formatDate } from "../dates"
 import { apiFetch } from "../api"
-import { Empty, Modal, Status, formatMoney, toDateTimeLocalValue, useApi, type Group, type PurchaseReceipt } from "../lib"
+import { Empty, Modal, Status, formatMoney, formatReceiptDateTime, toDateTimeLocalValue, useApi, type Group, type PurchaseReceipt } from "../lib"
 import { ReceiptCard } from "../catalog"
 import { closest, getDragPayload, useDropHighlight } from "../dnd"
-import { receiptPageParams, receiptTotalsParams, type ReceiptGroupTotal } from "./receipt-page-data"
+import { receiptCutoffDate, receiptCutoffIndex, receiptGroupPageParams, receiptPageParams, receiptTotalsParams, type ReceiptGroupTotal } from "./receipt-page-data"
 import { useReceiptPages } from "./use-receipt-pages"
 
 export const findOrCreateGroup = async (name: string, groups: Group[]): Promise<Group> => {
@@ -23,13 +24,39 @@ const ReceiptGroupHeader = ({ groupId, name, href, totals, error }: { groupId: n
 	</header>
 }
 
+const ReceiptGroupColumn = ({ groupId, name, params, totals, totalsError, updatedReceipt, link }: { groupId: number | null; name: string; params: string; totals: ReceiptGroupTotal[] | null; totalsError: string | null; updatedReceipt: PurchaseReceipt | null; link: (path: string) => string }) => {
+	const groupParams = useMemo(() => receiptGroupPageParams(params, groupId), [params, groupId])
+	const { receipts, loading, error, hasMore, loadMore, updateReceipt } = useReceiptPages(groupParams)
+	const cutoff = receiptCutoffDate()
+	const cutoffIndex = receiptCutoffIndex(receipts, cutoff)
+	useEffect(() => {
+		if (updatedReceipt) updateReceipt(updatedReceipt)
+	}, [updatedReceipt, updateReceipt])
+	return <section className="receipt-kanban__column" data-receipt-drop-group-id={groupId === null ? "" : String(groupId)}>
+		<ReceiptGroupHeader groupId={groupId} name={name} href={groupId === null ? undefined : link(`/groups/${groupId}`)} totals={totals} error={totalsError} />
+		<div className="receipt-kanban__list">
+			{receipts.map((receipt, index) => <Fragment key={receipt.id}>
+				{index === cutoffIndex ? <div className="receipt-kanban__cutoff" role="separator" aria-label={`30-day cutoff: ${formatDate(cutoff.toISOString())}`}><span>30-day cutoff · <time dateTime={cutoff.toISOString()}>{formatDate(cutoff.toISOString())}</time></span></div> : null}
+				<ReceiptCard receipt={receipt} link={link} compact />
+			</Fragment>)}
+			{loading && receipts.length === 0 ? <div className="receipt-kanban__empty">Loading receipts…</div> : !error && receipts.length === 0 ? <div className="receipt-kanban__empty">No receipts</div> : null}
+		</div>
+		{error ? <Status message={error} error /> : null}
+		{hasMore || error ? <button className="secondary receipt-kanban__more" type="button" aria-label={`${error ? "Retry" : "Load more"} receipts in ${name}`} disabled={loading} onClick={() => void loadMore()}>{loading ? "Loading…" : error ? "Try again" : "Load more"}</button> : null}
+	</section>
+}
+
 export const ReceiptsPage = ({ link }: { link: (p: string) => string }) => {
 	const [groupFilter, setGroupFilter] = useState("all")
 	const [chronological, setChronological] = useState(true)
 	const [newestDate, setNewestDate] = useState("")
 	const [search, setSearch] = useState("")
 	const [query, setQuery] = useState("")
+	const [groupRevision, setGroupRevision] = useState(0)
+	const [updatedReceipt, setUpdatedReceipt] = useState<PurchaseReceipt | null>(null)
 	const loadMoreRef = useRef<HTMLDivElement>(null)
+	const resultsRef = useRef<HTMLDivElement>(null)
+	const pageRef = useRef<HTMLElement>(null)
 	const [status, setStatus] = useState("")
 	const [statusError, setStatusError] = useState(false)
 	const [receiptOpen, setReceiptOpen] = useState(false)
@@ -46,20 +73,33 @@ export const ReceiptsPage = ({ link }: { link: (p: string) => string }) => {
 	const [newGroupName, setNewGroupName] = useState("")
 
 	useEffect(() => {
+		const header = document.querySelector(".site-header")
+		const page = pageRef.current
+		if (!header || !page) return
+		const update = () => page.style.setProperty("--receipt-sticky-top", `${header.getBoundingClientRect().height}px`)
+		const observer = new ResizeObserver(update)
+		update()
+		observer.observe(header)
+		return () => observer.disconnect()
+	}, [])
+
+	useEffect(() => {
 		if (!search.trim()) { setQuery(""); return }
 		const timer = window.setTimeout(() => setQuery(search.trim()), 200)
 		return () => window.clearTimeout(timer)
 	}, [search])
 
 	const params = useMemo(() => receiptPageParams(groupFilter, newestDate, query), [groupFilter, newestDate, query])
-	const { receipts, loading: receiptsLoading, error: receiptsError, hasMore, loadMore, reload: reloadReceipts, updateReceipt } = useReceiptPages(params)
+	const { receipts, loading: receiptsLoading, error: receiptsError, hasMore, loadMore, reload: reloadReceipts, updateReceipt } = useReceiptPages(chronological ? params : null)
 	const { data: totals, error: totalsError, reload: reloadTotals } = useApi<ReceiptGroupTotal[]>(chronological ? null : `/api/receipts?${receiptTotalsParams(params)}`)
 	const { data: groupsData, loading: groupsLoading, error: groupsError, reload: reloadGroups, update: updateGroups } = useApi<Group[]>("/api/groups?sort=name&order=asc")
 
 	const reload = () => {
+		setUpdatedReceipt(null)
 		reloadReceipts()
 		reloadGroups()
 		reloadTotals()
+		setGroupRevision(value => value + 1)
 	}
 
 	const groups = groupsData ?? []
@@ -69,17 +109,17 @@ export const ReceiptsPage = ({ link }: { link: (p: string) => string }) => {
 
 	useEffect(() => {
 		const target = loadMoreRef.current
-		if (!target || !hasMore || receiptsLoading || receiptsError || typeof IntersectionObserver === "undefined") return
+		if (!chronological || !target || !hasMore || receiptsLoading || receiptsError || typeof IntersectionObserver === "undefined") return
 		const observer = new IntersectionObserver((entries) => {
 			if (entries.some((entry) => entry.isIntersecting)) void loadMore()
-		}, { rootMargin: "400px" })
+		}, { root: resultsRef.current, rootMargin: "400px" })
 		observer.observe(target)
 		return () => observer.disconnect()
-	}, [hasMore, receiptsLoading, receiptsError, loadMore])
+	}, [hasMore, receiptsLoading, receiptsError, loadMore, chronological])
 
 	const moveReceipt = async (receiptId: number, targetGroupId: number | null) => {
 		const receipt = receipts.find((r) => r.id === receiptId)
-		if ((receipt?.group_id ?? null) === targetGroupId) return
+		if (receipt && receipt.group_id === targetGroupId) return
 		const targetName =
 			targetGroupId === null ? "Ungrouped" : (groups.find((g) => g.id === targetGroupId)?.name ?? "selected group")
 		try {
@@ -88,6 +128,7 @@ export const ReceiptsPage = ({ link }: { link: (p: string) => string }) => {
 				body: JSON.stringify({ group_id: targetGroupId }),
 			})
 			updateReceipt(saved)
+			setUpdatedReceipt(saved)
 			reloadTotals()
 			setStatus(`Moved receipt to ${targetName}.`)
 			setStatusError(false)
@@ -124,7 +165,8 @@ export const ReceiptsPage = ({ link }: { link: (p: string) => string }) => {
 	const hasSearchMatches = (groupId: number | null) => !query || !totals || totals.some(row => row.group_id === groupId && row.receipt_count > 0)
 	const visibleGroups = (groupFilter === "all" ? groups : groupFilter === "ungrouped" ? [] : groups.filter((g) => String(g.id) === groupFilter)).filter(group => hasSearchMatches(group.id))
 	const showUngrouped = (groupFilter === "all" || groupFilter === "ungrouped") && hasSearchMatches(null)
-	const emptyGroupMessage = (groupId: number | null) => hasMore && (!totals || totals.some(row => row.group_id === groupId && row.receipt_count > 0)) ? "Load older receipts to view this group." : "No receipts"
+	const noReceipts = chronological ? receipts.length === 0 : totals !== null && totals.every(row => row.receipt_count === 0)
+	const receiptCount = totals?.reduce((sum, row) => sum + row.receipt_count, 0)
 
 	const createReceipt = async (event: React.FormEvent) => {
 		event.preventDefault()
@@ -158,6 +200,7 @@ export const ReceiptsPage = ({ link }: { link: (p: string) => string }) => {
 			setGroupName("")
 			setPicture(null)
 			updateReceipt(created)
+			setUpdatedReceipt(created)
 			reloadTotals()
 			setReceiptOpen(false)
 			setStatus(picture ? `Created receipt #${created.id} and uploaded picture` : `Created receipt #${created.id}`)
@@ -192,7 +235,7 @@ export const ReceiptsPage = ({ link }: { link: (p: string) => string }) => {
 
 	return (
 		<>
-			<section className="receipts-page">
+			<section ref={pageRef} className={`receipts-page${chronological ? " receipts-page--table" : ""}`}>
 				<div className="receipts-page__controls">
 					<div className="toolbar toolbar--wrap receipts-page__filters">
 						<label className="receipt-search" htmlFor="receipt-search">Search receipts<input id="receipt-search" type="search" placeholder="Store name or receipt number" autoComplete="off" maxLength={200} value={search} onChange={event => { setSearch(event.target.value); setStatus(""); setStatusError(false) }} /></label>
@@ -244,59 +287,43 @@ export const ReceiptsPage = ({ link }: { link: (p: string) => string }) => {
 					</div>
 				</div>
 				{newestDate ? <p className="section-copy">Showing the selected date and older, newest first.</p> : null}
-				<Status message={search.trim() !== query ? "Searching…" : loading ? "Loading…" : (error ?? status) || `${receipts.length} receipts loaded.`} error={!!error || statusError} />
+				<Status message={search.trim() !== query ? "Searching…" : loading ? "Loading…" : (error ?? status) || (chronological ? `${receipts.length} receipts loaded.` : receiptCount === undefined ? "Loading totals…" : `${receiptCount} receipts.`)} error={!!error || statusError} />
 				<div
 					id="receipt-results"
+					ref={resultsRef}
 					className="results"
+					role={chronological ? "region" : undefined}
+					aria-label={chronological ? "Receipts table" : undefined}
+					tabIndex={chronological ? 0 : undefined}
 					aria-busy={receiptsLoading}
 					onDragOver={chronological ? undefined : onBoardDragOver}
 					onDrop={chronological ? undefined : onBoardDrop}
 					onDragEnd={() => dropHighlight.clear()}
 				>
 					{!loading && !error ? (
-						receipts.length === 0 && (query || chronological || groups.length === 0) ? (
+						noReceipts && (query || chronological || groups.length === 0) ? (
 							<Empty message={query || newestDate || groupFilter !== "all" ? "No receipts match these filters." : "No receipts yet."} />
 						) : chronological ? (
-							<div className="receipt-timeline">
-								{receipts.map((r) => (
-									<ReceiptCard key={r.id} receipt={r} link={link} draggable={false} className="receipt-card--timeline" />
-								))}
-							</div>
+							<table className="receipt-table" aria-label="Receipts, newest first">
+								<thead><tr><th scope="col">Date and time</th><th scope="col">Store</th><th scope="col">Group</th><th scope="col" className="receipt-table__amount">Amount</th></tr></thead>
+								<tbody>{receipts.map(receipt => <tr key={receipt.id}>
+									<td><time dateTime={receipt.purchased_at}>{formatReceiptDateTime(receipt.purchased_at)}</time></td>
+									<td><a href={link(`/receipts/${receipt.id}`)} data-link="">{receipt.store_name}</a></td>
+									<td>{receipt.group_id === null ? <span className="muted">Ungrouped</span> : <a href={link(`/groups/${receipt.group_id}`)} data-link="">{receipt.group?.name ?? groups.find(group => group.id === receipt.group_id)?.name ?? "Unknown group"}</a>}</td>
+									<td className="receipt-table__amount">{receipt.total_amount === null ? `— ${receipt.currency}` : formatMoney(receipt.total_amount, receipt.currency)}</td>
+								</tr>)}</tbody>
+							</table>
 						) : (
 							<div className="receipt-kanban" data-receipt-kanban="">
-								{showUngrouped ? (
-									<section className="receipt-kanban__column" data-receipt-drop-group-id="">
-										<ReceiptGroupHeader groupId={null} name="Ungrouped" totals={totals} error={totalsError} />
-										<div className="receipt-kanban__list">
-											{receipts.every(r => r.group_id !== null) ? <div className="receipt-kanban__empty">{emptyGroupMessage(null)}</div> : null}
-											{receipts.filter((r) => r.group_id === null).map((r) => (
-												<ReceiptCard key={r.id} receipt={r} link={link} />
-											))}
-										</div>
-									</section>
-								) : null}
-								{visibleGroups.map((g) => {
-									const columnReceipts = receipts.filter((r) => r.group_id === g.id)
-									return (
-										<section key={g.id} className="receipt-kanban__column" data-receipt-drop-group-id={String(g.id)}>
-											<ReceiptGroupHeader groupId={g.id} name={g.name} href={link(`/groups/${g.id}`)} totals={totals} error={totalsError} />
-											<div className="receipt-kanban__list">
-												{columnReceipts.length === 0 ? (
-													<div className="receipt-kanban__empty">{emptyGroupMessage(g.id)}</div>
-												) : (
-													columnReceipts.map((r) => <ReceiptCard key={r.id} receipt={r} link={link} />)
-												)}
-											</div>
-										</section>
-									)
-								})}
+								{showUngrouped ? <ReceiptGroupColumn key={`ungrouped:${groupRevision}`} groupId={null} name="Ungrouped" params={params} totals={totals} totalsError={totalsError} updatedReceipt={updatedReceipt} link={link} /> : null}
+								{visibleGroups.map(group => <ReceiptGroupColumn key={`${group.id}:${groupRevision}`} groupId={group.id} name={group.name} params={params} totals={totals} totalsError={totalsError} updatedReceipt={updatedReceipt} link={link} />)}
 							</div>
 						)
 					) : null}
-				</div>
-				<div ref={loadMoreRef} className="receipt-pagination">
-					{receiptsError && receipts.length > 0 ? <Status message={receiptsError} error /> : null}
-					{hasMore || receiptsError ? <button className="secondary" type="button" disabled={receiptsLoading} onClick={() => void loadMore()}>{receiptsLoading ? "Loading older receipts…" : receiptsError ? "Try again" : "Load older receipts"}</button> : receipts.length > 0 ? <span className="section-copy">All receipts loaded.</span> : null}
+					{chronological ? <div ref={loadMoreRef} className="receipt-pagination">
+						{receiptsError && receipts.length > 0 ? <Status message={receiptsError} error /> : null}
+						{hasMore || receiptsError ? <button className="secondary" type="button" disabled={receiptsLoading} onClick={() => void loadMore()}>{receiptsLoading ? "Loading older receipts…" : receiptsError ? "Try again" : "Load older receipts"}</button> : receipts.length > 0 ? <span className="section-copy">All receipts loaded.</span> : null}
+					</div> : null}
 				</div>
 			</section>
 			<Modal id="receipt-create-modal" title="Create Receipt" open={receiptOpen} onClose={() => setReceiptOpen(false)} className="receipt-create-modal">

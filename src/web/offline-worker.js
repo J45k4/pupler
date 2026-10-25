@@ -1,5 +1,10 @@
 const shellCache = "pupler-shell-__PUPLER_SHELL_VERSION__"
+const development = "__PUPLER_ENVIRONMENT__" === "development"
 self.addEventListener("install", (event) => {
+	if (development) {
+		event.waitUntil(self.skipWaiting())
+		return
+	}
 	event.waitUntil(
 		(async () => {
 			const cache = await caches.open(shellCache)
@@ -19,12 +24,14 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
 	event.waitUntil(
 		(async () => {
-			for (const key of await caches.keys()) if (key.startsWith("pupler-shell-") && key !== shellCache) await caches.delete(key)
+			for (const key of await caches.keys()) if (key.startsWith("pupler-shell-") && (development || key !== shellCache)) await caches.delete(key)
 			await self.clients.claim()
 		})(),
 	)
 })
 self.addEventListener("fetch", (event) => {
+	// Bun's development asset URLs can outlive their contents across rebuilds.
+	if (development) return
 	const url = new URL(event.request.url)
 	if (
 		event.request.method !== "GET" ||

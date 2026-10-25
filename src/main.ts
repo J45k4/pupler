@@ -25,6 +25,7 @@ const indexFile = reactIndex.files?.find(file => file.loader === "html")
 const frontend = indexFile ? new Response(Bun.file(indexFile.path), { headers: indexFile.headers }) : reactIndex
 
 const version = resolvePuplerVersion()
+const development = process.env.NODE_ENV !== "production"
 const envPort = process.env.PORT
 	? Number.parseInt(process.env.PORT, 10)
 	: undefined
@@ -142,7 +143,7 @@ const apiRoutes = createApiRoutes({
 const instance = Bun.serve({
 	port,
 	hostname: process.env.BIND_ADDRESS ?? "0.0.0.0",
-	development: process.env.NODE_ENV !== "production" && {
+	development: development && {
 		hmr: true,
 		console: true,
 	},
@@ -159,7 +160,7 @@ const instance = Bun.serve({
 		"/mcp": mcpRoute,
 		"/mcp/uploads/:token": uploadRoute,
 		"/health": new Response("ok"),
-		"/service-worker.js": new Response(offlineWorkerSource.replace("__PUPLER_SHELL_VERSION__", Bun.hash(JSON.stringify(reactIndex.files ?? [])).toString(16)), { headers: { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-cache", "Service-Worker-Allowed": "/" } }),
+		"/service-worker.js": new Response(offlineWorkerSource.replace("__PUPLER_SHELL_VERSION__", Bun.hash(JSON.stringify(reactIndex.files ?? [])).toString(16)).replace("__PUPLER_ENVIRONMENT__", development ? "development" : "production"), { headers: { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-cache", "Service-Worker-Allowed": "/" } }),
 		"/favicon.png": new Response(favicon, {
 			headers: { "Content-Type": "image/png" },
 		}),
