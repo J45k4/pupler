@@ -1,3 +1,4 @@
+import { formatDateTime } from "../dates"
 import { upsertItem } from "../data-updates"
 import { useState } from "react"
 import { apiFetch } from "../api"
@@ -228,7 +229,7 @@ export const UsersPage = () => {
 				{invite ? (
 					<>
 						<p className="page-copy">
-							Send this link to {invite.user.name}. It can be used once to set up a passkey and expires {new Date(invite.expires_at).toLocaleString()}. Creating a new link invalidates the previous one.
+							Send this link to {invite.user.name}. It can be used once to set up a passkey and expires {formatDateTime(invite.expires_at)}. Creating a new link invalidates the previous one.
 						</p>
 						<input readOnly value={invite.url} onFocus={(e) => e.target.select()} />
 						<div className="actions">

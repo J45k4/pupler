@@ -1,3 +1,5 @@
+import { DateInput } from "../DateInput"
+import { formatTime } from "../dates"
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from "react"
 import { apiFetch } from "../api"
 import { apiReadCache } from "../api-cache"
@@ -12,7 +14,7 @@ const style = (values: Record<string, string | number>) => values as CSSProperti
 const Color = ({ color }: { color: string }) => <span className="time-color" style={style({ "--time-color": color })} />
 const reportQuery = (from: string, to: string) => `/api/time-report?${new URLSearchParams({ from, to })}`
 const entriesQuery = (from: string, to: string) => `/api/time-entries?${new URLSearchParams({ from, to, sort: "started_at", order: "desc" })}`
-const timeOfDay = (date: Date) => new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(date)
+const timeOfDay = formatTime
 
 // Ignore stale responses on date changes and cancel reads when leaving a report.
 const useReportData = <T,>(key: string, load: (signal: AbortSignal) => Promise<T>, project: (value: T, change: TimeChange) => T, confirm: (value: T, results: TimeResult[]) => T = value => value) => {
@@ -163,7 +165,7 @@ export const WeeklyDetail = ({ days, entries, onAddRange, onEditEntry }: { days:
 	return <div className="time-weekly-detail">
 		<div className="time-weekly-detail__header"><div className="time-weekly-detail__corner" />{days.map(day => <div key={day.date} className="time-weekly-detail__day-heading"><strong>{data.formatWeekday(new Date(day.from))}, {data.formatShortDate(new Date(day.from))}</strong><span>{formatDuration(day.report?.total_seconds ?? 0)}</span></div>)}</div>
 		<div className="time-weekly-detail__body">
-			<div className="time-weekly-detail__hours">{Array.from({ length: 24 }, (_, hour) => <span key={hour}>{String(hour).padStart(2, "0")}:00</span>)}</div>
+			<div className="time-weekly-detail__hours">{Array.from({ length: 24 }, (_, hour) => <span key={hour}>{String(hour).padStart(2, "0")}.00</span>)}</div>
 			{days.map(day => {
 				const range = selection?.day.date === day.date ? selectionRange(selection) : null
 				return <div key={day.date} className="time-weekly-detail__day" aria-label={day.label} onPointerDown={event => {
@@ -241,7 +243,7 @@ export const TimeWeeklyPage = (_props: { link: (path: string) => string }) => {
 			<Status message={result.error || (!value ? "Loading weekly time..." : "")} error={!!result.error} />
 			<div className="spending-breakdown-controls time-overview-controls time-weekly-controls">
 				<button type="button" className="secondary" onClick={() => move(-7)}>Previous Week</button>
-				<input id="time-weekly-date-input" type="date" aria-label="Week" value={week} max={data.formatDateInput()} onChange={event => choose(event.target.value || data.formatDateInput())} />
+				<DateInput id="time-weekly-date-input" type="date" aria-label="Week" value={week} max={data.formatDateInput()} onChange={value => choose(value || data.formatDateInput())} />
 				<select id="time-weekly-view-select" aria-label="View" value={view} onChange={event => choose(week, event.target.value === "detail" ? "detail" : "summary")}><option value="summary">Summary</option><option value="detail">Detail</option></select>
 				<button type="button" className="secondary" disabled={data.startOfLocalWeek(data.localDateFromInput(week) ?? new Date()) >= data.startOfLocalWeek(new Date())} onClick={() => move(7)}>Next Week</button>
 			</div>
@@ -305,7 +307,7 @@ export const TimeMonthlyPage = (_props: { link: (path: string) => string }) => {
 			{days ? <><div><span>Total Time</span><strong>{formatDuration(total)}</strong></div><div><span>Daily Average</span><strong>{activeDays ? formatDuration(total / activeDays) : "No active days"}</strong></div><div><span>Clients</span><strong>{clients.size}</strong></div><div><span>Month</span><strong>{data.formatMonth(data.localMonthFromInput(month) ?? new Date())}</strong></div></> : null}
 			<div className="spending-breakdown-controls time-overview-controls time-weekly-controls">
 				<button type="button" className="secondary" onClick={() => move(-1)}>Previous Month</button>
-				<label>Month<input id="time-monthly-date-input" type="month" value={month} max={data.formatMonthInput()} onChange={event => choose(event.target.value || data.formatMonthInput())} /></label>
+				<label>Month<DateInput id="time-monthly-date-input" type="month" value={month} max={data.formatMonthInput()} onChange={value => choose(value || data.formatMonthInput())} /></label>
 				<button type="button" className="secondary" disabled={month >= data.formatMonthInput()} onClick={() => move(1)}>Next Month</button>
 			</div>
 		</div>
@@ -411,9 +413,9 @@ export const TimeOverviewPage = (_props: { link: (path: string) => string }) => 
 	return <section className="time-block">
 		<div className="spending-breakdown-controls time-overview-controls">
 			<label>Span<select id="time-overview-span-select" value={selection.span.value} onChange={event => choose({ ...selection, span: data.getTimeOverviewSpan(event.target.value) })}>{data.TIME_OVERVIEW_SPANS.map(span => <option key={span.value} value={span.value}>{span.label}</option>)}</select></label>
-			<label hidden={selection.span.value !== "custom-day"}>Day<input id="time-overview-day-input" type="date" max={data.formatDateInput()} value={selection.day} onChange={event => choose({ ...selection, day: event.target.value || data.formatDateInput() })} /></label>
-			<label hidden={selection.span.value !== "custom-range"}>From<input id="time-overview-from-input" type="date" max={data.formatDateInput()} value={selection.fromDay} onChange={event => range("fromDay", event.target.value)} /></label>
-			<label hidden={selection.span.value !== "custom-range"}>To<input id="time-overview-to-input" type="date" max={data.formatDateInput()} value={selection.toDay} onChange={event => range("toDay", event.target.value)} /></label>
+			<label hidden={selection.span.value !== "custom-day"}>Day<DateInput id="time-overview-day-input" type="date" max={data.formatDateInput()} value={selection.day} onChange={value => choose({ ...selection, day: value || data.formatDateInput() })} /></label>
+			<label hidden={selection.span.value !== "custom-range"}>From<DateInput id="time-overview-from-input" type="date" max={data.formatDateInput()} value={selection.fromDay} onChange={value => range("fromDay", value)} /></label>
+			<label hidden={selection.span.value !== "custom-range"}>To<DateInput id="time-overview-to-input" type="date" max={data.formatDateInput()} value={selection.toDay} onChange={value => range("toDay", value)} /></label>
 			<button type="button" className="secondary" hidden={!selection.clientKey && !selection.projectKey} onClick={() => choose({ ...selection, clientKey: null, projectKey: null })}>Show All</button>
 		</div>
 		<Status message={result.error || (!value ? "Loading time overview..." : `Loaded ${selection.span.label.toLowerCase()} time usage.`)} error={!!result.error} />

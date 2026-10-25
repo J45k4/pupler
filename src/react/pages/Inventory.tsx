@@ -1,3 +1,4 @@
+import { DateInput } from "../DateInput"
 import { upsertItem } from "../data-updates"
 import { useMemo, useState } from "react"
 import { apiFetch } from "../api"
@@ -373,12 +374,12 @@ export const InventoryPage = ({ link }: { link: (p: string) => string }) => {
 					</div>
 					<label>
 						Consumed At
-						<input
+						<DateInput
 							id="inventory-consume-date"
 							name="consumed_at"
 							type="datetime-local"
 							value={consumeDate}
-							onChange={(e) => setConsumeDate(e.target.value)}
+							onChange={value => setConsumeDate(value)}
 						/>
 					</label>
 					<div className="actions">

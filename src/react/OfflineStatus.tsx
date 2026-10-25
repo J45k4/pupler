@@ -1,3 +1,4 @@
+import { formatDateTime } from "./dates"
 import { useEffect, useId, useRef, useState } from "react"
 import { discardOfflineChanges, offlineStatus, syncOfflineChanges } from "./offline"
 
@@ -76,7 +77,7 @@ export const OfflineStatus = ({ currentPath, onOpen }: { currentPath: string; on
 							{status.operations.map((operation) => (
 								<li key={operation.id}>
 									{operation.path.includes("time-entries")
-										? `${operation.path.endsWith("/start") ? "Start timer" : operation.path.endsWith("/stop") ? "Stop timer" : "Update time entry"}: ${new Date(operation.time).toLocaleString()}`
+										? `${operation.path.endsWith("/start") ? "Start timer" : operation.path.endsWith("/stop") ? "Stop timer" : "Update time entry"}: ${formatDateTime(operation.time)}`
 										: (operation.optimistic.name ?? "Shopping list change")}
 									{operation.error ? ` — ${operation.error}` : ""}
 								</li>

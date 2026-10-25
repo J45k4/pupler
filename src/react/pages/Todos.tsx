@@ -1,3 +1,4 @@
+import { DateInput } from "../DateInput"
 import { TodoListRole } from "../../todo-list-role"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { apiFetch } from "../api"
@@ -301,7 +302,7 @@ export const TodosPage = () => {
 			<form onSubmit={(event) => void addWithDetails(event)}>
 				<label>Todo<input required autoComplete="off" value={title} onChange={(event) => setTitle(event.target.value)} /></label>
 				<label>Notes<input autoComplete="off" value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
-				<label>Due<input type="datetime-local" value={dueAt} onChange={(event) => setDueAt(event.target.value)} /></label>
+				<label>Due<DateInput type="datetime-local" value={dueAt} onChange={value => setDueAt(value)} /></label>
 				<div className="actions"><button className="primary" type="submit" disabled={detailsPending}>Add todo</button></div>
 			</form>
 			<Status message={modalStatus} error={!!modalStatus} />

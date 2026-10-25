@@ -1,3 +1,5 @@
+import { DateInput } from "../DateInput"
+import { formatDateTime } from "../dates"
 import { upsertItem } from "../data-updates"
 import { useState } from "react"
 import { apiFetch } from "../api"
@@ -44,11 +46,6 @@ const cadenceOptions = [
 	{ value: 3, label: "Daily" },
 	{ value: 4, label: "Weekly" },
 ]
-
-const formatDateTime = (value: string | null | undefined) =>
-	value
-		? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value))
-		: "Not set"
 
 const parseJson = <T,>(value: string | null, fallback: T): T => {
 	if (!value) return fallback
@@ -224,7 +221,7 @@ export const ImportSchedulesPage = ({ link }: { link: (p: string) => string }) =
 						</label>
 						<label>
 							Next Run At
-							<input name="next_run_at" type="datetime-local" value={nextRunAt} onChange={(e) => setNextRunAt(e.target.value)} />
+							<DateInput name="next_run_at" type="datetime-local" value={nextRunAt} onChange={value => setNextRunAt(value)} />
 						</label>
 					</div>
 					<label>
@@ -449,7 +446,7 @@ export const ImportScheduleDetailPage = ({ id, link }: { id: string; link: (p: s
 							<div className="row">
 								<label>
 									Next Run At
-									<input name="next_run_at" type="datetime-local" value={form.next_run_at} onChange={(e) => set({ next_run_at: e.target.value })} />
+									<DateInput name="next_run_at" type="datetime-local" value={form.next_run_at} onChange={value => set({ next_run_at: value })} />
 								</label>
 								<label>
 									Pupler Client

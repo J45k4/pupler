@@ -1,10 +1,11 @@
+import { DateInput } from "../DateInput"
 import { upsertItem } from "../data-updates"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import * as L from "leaflet"
 import "leaflet/dist/leaflet.css"
 import { apiFetch } from "../api"
 import { useAuth } from "../auth"
-import { Empty, Status, useApi } from "../lib"
+import { Empty, Status, useApi, toDateTimeLocalValue, fromDateTimeLocalValue } from "../lib"
 import "./locations.css"
 
 export type SavedLocation = {
@@ -274,7 +275,7 @@ export const LocationsPage = () => {
                             {trackId ? <div className="row"><label>Sequence<input required type="number" min="0" step="1" value={sequence} onChange={event => setSequence(event.target.value)} /></label>
                                 <button type="button" className="secondary" disabled={!trackDetail || trackDetail.id !== Number(trackId)} onClick={() => setSequence(String((trackDetail?.points ?? []).reduce((last, point) => Math.max(last, point.sequence ?? -1), -1) + 1))}>Use next sequence</button></div> : null}
                             <details><summary>Recording details (optional)</summary>
-                                <label>Recorded at<input value={recordedAt} onChange={event => setRecordedAt(event.target.value)} placeholder="2026-10-03T12:00:00Z" /></label>
+                                <label>Recorded at<DateInput type="datetime-local" value={recordedAt ? toDateTimeLocalValue(new Date(recordedAt)) : ""} onChange={value => setRecordedAt(fromDateTimeLocalValue(value) ?? "")} /></label>
                                 <div className="row"><label>Altitude (m)<input type="number" step="any" value={altitude} onChange={event => setAltitude(event.target.value)} /></label>
                                 <label>GPS accuracy (m)<input type="number" min="0" step="any" value={accuracy} onChange={event => setAccuracy(event.target.value)} /></label></div>
                             </details>

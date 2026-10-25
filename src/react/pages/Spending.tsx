@@ -1,3 +1,4 @@
+import { dateLocale } from "../dates"
 import { useMemo, useState } from "react"
 import { Empty, Status, formatMoney, formatReceiptDateTime, useApi } from "../lib"
 
@@ -117,7 +118,7 @@ const monthParts = (purchasedAt: string) => {
 }
 
 const formatMonth = (month: number) =>
-	new Intl.DateTimeFormat(undefined, { month: "short" }).format(new Date(2000, month, 1))
+	new Intl.DateTimeFormat(dateLocale, { month: "short" }).format(new Date(2000, month, 1))
 
 const niceChartMax = (value: number) => {
 	if (value <= 0) return 1

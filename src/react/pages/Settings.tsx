@@ -1,3 +1,4 @@
+import { formatDateTime } from "../dates"
 import { upsertItem } from "../data-updates"
 import { useEffect, useRef, useState } from "react"
 import { apiFetch } from "../api"
@@ -142,8 +143,8 @@ const ApiKeysPanel = () => {
 									<strong>{key.name}</strong>
 									<code>{key.prefix}…</code>
 									<div className="api-key-dates">
-										<span>Created {new Date(key.created_at).toLocaleString()}</span>
-										<span>Last used {key.last_used_at ? new Date(key.last_used_at).toLocaleString() : "never"}</span>
+										<span>Created {formatDateTime(key.created_at)}</span>
+										<span>Last used {key.last_used_at ? formatDateTime(key.last_used_at) : "never"}</span>
 									</div>
 								</div>
 								<button type="button" onClick={() => void revoke(key)}>

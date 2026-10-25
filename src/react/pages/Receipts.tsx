@@ -1,3 +1,4 @@
+import { DateInput } from "../DateInput"
 import { upsertItem } from "../data-updates"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { apiFetch } from "../api"
@@ -190,7 +191,7 @@ export const ReceiptsPage = ({ link }: { link: (p: string) => string }) => {
 						</select>
 						<label className="receipt-date-filter" htmlFor="receipt-newest-date">
 							Newest date
-							<input id="receipt-newest-date" type="date" value={newestDate} onChange={(event) => setNewestDate(event.target.value)} />
+							<DateInput id="receipt-newest-date" type="date" value={newestDate} onChange={value => setNewestDate(value)} />
 						</label>
 						{newestDate ? <button className="secondary" type="button" onClick={() => setNewestDate("")}>Latest</button> : null}
 						<label className="checkbox-toggle receipt-view-toggle">
@@ -293,7 +294,7 @@ export const ReceiptsPage = ({ link }: { link: (p: string) => string }) => {
 					</label>
 					<label>
 						Purchased At
-						<input id="receipt-purchased-at" type="datetime-local" required value={purchasedAt} onChange={(e) => setPurchasedAt(e.target.value)} />
+						<DateInput id="receipt-purchased-at" type="datetime-local" required value={purchasedAt} onChange={value => setPurchasedAt(value)} />
 					</label>
 					<div className="row">
 						<label>

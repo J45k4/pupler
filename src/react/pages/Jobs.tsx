@@ -1,3 +1,4 @@
+import { formatDateTime } from "../dates"
 import { useEffect, useState } from "react"
 import { apiFetch } from "../api"
 import { Empty, Status } from "../lib"
@@ -29,11 +30,6 @@ const jobStatusLabel = (status: number) =>
 				: status === JOB_STATUS.Failed
 					? "Failed"
 					: `Status ${status}`
-
-const formatDateTime = (value: string | null | undefined) =>
-	value
-		? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value))
-		: "Not set"
 
 const parseJson = <T,>(value: string | null, fallback: T): T => {
 	if (!value) return fallback

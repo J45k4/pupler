@@ -1064,6 +1064,36 @@ textarea {
 	color: var(--text);
 }
 
+.date-input {
+	position: relative;
+	display: flex;
+	align-items: center;
+	min-width: 0;
+}
+
+.date-input > input[type="text"] {
+	min-width: 0;
+	padding-right: 3rem;
+}
+
+.date-input__calendar {
+	position: absolute;
+	right: 0.35rem;
+	padding: 0.4rem 0.65rem;
+}
+
+.date-input > .date-input__picker {
+	position: absolute;
+	bottom: 0;
+	left: 0;
+	width: 1px;
+	min-width: 0;
+	height: 1px;
+	padding: 0;
+	opacity: 0;
+	pointer-events: none;
+}
+
 .search-select {
 	position: relative;
 }
@@ -3048,7 +3078,7 @@ body.modal-open {
 }
 
 .spending-breakdown-controls select,
-.spending-breakdown-controls input[type="date"] {
+.spending-breakdown-controls .date-input > input[type="text"] {
 	padding-block: 0.72rem;
 }
 
@@ -4450,6 +4480,8 @@ body.modal-open {
 .time-weekly-controls {
 	align-items: end;
 	flex: 0 0 auto;
+	flex-wrap: wrap;
+	max-width: 100%;
 	margin-bottom: 0;
 }
 
@@ -4476,6 +4508,15 @@ body.modal-open {
 
 .time-weekly-controls > button {
 	min-height: 2.75rem;
+}
+
+.time-weekly-controls .date-input {
+	width: 11rem;
+}
+
+.time-weekly-controls .date-input > input[type="text"] {
+	width: 100%;
+	min-width: 0;
 }
 
 .time-weekly-chart {
@@ -5035,6 +5076,7 @@ body.modal-open {
 	}
 
 	.time-weekly-controls > input,
+	.time-weekly-controls .date-input,
 	.time-weekly-controls > select {
 		width: 100%;
 		min-width: 0;

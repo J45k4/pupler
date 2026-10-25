@@ -1,3 +1,5 @@
+import { formatDate, formatDateTime } from "../src/date-format"
+
 const formatValue = (value: unknown): string => {
 	if (value === null) {
 		return "null"
@@ -6,6 +8,8 @@ const formatValue = (value: unknown): string => {
 		return ""
 	}
 	if (typeof value === "string") {
+		if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value) && Number.isFinite(Date.parse(value))) return formatDateTime(value)
+		if (/^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(`${value}T00:00:00`))) return formatDate(new Date(`${value}T00:00:00`))
 		return value
 	}
 	if (

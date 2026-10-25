@@ -1,3 +1,4 @@
+import { dateLocale } from "../dates"
 import type { TimeEntry } from "../lib"
 
 export type TimeReportProjectTotal = {
@@ -119,19 +120,19 @@ export const formatMonthInput = (date = new Date()) =>
 		.slice(0, 7)
 
 export const formatShortDate = (date: Date) =>
-	new Intl.DateTimeFormat(undefined, {
-		month: "short",
+	new Intl.DateTimeFormat(dateLocale, {
+		month: "numeric",
 		day: "numeric",
 	}).format(date)
 
 export const formatMonth = (date: Date) =>
-	new Intl.DateTimeFormat(undefined, {
+	new Intl.DateTimeFormat(dateLocale, {
 		month: "long",
 		year: "numeric",
 	}).format(date)
 
 export const formatWeekday = (date: Date) =>
-	new Intl.DateTimeFormat(undefined, {
+	new Intl.DateTimeFormat(dateLocale, {
 		weekday: "short",
 	}).format(date)
 

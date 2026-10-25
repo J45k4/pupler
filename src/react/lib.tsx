@@ -184,21 +184,7 @@ export const TodoStatus = {
 	Archived: 3,
 } as const
 
-export const formatShoppingDate = (value: string) =>
-	new Intl.DateTimeFormat(undefined, {
-		year: "numeric",
-		month: "short",
-		day: "numeric",
-	}).format(new Date(value))
-
-export const formatReceiptDateTime = (value: string) =>
-	new Intl.DateTimeFormat(undefined, {
-		year: "numeric",
-		month: "short",
-		day: "numeric",
-		hour: "2-digit",
-		minute: "2-digit",
-	}).format(new Date(value))
+export { formatDate as formatShoppingDate, formatDateTime as formatReceiptDateTime } from "./dates"
 
 export const formatMoney = (value: number | null, currency: string) => {
 	if (value === null) return "-"

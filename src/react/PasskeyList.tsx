@@ -1,3 +1,4 @@
+import { formatDateTime } from "./dates"
 import { upsertItem } from "./data-updates"
 import { useState } from "react"
 import { startRegistration, type PublicKeyCredentialCreationOptionsJSON } from "@simplewebauthn/browser"
@@ -74,8 +75,8 @@ export const PasskeyList = ({ baseUrl, emptyMessage, canAdd = false }: { baseUrl
 								<div className="api-key-details">
 									<strong>{kind(passkey.transports)}</strong>
 									<div className="api-key-dates">
-										<span>Added {new Date(passkey.created_at).toLocaleString()}</span>
-										<span>Last used {passkey.last_used_at ? new Date(passkey.last_used_at).toLocaleString() : "never"}</span>
+										<span>Added {formatDateTime(passkey.created_at)}</span>
+										<span>Last used {passkey.last_used_at ? formatDateTime(passkey.last_used_at) : "never"}</span>
 									</div>
 								</div>
 								<button type="button" onClick={() => void remove(passkey)}>

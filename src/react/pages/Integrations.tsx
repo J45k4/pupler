@@ -1,3 +1,4 @@
+import { formatDateTime } from "../dates"
 import { upsertItem } from "../data-updates"
 import { useState } from "react"
 import { apiFetch } from "../api"
@@ -20,11 +21,6 @@ export type ExternalIntegration = {
 
 const PROVIDER_CLOCKIFY = 1
 const STATUS_ACTIVE = 1
-
-const formatDateTime = (value: string | null | undefined) =>
-	value
-		? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value))
-		: "Not set"
 
 export const IntegrationsPage = () => {
 	const { data, loading, error, reload, update } = useApi<ExternalIntegration[]>("/api/external-integrations")

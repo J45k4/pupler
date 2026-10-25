@@ -1,3 +1,4 @@
+import { formatDateTime } from "./dates"
 import { useState } from "react"
 import { apiFetch } from "./api"
 import { Status, useApi } from "./lib"
@@ -98,8 +99,8 @@ export const ConnectedApps = () => {
 									</dl>
 								)}
 								<div className="api-key-dates">
-									<span>Connected {new Date(connection.created_at).toLocaleString()}</span>
-									<span>{connection.last_used_at ? `Last used ${new Date(connection.last_used_at).toLocaleString()}` : "Not used yet"}</span>
+									<span>Connected {formatDateTime(connection.created_at)}</span>
+									<span>{connection.last_used_at ? `Last used ${formatDateTime(connection.last_used_at)}` : "Not used yet"}</span>
 								</div>
 							</div>
 							{editing === connection.id ? (

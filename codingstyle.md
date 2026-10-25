@@ -5,6 +5,12 @@
 - No semicolons
 - 4 size tab indentation
 
+## Dates and times
+
+- Use the shared formatters in `src/date-format.ts` for Finnish dates and 24-hour times in human-readable output.
+- Use `DateInput` for React date, month, and date/time fields so browser locale settings cannot introduce AM/PM.
+- Keep API, database, and JSON timestamps in ISO format, and preserve the user's local timezone when displaying or editing them.
+
 ## examples
 
 ### No unnessary line breaks
