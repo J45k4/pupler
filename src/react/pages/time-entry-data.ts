@@ -2,6 +2,16 @@ import { timeEntryDurationSeconds, type Project, type TimeEntry } from "../lib"
 
 export type ProjectUsage = { project_id: number; entry_count: number; total_seconds: number; latest_started_at: string }
 
+export const previousTimeEntryEnd = (entries: TimeEntry[], current: TimeEntry | undefined) => {
+	if (!current) return null
+	let previous: string | null = null
+	for (const entry of entries) {
+		if (entry.id === current.id || entry.user_id !== current.user_id || !entry.ended_at) continue
+		if (Number.isFinite(Date.parse(entry.ended_at)) && (previous === null || Date.parse(entry.ended_at) > Date.parse(previous))) previous = entry.ended_at
+	}
+	return previous
+}
+
 export const rankTimeProjects = (projects: Project[], entries: TimeEntry[], totals?: ProjectUsage[]) => {
 	const usage = new Map<number, { count: number; seconds: number; latest: string }>()
 	for (const entry of entries) {

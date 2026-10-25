@@ -2,10 +2,10 @@ import { DateInput } from "../DateInput"
 import { upsertItem } from "../data-updates"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { apiFetch } from "../api"
-import { Empty, Modal, Status, toDateTimeLocalValue, useApi, type Group, type PurchaseReceipt } from "../lib"
+import { Empty, Modal, Status, formatMoney, toDateTimeLocalValue, useApi, type Group, type PurchaseReceipt } from "../lib"
 import { ReceiptCard } from "../catalog"
 import { closest, getDragPayload, useDropHighlight } from "../dnd"
-import { receiptPageParams } from "./receipt-page-data"
+import { receiptPageParams, receiptTotalsParams, type ReceiptGroupTotal } from "./receipt-page-data"
 import { useReceiptPages } from "./use-receipt-pages"
 
 export const findOrCreateGroup = async (name: string, groups: Group[]): Promise<Group> => {
@@ -15,10 +15,20 @@ export const findOrCreateGroup = async (name: string, groups: Group[]): Promise<
 	return apiFetch<Group>("/api/groups", { method: "POST", body: JSON.stringify({ name: name.trim() }) })
 }
 
+const ReceiptGroupHeader = ({ groupId, name, href, totals, error }: { groupId: number | null; name: string; href?: string; totals: ReceiptGroupTotal[] | null; error: string | null }) => {
+	const rows = totals?.filter(row => row.group_id === groupId)
+	return <header className="receipt-kanban__header">
+		<div className="receipt-kanban__heading"><h3>{href ? <a className="receipt-kanban__title-link" href={href} data-link="">{name}</a> : name}</h3><span className="tag tag--neutral">{rows ? rows.reduce((sum, row) => sum + row.receipt_count, 0) : "…"}</span></div>
+		<div className="receipt-kanban__totals">{error ? <span>Total unavailable</span> : !rows ? <span>Loading total…</span> : rows.length === 0 ? <span>Total: 0</span> : rows.map(row => <div key={row.currency}><strong>{row.total_amount === null ? `— ${row.currency}` : formatMoney(row.total_amount, row.currency)}</strong>{row.unknown_count > 0 ? <span>{row.unknown_count} missing amount{row.unknown_count === 1 ? "" : "s"}</span> : null}</div>)}</div>
+	</header>
+}
+
 export const ReceiptsPage = ({ link }: { link: (p: string) => string }) => {
 	const [groupFilter, setGroupFilter] = useState("all")
 	const [chronological, setChronological] = useState(true)
 	const [newestDate, setNewestDate] = useState("")
+	const [search, setSearch] = useState("")
+	const [query, setQuery] = useState("")
 	const loadMoreRef = useRef<HTMLDivElement>(null)
 	const [status, setStatus] = useState("")
 	const [statusError, setStatusError] = useState(false)
@@ -35,13 +45,21 @@ export const ReceiptsPage = ({ link }: { link: (p: string) => string }) => {
 	const [picture, setPicture] = useState<File | null>(null)
 	const [newGroupName, setNewGroupName] = useState("")
 
-	const params = useMemo(() => receiptPageParams(groupFilter, newestDate), [groupFilter, newestDate])
+	useEffect(() => {
+		if (!search.trim()) { setQuery(""); return }
+		const timer = window.setTimeout(() => setQuery(search.trim()), 200)
+		return () => window.clearTimeout(timer)
+	}, [search])
+
+	const params = useMemo(() => receiptPageParams(groupFilter, newestDate, query), [groupFilter, newestDate, query])
 	const { receipts, loading: receiptsLoading, error: receiptsError, hasMore, loadMore, reload: reloadReceipts, updateReceipt } = useReceiptPages(params)
+	const { data: totals, error: totalsError, reload: reloadTotals } = useApi<ReceiptGroupTotal[]>(chronological ? null : `/api/receipts?${receiptTotalsParams(params)}`)
 	const { data: groupsData, loading: groupsLoading, error: groupsError, reload: reloadGroups, update: updateGroups } = useApi<Group[]>("/api/groups?sort=name&order=asc")
 
 	const reload = () => {
 		reloadReceipts()
 		reloadGroups()
+		reloadTotals()
 	}
 
 	const groups = groupsData ?? []
@@ -70,6 +88,7 @@ export const ReceiptsPage = ({ link }: { link: (p: string) => string }) => {
 				body: JSON.stringify({ group_id: targetGroupId }),
 			})
 			updateReceipt(saved)
+			reloadTotals()
 			setStatus(`Moved receipt to ${targetName}.`)
 			setStatusError(false)
 		} catch (err) {
@@ -102,9 +121,10 @@ export const ReceiptsPage = ({ link }: { link: (p: string) => string }) => {
 		void moveReceipt(payload.id, targetGroupId)
 	}
 
-	const visibleGroups =
-		groupFilter === "all" ? groups : groupFilter === "ungrouped" ? [] : groups.filter((g) => String(g.id) === groupFilter)
-	const showUngrouped = groupFilter === "all" || groupFilter === "ungrouped"
+	const hasSearchMatches = (groupId: number | null) => !query || !totals || totals.some(row => row.group_id === groupId && row.receipt_count > 0)
+	const visibleGroups = (groupFilter === "all" ? groups : groupFilter === "ungrouped" ? [] : groups.filter((g) => String(g.id) === groupFilter)).filter(group => hasSearchMatches(group.id))
+	const showUngrouped = (groupFilter === "all" || groupFilter === "ungrouped") && hasSearchMatches(null)
+	const emptyGroupMessage = (groupId: number | null) => hasMore && (!totals || totals.some(row => row.group_id === groupId && row.receipt_count > 0)) ? "Load older receipts to view this group." : "No receipts"
 
 	const createReceipt = async (event: React.FormEvent) => {
 		event.preventDefault()
@@ -138,6 +158,7 @@ export const ReceiptsPage = ({ link }: { link: (p: string) => string }) => {
 			setGroupName("")
 			setPicture(null)
 			updateReceipt(created)
+			reloadTotals()
 			setReceiptOpen(false)
 			setStatus(picture ? `Created receipt #${created.id} and uploaded picture` : `Created receipt #${created.id}`)
 			setStatusError(false)
@@ -174,6 +195,7 @@ export const ReceiptsPage = ({ link }: { link: (p: string) => string }) => {
 			<section className="receipts-page">
 				<div className="receipts-page__controls">
 					<div className="toolbar toolbar--wrap receipts-page__filters">
+						<label className="receipt-search" htmlFor="receipt-search">Search receipts<input id="receipt-search" type="search" placeholder="Store name or receipt number" autoComplete="off" maxLength={200} value={search} onChange={event => { setSearch(event.target.value); setStatus(""); setStatusError(false) }} /></label>
 						<select
 							id="receipt-group-filter"
 							className="toolbar__select"
@@ -222,7 +244,7 @@ export const ReceiptsPage = ({ link }: { link: (p: string) => string }) => {
 					</div>
 				</div>
 				{newestDate ? <p className="section-copy">Showing the selected date and older, newest first.</p> : null}
-				<Status message={loading ? "Loading…" : (error ?? status) || `${receipts.length} receipts loaded.`} error={!!error || statusError} />
+				<Status message={search.trim() !== query ? "Searching…" : loading ? "Loading…" : (error ?? status) || `${receipts.length} receipts loaded.`} error={!!error || statusError} />
 				<div
 					id="receipt-results"
 					className="results"
@@ -232,8 +254,8 @@ export const ReceiptsPage = ({ link }: { link: (p: string) => string }) => {
 					onDragEnd={() => dropHighlight.clear()}
 				>
 					{!loading && !error ? (
-						receipts.length === 0 && (chronological || groups.length === 0) ? (
-							<Empty message={newestDate || groupFilter !== "all" ? "No receipts match these filters." : "No receipts yet."} />
+						receipts.length === 0 && (query || chronological || groups.length === 0) ? (
+							<Empty message={query || newestDate || groupFilter !== "all" ? "No receipts match these filters." : "No receipts yet."} />
 						) : chronological ? (
 							<div className="receipt-timeline">
 								{receipts.map((r) => (
@@ -244,11 +266,9 @@ export const ReceiptsPage = ({ link }: { link: (p: string) => string }) => {
 							<div className="receipt-kanban" data-receipt-kanban="">
 								{showUngrouped ? (
 									<section className="receipt-kanban__column" data-receipt-drop-group-id="">
-										<header className="receipt-kanban__header">
-											<h3>Ungrouped</h3>
-											<span className="tag tag--neutral">{receipts.filter((r) => r.group_id === null).length}</span>
-										</header>
+										<ReceiptGroupHeader groupId={null} name="Ungrouped" totals={totals} error={totalsError} />
 										<div className="receipt-kanban__list">
+											{receipts.every(r => r.group_id !== null) ? <div className="receipt-kanban__empty">{emptyGroupMessage(null)}</div> : null}
 											{receipts.filter((r) => r.group_id === null).map((r) => (
 												<ReceiptCard key={r.id} receipt={r} link={link} />
 											))}
@@ -259,17 +279,10 @@ export const ReceiptsPage = ({ link }: { link: (p: string) => string }) => {
 									const columnReceipts = receipts.filter((r) => r.group_id === g.id)
 									return (
 										<section key={g.id} className="receipt-kanban__column" data-receipt-drop-group-id={String(g.id)}>
-											<header className="receipt-kanban__header">
-												<h3>
-													<a className="receipt-kanban__title-link" href={link(`/groups/${g.id}`)} data-link="">
-														{g.name}
-													</a>
-												</h3>
-												<span className="tag tag--neutral">{columnReceipts.length}</span>
-											</header>
+											<ReceiptGroupHeader groupId={g.id} name={g.name} href={link(`/groups/${g.id}`)} totals={totals} error={totalsError} />
 											<div className="receipt-kanban__list">
 												{columnReceipts.length === 0 ? (
-													<div className="receipt-kanban__empty">No receipts</div>
+													<div className="receipt-kanban__empty">{emptyGroupMessage(g.id)}</div>
 												) : (
 													columnReceipts.map((r) => <ReceiptCard key={r.id} receipt={r} link={link} />)
 												)}

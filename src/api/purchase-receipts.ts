@@ -1,7 +1,7 @@
 import type { BunRequest } from "bun"
 
 import { db } from "../db"
-import { receiptPageRoute } from "./receipt-page"
+import { receiptPageRoute, receiptTotalsRoute } from "./receipt-page"
 import {
 	assertKnownFields,
 	empty,
@@ -209,6 +209,7 @@ export const receiptsCollectionRoute = async (req: Request) => {
 	if (req.method === "GET") {
 		const url = new URL(req.url)
 		if (url.searchParams.get("view") === "page") return receiptPageRoute(req)
+		if (url.searchParams.get("view") === "totals") return receiptTotalsRoute(req)
 		return json(
 			200,
 			await db.client.receipt.findMany({

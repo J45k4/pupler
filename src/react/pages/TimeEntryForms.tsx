@@ -1,6 +1,6 @@
 import { DateInput } from "../DateInput"
 import type { TimeChange } from "../time-changes"
-import { rankTimeProjects, type ProjectUsage } from "./time-entry-data"
+import { previousTimeEntryEnd, rankTimeProjects, type ProjectUsage } from "./time-entry-data"
 import { useEffect, useId, useMemo, useState } from "react"
 import { apiFetch } from "../api"
 import { rememberOfflineRead, isQueuedResult } from "../offline"
@@ -63,7 +63,7 @@ const EntryForm = ({ projects, clients = [], entries = [], projectUsage, previou
 	const [projectName, setProjectName] = useState(selectedProject?.name ?? "")
 	const [projectId, setProjectId] = useState(entry?.project_id === null || !entry ? "" : String(entry.project_id))
 	const [description, setDescription] = useState(entry?.description ?? "")
-	const [start, setStart] = useState(entry ? toDateTimeLocalValue(new Date(entry.started_at)) : range?.startedAt ?? toDateTimeLocalValue(new Date(Date.now() - 3600000)))
+	const [start, setStart] = useState(entry?.started_at ?? range?.startedAt ?? toDateTimeLocalValue(new Date(Date.now() - 3600000)))
 	const [end, setEnd] = useState(entry ? entry.ended_at ? toDateTimeLocalValue(new Date(entry.ended_at)) : "" : range?.endedAt ?? toDateTimeLocalValue())
 	const [message, setMessage] = useState("")
 	const [pending, setPending] = useState(false)
@@ -71,7 +71,7 @@ const EntryForm = ({ projects, clients = [], entries = [], projectUsage, previou
 	const rankedProjects = useMemo(() => rankTimeProjects(projects, entries, projectUsage), [projects, entries, projectUsage])
 	const available = rankedProjects.filter(project => (!clientName.trim() || (client && project.client_id === client.id)))
 	const project = entry && !running ? projects.find(project => project.id === Number(projectId)) : available.find(project => project.name.trim().toLowerCase() === projectName.trim().toLowerCase())
-	const previousEnd = previousEndedAt !== undefined ? previousEndedAt : entries.filter(value => value.id !== entry?.id && value.ended_at !== null).map(value => value.ended_at!).sort().at(-1)
+	const previousEnd = previousEndedAt !== undefined ? previousEndedAt : previousTimeEntryEnd(entries, entry)
 	const title = !entry ? "Add Time Entry" : running ? "Edit Timer" : "Edit Entry"
 	const perform = async (action: () => Promise<void>) => {
 		setPending(true)
@@ -103,8 +103,8 @@ const EntryForm = ({ projects, clients = [], entries = [], projectUsage, previou
 			{!entry || running ? <label>Client (optional)<Combobox placeholder="Type or choose a client" options={clients.filter(value => value.archived_at === null || value.id === client?.id).map(value => ({ value: String(value.id), label: value.name }))} value={clientName} onChange={value => { setClientName(value); setProjectName("") }} allowCreate createLabelPrefix="Create client" /></label> : null}
 			<label>{running ? "Project (optional)" : "Project"}{entry && !running ? <select aria-label="Entry project" value={projectId} onChange={event => setProjectId(event.target.value)}><option value="">No project</option>{projects.filter(value => value.archived_at === null || value.id === entry.project_id).map(value => <option key={value.id} value={value.id}>{value.name}{value.client ? ` - ${value.client.name}` : ""}</option>)}</select> : <Combobox placeholder="Type or choose a project" options={available.map(value => ({ value: String(value.id), label: value.name }))} value={projectName} onChange={setProjectName} allowCreate createLabelPrefix="Create project" />}</label>
 			<label>Description<DescriptionInput projectId={project?.id ?? null} value={description} onChange={setDescription} /></label>
-			<div className="row"><label>Start<DateInput type="datetime-local" required value={start} onChange={value => setStart(value)} />{entry ? <Adjustments label="Start" value={start} onChange={setStart} /> : null}</label>{!running ? <label>End<DateInput type="datetime-local" value={end} onChange={value => setEnd(value)} />{entry ? <Adjustments label="End" value={end} onChange={setEnd} /> : null}</label> : null}</div>
-			{running && previousEnd ? <div><button type="button" className="secondary" disabled={pending} onClick={() => void perform(async () => { const saved = await apiFetch<TimeEntry>(`/api/time-entries/${entry!.id}`, { method: "PATCH", body: JSON.stringify({ started_at: previousEnd }) }); onClose(); onSaved(false, isQueuedResult(saved) ? undefined : [{ before: entry!, after: saved }]) })}>Set start to previous end</button><div className="section-copy">Previous end: {formatReceiptDateTime(previousEnd)}</div></div> : null}
+			<div className="row"><label>Start<DateInput type="datetime-local" required value={start ? toDateTimeLocalValue(new Date(start)) : ""} onChange={value => setStart(value)} />{entry ? <Adjustments label="Start" value={start} onChange={setStart} /> : null}</label>{!running ? <label>End<DateInput type="datetime-local" value={end} onChange={value => setEnd(value)} />{entry ? <Adjustments label="End" value={end} onChange={setEnd} /> : null}</label> : null}</div>
+			{running && previousEnd ? <div><button type="button" className="secondary" disabled={pending} onClick={() => setStart(previousEnd)}>Set start to previous end</button><div className="section-copy">Previous end: {formatReceiptDateTime(previousEnd)}</div></div> : null}
 			<div className="actions"><button type="submit" className="primary" disabled={pending}>{pending ? "Saving…" : !entry ? "Add Entry" : running ? "Update Timer" : "Save"}</button><button type="button" className="secondary" onClick={onClose}>Cancel</button>{entry ? <button type="button" className="secondary" disabled={pending} onClick={() => void perform(async () => { const saved = await apiFetch(`/api/time-entries/${entry.id}`, { method: "DELETE" }); onClose(); onDeleted?.(isQueuedResult(saved) ? undefined : [{ before: entry, after: null }]) })}>Delete</button> : null}</div>
 		</form><Status message={message} error={!!message} />
 	</Modal>

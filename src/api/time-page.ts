@@ -25,10 +25,9 @@ export const fetchTimePage = async (db: Database, user: TimeUser, url: URL, incl
 	const total = await db.client.timeEntry.count({ where })
 	const pageOffset = Math.min(offset, Math.max(0, Math.floor((total - 1) / TIME_PAGE_SIZE) * TIME_PAGE_SIZE))
 	const now = new Date().toISOString()
-	const [entries, running, previous, quickRows, usageRows] = await Promise.all([
+	const [entries, running, quickRows, usageRows] = await Promise.all([
 		db.client.timeEntry.findMany({ where, orderBy: [{ started_at: "desc" }, { id: "desc" }], take: TIME_PAGE_SIZE, skip: pageOffset, include }),
 		db.client.timeEntry.findFirst({ where: { ...owner.where, ended_at: null }, orderBy: [{ started_at: "desc" }, { id: "desc" }], include }),
-		db.client.timeEntry.findFirst({ where, orderBy: [{ ended_at: "desc" }, { id: "desc" }], select: { ended_at: true } }),
 		db.client.$queryRawUnsafe<Array<UsageRow & { description: string }>>(`
 			SELECT e.project_id, TRIM(COALESCE(e.description, '')) AS description, COUNT(*) AS entry_count,
 				SUM(${duration}) AS total_seconds, MAX(e.started_at) AS latest_started_at
@@ -44,6 +43,12 @@ export const fetchTimePage = async (db: Database, user: TimeUser, url: URL, incl
 			GROUP BY e.project_id
 		`, now, owner.all, owner.owner),
 	])
+	const previousOwner = running ? { all: 0, owner: running.user_id } : owner
+	const [previous] = await db.client.$queryRawUnsafe<Array<{ ended_at: string }>>(`
+		SELECT ended_at FROM time_entries
+		WHERE julianday(ended_at) IS NOT NULL AND (? = 1 OR user_id IS ?)
+		ORDER BY julianday(ended_at) DESC, id DESC LIMIT 1
+	`, previousOwner.all, previousOwner.owner)
 	const normalize = <T extends UsageRow>(row: T) => ({ ...row, project_id: Number(row.project_id), entry_count: Number(row.entry_count), total_seconds: Number(row.total_seconds) })
 	return { entries, total, offset: pageOffset, limit: TIME_PAGE_SIZE, running, previous_ended_at: previous?.ended_at ?? null, quick_actions: quickRows.map(normalize), project_usage: usageRows.map(normalize) }
 }

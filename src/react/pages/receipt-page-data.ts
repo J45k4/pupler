@@ -1,6 +1,7 @@
 import type { PurchaseReceipt } from "../lib"
 
 export type ReceiptPage = { receipts: PurchaseReceipt[]; next_cursor: string | null }
+export type ReceiptGroupTotal = { group_id: number | null; currency: string; total_amount: number | null; receipt_count: number; unknown_count: number }
 export const RECEIPT_PAGE_SIZE = 40
 
 export const receiptDateBefore = (date: string) => {
@@ -11,12 +12,26 @@ export const receiptDateBefore = (date: string) => {
 	return end.toISOString()
 }
 
-export const receiptPageParams = (group: string, date: string) => {
+export const receiptPageParams = (group: string, date: string, search = "") => {
 	const params = new URLSearchParams({ view: "page", limit: String(RECEIPT_PAGE_SIZE) })
 	if (group !== "all") params.set("group_id", group === "ungrouped" ? "null" : group)
 	const before = receiptDateBefore(date)
 	if (before) params.set("before", before)
+	if (search.trim()) params.set("q", search.trim())
 	return params.toString()
+}
+
+export const receiptTotalsParams = (params: string) => {
+	const query = new URLSearchParams(params)
+	query.set("view", "totals")
+	query.delete("limit")
+	query.delete("cursor")
+	return query.toString()
+}
+
+export const receiptMatchesSearch = (receipt: PurchaseReceipt, search: string) => {
+	const query = search.trim().toLowerCase()
+	return !query || receipt.store_name.toLowerCase().includes(query) || String(receipt.id) === query.replace(/^#/, "")
 }
 
 export const mergeReceiptPage = (existing: PurchaseReceipt[], incoming: PurchaseReceipt[]) => {
@@ -29,8 +44,9 @@ export const applyReceiptChanges = (existing: PurchaseReceipt[], changes: Purcha
 	const query = new URLSearchParams(params)
 	const group = query.get("group_id")
 	const before = query.get("before")
+	const search = query.get("q") ?? ""
 	return mergeReceiptPage(existing, changes).filter(item =>
 		(group === null || (group === "null" ? item.group_id === null : String(item.group_id) === group)) &&
-		(before === null || Date.parse(item.purchased_at) < Date.parse(before)),
+		(before === null || Date.parse(item.purchased_at) < Date.parse(before)) && receiptMatchesSearch(item, search),
 	).sort((a, b) => Date.parse(b.purchased_at) - Date.parse(a.purchased_at) || b.id - a.id)
 }

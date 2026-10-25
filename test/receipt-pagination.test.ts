@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { closeDatabase, createApiRoutes, openDatabase, receiptsCollectionRoute } from "../src/api"
 import { setDatabase } from "../src/db"
 import { applyTestSchema } from "./support/test-db"
-import type { ReceiptPage } from "../src/react/pages/receipt-page-data"
+import type { ReceiptGroupTotal, ReceiptPage } from "../src/react/pages/receipt-page-data"
 
 describe("receipt pagination", () => {
 	let directory: string
@@ -26,13 +26,69 @@ describe("receipt pagination", () => {
 		rmSync(directory, { recursive: true, force: true })
 	})
 
-	const receipt = (purchased_at: string, group_id: number | null = null) => database.client.receipt.create({ data: { store_name: "Pagination test", purchased_at, group_id, currency: "EUR", total_amount: 12.5, created_at: now, updated_at: now } })
+	const receipt = (purchased_at: string, group_id: number | null = null, values: { store_name?: string; currency?: string; total_amount?: number | null } = {}) => database.client.receipt.create({ data: { store_name: "Pagination test", purchased_at, group_id, currency: "EUR", total_amount: 12.5, created_at: now, updated_at: now, ...values } })
 	const request = (query = "view=page") => handler(new Request(`http://localhost/api/receipts?${query}`))
 	const page = async (query = "view=page"): Promise<ReceiptPage> => {
 		const response = await request(query)
 		expect(response.status).toBe(200)
 		return response.json()
 	}
+	const totals = async (query = ""): Promise<ReceiptGroupTotal[]> => {
+		const response = await request(`view=totals&${query}`)
+		expect(response.status).toBe(200)
+		return response.json()
+	}
+
+	test("searches stores and receipt numbers across older pages with literal text and Finnish case folding", async () => {
+		await Promise.all(Array.from({ length: 45 }, () => receipt(now)))
+		const older = await receipt("2026-09-01T00:00:00Z", null, { store_name: "KÄPYLÄN Market" })
+		const newest = await receipt("2026-09-02T00:00:00Z", null, { store_name: "Käpylän market" })
+		const search = "view=page&limit=1&q=" + encodeURIComponent(" KÄPYLÄN ")
+		const first = await page(search)
+		expect(first.receipts.map(item => item.id)).toEqual([newest.id])
+		const second = await page(`${search}&cursor=${first.next_cursor}`)
+		expect(second.receipts.map(item => item.id)).toEqual([older.id])
+		expect(second.next_cursor).toBeNull()
+		expect((await page(`view=page&q=%23${older.id}`)).receipts.map(item => item.id)).toEqual([older.id])
+		expect((await page(`view=page&q=${older.id}`)).receipts.map(item => item.id)).toEqual([older.id])
+		const special = await receipt(now, null, { store_name: "100%_shop's" })
+		for (const query of ["%", "_", "shop's"]) expect((await page(`view=page&q=${encodeURIComponent(query)}`)).receipts.map(item => item.id)).toEqual([special.id])
+		expect((await page("view=page&q=missing")).receipts).toEqual([])
+	})
+
+	test("totals include the full matching dataset, separate currencies, and distinguish missing amounts from zero", async () => {
+		const group = await database.client.group.create({ data: { name: "Groceries", created_at: now, updated_at: now } })
+		await Promise.all(Array.from({ length: 45 }, () => receipt(now, group.id, { total_amount: 0.1 })))
+		await receipt(now, group.id, { total_amount: null })
+		await receipt(now, group.id, { total_amount: 0 })
+		await receipt(now, group.id, { total_amount: -1 })
+		await receipt(now, group.id, { total_amount: 8, currency: "USD" })
+		await receipt(now, null, { total_amount: null })
+		expect((await page()).receipts).toHaveLength(40)
+		const summary = await totals()
+		const euros = summary.find(row => row.group_id === group.id && row.currency === "EUR")!
+		expect(euros.receipt_count).toBe(48)
+		expect(euros.unknown_count).toBe(1)
+		expect(euros.total_amount).toBeCloseTo(3.5)
+		expect(summary.find(row => row.group_id === group.id && row.currency === "USD")).toEqual({ group_id: group.id, currency: "USD", total_amount: 8, receipt_count: 1, unknown_count: 0 })
+		expect(summary.find(row => row.group_id === null)).toEqual({ group_id: null, currency: "EUR", total_amount: null, receipt_count: 1, unknown_count: 1 })
+	})
+
+	test("search, group and date filters constrain pages and totals consistently, including after moves", async () => {
+		const group = await database.client.group.create({ data: { name: "Care", created_at: now, updated_at: now } })
+		const selected = await receipt("2026-10-15T00:00:00Z", group.id, { store_name: "Apteekki", total_amount: 20 })
+		await receipt("2026-10-18T00:00:00Z", group.id, { store_name: "Apteekki", total_amount: 30 })
+		await receipt("2026-10-15T00:00:00Z", group.id, { store_name: "Market", total_amount: 40 })
+		await receipt("2026-10-15T00:00:00Z", null, { store_name: "Apteekki", total_amount: 50 })
+		const filters = `group_id=${group.id}&q=APTEEKKI&before=2026-10-17T00%3A00%3A00Z`
+		expect((await page(`view=page&${filters}`)).receipts.map(item => item.id)).toEqual([selected.id])
+		expect(await totals(filters)).toEqual([{ group_id: group.id, currency: "EUR", total_amount: 20, receipt_count: 1, unknown_count: 0 }])
+		await database.client.receipt.update({ where: { id: selected.id }, data: { group_id: null } })
+		expect(await totals(filters)).toEqual([])
+		expect(await totals("group_id=null&q=Apteekki")).toEqual([{ group_id: null, currency: "EUR", total_amount: 70, receipt_count: 2, unknown_count: 0 }])
+		for (const view of ["page", "totals"]) expect((await request(`view=${view}&q=${"a".repeat(201)}`)).status).toBe(400)
+		for (const query of ["cursor=nope", "limit=40", "group_id=0", "before=nope"]) expect((await request(`view=totals&${query}`)).status).toBe(400)
+	})
 
 	test("orders actual instants across offsets and breaks timestamp ties by descending ID", async () => {
 		const older = await receipt("2026-10-17T13:00:00+03:00")

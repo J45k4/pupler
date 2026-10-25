@@ -161,6 +161,20 @@ describe("offline operation protocol without schema changes", () => {
 		expect(offlineReadPath(boardPath)).toBe(true)
 	})
 
+	test("aligning a running timer to the previous end preserves timestamp precision and other edits through sync", async () => {
+		const previousEnd = "2026-10-21T07:50:45.123Z"
+		const running = await database.client.timeEntry.create({ data: { user_id: account.user.id, project_id: null, started_at: stamps.created_at, ...stamps } })
+		account.snapshots[timerPath]!.data.running = running
+		account.snapshots[timerPath]!.data.previous_ended_at = previousEnd
+		const edited = queue(account, `/api/time-entries/${running.id}`, "PATCH", { started_at: previousEnd, description: "Unsaved description", project_id: project, ended_at: null })
+		expect(projectedSnapshots(account)[timerPath]!.data.running).toMatchObject({ started_at: previousEnd, description: "Unsaved description", project_id: project, ended_at: null })
+		const response = ((await (await sync()).json()) as any).results[0]
+		expect(response.status).toBe(200)
+		acknowledgeOfflineOperation(account, edited, response.result)
+		expect(await database.client.timeEntry.findUnique({ where: { id: running.id } })).toMatchObject({ started_at: previousEnd, description: "Unsaved description", project_id: project, ended_at: null })
+		expect(account.snapshots[timerPath]!.data.running.started_at).toBe(previousEnd)
+	})
+
 	test("historical entries loaded by a report can be edited and acknowledged outside the recent timer page", async () => {
 		const entry = await database.client.timeEntry.create({
 			data: {

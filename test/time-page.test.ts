@@ -66,3 +66,24 @@ test("pagination rejects invalid offsets and access to another owner's entries",
 	await expect(fetchTimePage(db, user, url(`user_id=${other.id}`), {})).rejects.toMatchObject({ status: 403 })
 	await expect(fetchTimeDescriptions(db, user, url(`user_id=${other.id}&project_id=1`))).rejects.toMatchObject({ status: 403 })
 })
+
+test("previous end is scoped to the running timer's owner even in an admin's combined history", async () => {
+	const { user, other, project, running } = await setup()
+	const stamps = { created_at: running.created_at, updated_at: running.updated_at, project_id: project.id }
+	await db.client.timeEntry.update({ where: { id: running.id }, data: { started_at: "2026-09-10T10:00:00Z" } })
+	await db.client.timeEntry.create({ data: { ...stamps, user_id: user.id, started_at: "2026-09-10T10:00:00+03:00", ended_at: "2026-09-10T11:00:00+03:00" } })
+	const previous = await db.client.timeEntry.create({ data: { ...stamps, user_id: user.id, started_at: "2026-09-10T08:00:00Z", ended_at: "2026-09-10T09:00:45.123Z" } })
+	await db.client.timeEntry.create({ data: { ...stamps, user_id: other.id, started_at: "2026-09-11T08:00:00Z", ended_at: "2026-09-11T09:00:00Z" } })
+	for (const query of ["", "offset=50"]) {
+		const page = await fetchTimePage(db, { ...user, is_admin: true }, url(query), {})
+		expect(page.running?.id).toBe(running.id)
+		expect(page.previous_ended_at).toBe(previous.ended_at)
+	}
+	expect((await fetchTimePage(db, user, url(), {})).previous_ended_at).toBe(previous.ended_at)
+
+	await db.client.timeEntry.create({ data: { ...stamps, user_id: null, started_at: "2026-09-12T12:00:00Z", ended_at: null } })
+	await db.client.timeEntry.create({ data: { ...stamps, user_id: null, started_at: "2026-09-12T10:00:00Z", ended_at: "2026-09-12T11:00:00Z" } })
+	const legacy = await fetchTimePage(db, { ...user, is_admin: true }, url(), {})
+	expect(legacy.running?.user_id).toBeNull()
+	expect(legacy.previous_ended_at).toBe("2026-09-12T11:00:00Z")
+})

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { PurchaseReceipt } from "../src/react/lib"
-import { applyReceiptChanges, mergeReceiptPage, receiptDateBefore, receiptPageParams } from "../src/react/pages/receipt-page-data"
+import { applyReceiptChanges, mergeReceiptPage, receiptDateBefore, receiptPageParams, receiptTotalsParams } from "../src/react/pages/receipt-page-data"
 
 describe("receipt page data", () => {
 	test("confirmed receipts override old pages, follow group/date filters and sort equivalent timezones", () => {
@@ -18,6 +18,27 @@ describe("receipt page data", () => {
 		expect(new URLSearchParams(receiptPageParams("ungrouped", "")).get("group_id")).toBe("null")
 		expect(new URLSearchParams(receiptPageParams("7", "2026-10-17")).get("before")).toBe(receiptDateBefore("2026-10-17"))
 		expect(new URLSearchParams(receiptPageParams("7", "")).get("group_id")).toBe("7")
+	})
+
+	test("keeps search and summary filters consistent without carrying pagination into totals", () => {
+		const params = receiptPageParams("7", "2026-10-17", " Käpylän Market ")
+		expect(new URLSearchParams(params).get("q")).toBe("Käpylän Market")
+		const summary = new URLSearchParams(receiptTotalsParams(`${params}&cursor=older`))
+		expect(summary.get("view")).toBe("totals")
+		expect(summary.get("group_id")).toBe("7")
+		expect(summary.get("before")).toBe(receiptDateBefore("2026-10-17"))
+		expect(summary.get("q")).toBe("Käpylän Market")
+		expect(summary.has("limit")).toBe(false)
+		expect(summary.has("cursor")).toBe(false)
+		expect(new URLSearchParams(receiptPageParams("all", "", "  ")).has("q")).toBe(false)
+	})
+
+	test("confirmed changes enter or leave store and receipt-number search results", () => {
+		const first = { id: 12, store_name: "KÄPYLÄN Market", purchased_at: "2026-10-24T10:00:00Z", group_id: null } as PurchaseReceipt
+		const second = { ...first, id: 13, store_name: "Apteekki" }
+		expect(applyReceiptChanges([first, second], [], "q=k%C3%A4pyl%C3%A4n")).toEqual([first])
+		expect(applyReceiptChanges([first], [{ ...first, store_name: "Renamed" }], "q=market")).toEqual([])
+		expect(applyReceiptChanges([first, second], [], "q=%2313")).toEqual([second])
 	})
 
 	test("includes the whole selected local date, handles daylight saving, and rejects invalid dates", () => {
