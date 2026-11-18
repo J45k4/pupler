@@ -2501,8 +2501,9 @@ button:hover,
 }
 
 .receipt-kanban__column {
-	display: grid;
-	align-content: start;
+	/* Let the sticky header travel through the full column, beyond its first row. */
+	display: flex;
+	flex-direction: column;
 	gap: 0.5rem;
 	padding: 0.65rem;
 	border: 1px solid var(--line);
